@@ -1,0 +1,35 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars.backup
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform provider binaries
+terraform/environments/dev/.terraform/providers/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Docker
+*.log
+
+# Build artifacts
+build-all.sh
+
+# Git
+.git/

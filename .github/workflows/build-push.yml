@@ -1,0 +1,49 @@
+name: Build and Push to ECR
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 851725533056.dkr.ecr.us-east-1.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::851725533056:role/online-boutique-github-actions-role
+  
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service:
+          - adservice
+          - cartservice
+          - checkoutservice
+          - currencyservice
+          - emailservice
+          - frontend
+          - loadgenerator
+          - paymentservice
+          - productcatalogservice
+          - recommendationservice
+          - shippingservice
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and push ${{ matrix.service }}
+        working-directory: ./src/${{ matrix.service }}
+        run: |
+          docker build -t $ECR_REGISTRY/online-boutique-dev-${{ matrix.service }}:latest .
+          docker push $ECR_REGISTRY/online-boutique-dev-${{ matrix.service }}:latest
+          echo "✓ ${{ matrix.service }} built and pushed successfully"

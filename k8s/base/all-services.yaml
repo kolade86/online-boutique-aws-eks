@@ -1,0 +1,599 @@
+---
+# Frontend Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-frontend:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: "productcatalogservice:3550"
+        - name: CURRENCY_SERVICE_ADDR
+          value: "currencyservice:7000"
+        - name: CART_SERVICE_ADDR
+          value: "cartservice:7070"
+        - name: RECOMMENDATION_SERVICE_ADDR
+          value: "recommendationservice:8080"
+        - name: SHIPPING_SERVICE_ADDR
+          value: "shippingservice:50051"
+        - name: CHECKOUT_SERVICE_ADDR
+          value: "checkoutservice:5050"
+        - name: AD_SERVICE_ADDR
+          value: "adservice:9555"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /_healthz
+            port: 8080
+            httpHeaders:
+            - name: Cookie
+              value: "shop_session-id=x-readiness-probe"
+          initialDelaySeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /_healthz
+            port: 8080
+            httpHeaders:
+            - name: Cookie
+              value: "shop_session-id=x-liveness-probe"
+          initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+---
+# CartService - Uses Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cartservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cartservice
+  template:
+    metadata:
+      labels:
+        app: cartservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:latest
+        ports:
+        - containerPort: 7070
+        env:
+        - name: REDIS_ADDR
+          valueFrom:
+            configMapKeyRef:
+              name: redis-config
+              key: REDIS_ADDR
+        - name: PORT
+          value: "7070"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          grpc:
+            port: 7070
+          initialDelaySeconds: 10
+        livenessProbe:
+          grpc:
+            port: 7070
+          initialDelaySeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cartservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: cartservice
+  ports:
+  - name: grpc
+    port: 7070
+    targetPort: 7070
+---
+# ProductCatalogService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productcatalogservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: productcatalogservice
+  template:
+    metadata:
+      labels:
+        app: productcatalogservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-productcatalogservice:latest
+        ports:
+        - containerPort: 3550
+        env:
+        - name: PORT
+          value: "3550"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          grpc:
+            port: 3550
+        livenessProbe:
+          grpc:
+            port: 3550
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: productcatalogservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: productcatalogservice
+  ports:
+  - name: grpc
+    port: 3550
+    targetPort: 3550
+---
+# CurrencyService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: currencyservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: currencyservice
+  template:
+    metadata:
+      labels:
+        app: currencyservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-currencyservice:latest
+        ports:
+        - containerPort: 7000
+        env:
+        - name: PORT
+          value: "7000"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          grpc:
+            port: 7000
+        livenessProbe:
+          grpc:
+            port: 7000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: currencyservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: currencyservice
+  ports:
+  - name: grpc
+    port: 7000
+    targetPort: 7000
+---
+# PaymentService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paymentservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paymentservice
+  template:
+    metadata:
+      labels:
+        app: paymentservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:latest
+        ports:
+        - containerPort: 50051
+        env:
+        - name: PORT
+          value: "50051"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          grpc:
+            port: 50051
+        livenessProbe:
+          grpc:
+            port: 50051
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paymentservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: paymentservice
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+---
+# ShippingService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shippingservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: shippingservice
+  template:
+    metadata:
+      labels:
+        app: shippingservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-shippingservice:latest
+        ports:
+        - containerPort: 50051
+        env:
+        - name: PORT
+          value: "50051"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          grpc:
+            port: 50051
+        livenessProbe:
+          grpc:
+            port: 50051
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shippingservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: shippingservice
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+---
+# EmailService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emailservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: emailservice
+  template:
+    metadata:
+      labels:
+        app: emailservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          grpc:
+            port: 8080
+        livenessProbe:
+          grpc:
+            port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emailservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: emailservice
+  ports:
+  - name: grpc
+    port: 8080
+    targetPort: 8080
+---
+# CheckoutService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkoutservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: checkoutservice
+  template:
+    metadata:
+      labels:
+        app: checkoutservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:latest
+        ports:
+        - containerPort: 5050
+        env:
+        - name: PORT
+          value: "5050"
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: "productcatalogservice:3550"
+        - name: SHIPPING_SERVICE_ADDR
+          value: "shippingservice:50051"
+        - name: PAYMENT_SERVICE_ADDR
+          value: "paymentservice:50051"
+        - name: EMAIL_SERVICE_ADDR
+          value: "emailservice:8080"
+        - name: CURRENCY_SERVICE_ADDR
+          value: "currencyservice:7000"
+        - name: CART_SERVICE_ADDR
+          value: "cartservice:7070"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          grpc:
+            port: 5050
+        livenessProbe:
+          grpc:
+            port: 5050
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkoutservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: checkoutservice
+  ports:
+  - name: grpc
+    port: 5050
+    targetPort: 5050
+---
+# RecommendationService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendationservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: recommendationservice
+  template:
+    metadata:
+      labels:
+        app: recommendationservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-recommendationservice:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: "productcatalogservice:3550"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 220Mi
+          limits:
+            cpu: 200m
+            memory: 450Mi
+        readinessProbe:
+          grpc:
+            port: 8080
+        livenessProbe:
+          grpc:
+            port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendationservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: recommendationservice
+  ports:
+  - name: grpc
+    port: 8080
+    targetPort: 8080
+---
+# AdService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adservice
+  namespace: online-boutique-dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: adservice
+  template:
+    metadata:
+      labels:
+        app: adservice
+    spec:
+      containers:
+      - name: server
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-adservice:latest
+        ports:
+        - containerPort: 9555
+        env:
+        - name: PORT
+          value: "9555"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 180Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+        readinessProbe:
+          grpc:
+            port: 9555
+          initialDelaySeconds: 20
+        livenessProbe:
+          grpc:
+            port: 9555
+          initialDelaySeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adservice
+  namespace: online-boutique-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: adservice
+  ports:
+  - name: grpc
+    port: 9555
+    targetPort: 9555
+---
+# LoadGenerator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgenerator
+  namespace: online-boutique-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgenerator
+  template:
+    metadata:
+      labels:
+        app: loadgenerator
+    spec:
+      containers:
+      - name: main
+        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-loadgenerator:latest
+        env:
+        - name: FRONTEND_ADDR
+          value: "frontend:80"
+        - name: USERS
+          value: "10"
+        resources:
+          requests:
+            cpu: 300m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

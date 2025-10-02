@@ -1,0 +1,359 @@
+# modules/observability/main.tf
+# Observability Module - Monitoring, Logging, and Alerting
+
+# ============================================
+# Monitoring Namespace
+# ============================================
+
+resource "kubernetes_namespace" "monitoring" {
+  metadata {
+    name = "monitoring"
+    labels = {
+      name        = "monitoring"
+      environment = var.environment
+      managed-by  = "terraform"
+    }
+  }
+}
+
+# ============================================
+# CloudWatch Log Groups
+# ============================================
+
+resource "aws_cloudwatch_log_group" "application_logs" {
+  name              = "/aws/containerinsights/${var.cluster_name}/application"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "${var.project_name}-application-logs"
+    Environment = var.environment
+    Component   = "logging"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "dataplane_logs" {
+  name              = "/aws/containerinsights/${var.cluster_name}/dataplane"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "${var.project_name}-dataplane-logs"
+    Environment = var.environment
+    Component   = "logging"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "host_logs" {
+  name              = "/aws/containerinsights/${var.cluster_name}/host"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "${var.project_name}-host-logs"
+    Environment = var.environment
+    Component   = "logging"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "performance_logs" {
+  name              = "/aws/containerinsights/${var.cluster_name}/performance"
+  retention_in_days = 7
+
+  tags = {
+    Name        = "${var.project_name}-performance-logs"
+    Environment = var.environment
+    Component   = "logging"
+  }
+}
+
+# ============================================
+# CloudWatch Observability (Fluent Bit + Agent)
+# ============================================
+
+# IAM Policy for CloudWatch Observability
+resource "aws_iam_policy" "cloudwatch_observability" {
+  name        = "${var.project_name}-cloudwatch-observability"
+  description = "IAM policy for CloudWatch Observability add-on (Fluent Bit + CloudWatch Agent)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups"
+        ]
+        Resource = [
+          "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/containerinsights/${var.cluster_name}/*",
+          "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/containerinsights/${var.cluster_name}/*:*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricData",
+          "ec2:DescribeVolumes",
+          "ec2:DescribeTags",
+          "logs:PutLogEvents",
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups",
+          "logs:PutRetentionPolicy"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-cloudwatch-observability-policy"
+    Environment = var.environment
+  }
+}
+
+# IAM Role for CloudWatch Observability (IRSA)
+resource "aws_iam_role" "cloudwatch_observability" {
+  name = "${var.project_name}-cloudwatch-observability-role"
+
+  assume_role_policy = jsonencode({
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Condition = {
+        StringEquals = {
+          "${replace(var.cluster_oidc_issuer_url, "https://", "")}:sub" : "system:serviceaccount:amazon-cloudwatch:cloudwatch-agent"
+          "${replace(var.cluster_oidc_issuer_url, "https://", "")}:aud" : "sts.amazonaws.com"
+        }
+      }
+      Principal = {
+        Federated = var.oidc_provider_arn
+      }
+    }]
+    Version = "2012-10-17"
+  })
+
+  tags = {
+    Name        = "${var.project_name}-cloudwatch-observability-role"
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "cloudwatch_observability" {
+  policy_arn = aws_iam_policy.cloudwatch_observability.arn
+  role       = aws_iam_role.cloudwatch_observability.name
+}
+
+# Also attach to node group role for compatibility
+resource "aws_iam_role_policy_attachment" "cloudwatch_observability_nodes" {
+  policy_arn = aws_iam_policy.cloudwatch_observability.arn
+  role       = var.eks_nodes_role_name
+}
+
+# CloudWatch Observability EKS Add-on
+resource "aws_eks_addon" "cloudwatch_observability" {
+  cluster_name                = var.cluster_name
+  addon_name                  = "amazon-cloudwatch-observability"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  service_account_role_arn    = aws_iam_role.cloudwatch_observability.arn
+
+  configuration_values = jsonencode({
+    # Container logs configuration (Fluent Bit)
+    containerLogs = {
+      enabled = true
+    }
+
+    # CloudWatch Agent configuration
+    agent = {
+      config = {
+        logs = {
+          metrics_collected = {
+            application_signals = {}
+            kubernetes = {
+              enhanced_container_insights = true
+              accelerated_compute_metrics = false
+            }
+          }
+        }
+      }
+    }
+  })
+
+  tags = {
+    Name        = "${var.project_name}-cloudwatch-observability"
+    Environment = var.environment
+    Component   = "logging"
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.cloudwatch_observability,
+    aws_iam_role_policy_attachment.cloudwatch_observability_nodes,
+    aws_cloudwatch_log_group.application_logs,
+    aws_cloudwatch_log_group.dataplane_logs,
+    aws_cloudwatch_log_group.host_logs,
+    aws_cloudwatch_log_group.performance_logs
+  ]
+}
+
+# ============================================
+# Prometheus
+# ============================================
+
+# IAM Role for Prometheus (IRSA)
+resource "aws_iam_role" "prometheus" {
+  name = "${var.project_name}-prometheus-role"
+
+  assume_role_policy = jsonencode({
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Condition = {
+        StringEquals = {
+          "${replace(var.cluster_oidc_issuer_url, "https://", "")}:sub" : "system:serviceaccount:monitoring:monitoring-kube-prometheus-prometheus"
+          "${replace(var.cluster_oidc_issuer_url, "https://", "")}:aud" : "sts.amazonaws.com"
+        }
+      }
+      Principal = {
+        Federated = var.oidc_provider_arn
+      }
+    }]
+    Version = "2012-10-17"
+  })
+
+  tags = {
+    Name        = "${var.project_name}-prometheus-role"
+    Environment = var.environment
+  }
+}
+
+# IAM Policy for Prometheus (EC2 discovery)
+resource "aws_iam_policy" "prometheus" {
+  name        = "${var.project_name}-prometheus-policy"
+  description = "IAM policy for Prometheus to discover EC2 instances"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeRegions",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeTags"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-prometheus-policy"
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "prometheus" {
+  policy_arn = aws_iam_policy.prometheus.arn
+  role       = aws_iam_role.prometheus.name
+}
+
+# ============================================
+# SNS & AlertManager Integration
+# ============================================
+
+# SNS Topic for AlertManager notifications
+resource "aws_sns_topic" "alertmanager_notifications" {
+  name = "${var.project_name}-${var.environment}-alertmanager-notifications"
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-alertmanager-notifications"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+# SNS Topic subscription for email notifications
+resource "aws_sns_topic_subscription" "alertmanager_email" {
+  topic_arn = aws_sns_topic.alertmanager_notifications.arn
+  protocol  = "email"
+  endpoint  = var.alert_email_address
+}
+
+# IAM Role for AlertManager to publish to SNS
+resource "aws_iam_role" "alertmanager_sns" {
+  name = "${var.project_name}-alertmanager-sns-role"
+
+  assume_role_policy = jsonencode({
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Condition = {
+        StringEquals = {
+          "${replace(var.cluster_oidc_issuer_url, "https://", "")}:sub" : "system:serviceaccount:monitoring:monitoring-kube-prometheus-alertmanager"
+          "${replace(var.cluster_oidc_issuer_url, "https://", "")}:aud" : "sts.amazonaws.com"
+        }
+      }
+      Principal = {
+        Federated = var.oidc_provider_arn
+      }
+    }]
+    Version = "2012-10-17"
+  })
+
+  tags = {
+    Name        = "${var.project_name}-alertmanager-sns-role"
+    Environment = var.environment
+  }
+}
+
+# IAM Policy for AlertManager SNS publishing
+resource "aws_iam_policy" "alertmanager_sns" {
+  name        = "${var.project_name}-alertmanager-sns-policy"
+  description = "IAM policy for AlertManager to publish to SNS"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sns:Publish"
+        ]
+        Resource = aws_sns_topic.alertmanager_notifications.arn
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-alertmanager-sns-policy"
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "alertmanager_sns" {
+  policy_arn = aws_iam_policy.alertmanager_sns.arn
+  role       = aws_iam_role.alertmanager_sns.name
+}
+
+# Kubernetes Secret for AlertManager SNS configuration
+resource "kubernetes_secret" "alertmanager_sns_config" {
+  metadata {
+    name      = "alertmanager-sns-config"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  data = {
+    sns_topic_arn = aws_sns_topic.alertmanager_notifications.arn
+    aws_region    = var.aws_region
+  }
+
+  depends_on = [
+    kubernetes_namespace.monitoring,
+    aws_sns_topic.alertmanager_notifications
+  ]
+}
