@@ -2,6 +2,5 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loadgenerator
-  namespace: online-boutique-dev
 spec:
   replicas: 0

@@ -37,8 +37,6 @@ spec:
           value: "checkoutservice:5050"
         - name: AD_SERVICE_ADDR
           value: "adservice:9555"
-        - name: SHOPPING_ASSISTANT_SERVICE_ADDR
-          value: ""
         - name: ENABLE_PROFILER
           value: "0"
         resources:
@@ -104,7 +102,7 @@ spec:
         - name: REDIS_ADDR
           valueFrom:
             configMapKeyRef:
-              name: redis-config
+              name: redis-config-fc78886656
               key: REDIS_ADDR
         - name: PORT
           value: "7070"

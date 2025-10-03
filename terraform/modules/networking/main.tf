@@ -251,28 +251,6 @@ resource "aws_security_group" "redis" {
   description = "Security group for ElastiCache Redis"
   vpc_id      = aws_vpc.main.id
 
-  # Allow access from custom EKS nodes security group
-  ingress {
-    from_port = 6379
-    to_port   = 6379
-    protocol  = "tcp"
-    security_groups = [
-      aws_security_group.eks_nodes.id
-    ]
-    description = "Redis access from EKS nodes"
-  }
-
-  # Allow access from EKS cluster security group
-  ingress {
-    from_port = 6379
-    to_port   = 6379
-    protocol  = "tcp"
-    security_groups = [
-      aws_security_group.eks_cluster.id
-    ]
-    description = "Redis access from EKS cluster security group"
-  }
-
   egress {
     from_port   = 0
     to_port     = 0

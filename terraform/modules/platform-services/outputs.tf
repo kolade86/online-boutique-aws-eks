@@ -44,27 +44,6 @@ output "metrics_server_service_account_name" {
   value       = kubernetes_service_account.metrics_server.metadata[0].name
 }
 
-# HPA Outputs
-# output "backend_hpa_name" {
-#   description = "Name of the backend HPA"
-#   value       = kubernetes_horizontal_pod_autoscaler_v2.backend_hpa.metadata[0].name
-# }
-
-# output "frontend_hpa_name" {
-#   description = "Name of the frontend HPA"
-#   value       = kubernetes_horizontal_pod_autoscaler_v2.frontend_hpa.metadata[0].name
-# }
-
-# output "backend_pdb_name" {
-#   description = "Name of the backend Pod Disruption Budget"
-#   value       = kubernetes_pod_disruption_budget_v1.backend_pdb.metadata[0].name
-# }
-
-# output "frontend_pdb_name" {
-#   description = "Name of the frontend Pod Disruption Budget"
-#   value       = kubernetes_pod_disruption_budget_v1.frontend_pdb.metadata[0].name
-# }
-
 # Cluster Autoscaler Outputs
 output "cluster_autoscaler_role_arn" {
   description = "ARN of the Cluster Autoscaler IAM role"

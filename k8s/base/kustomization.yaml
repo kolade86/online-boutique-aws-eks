@@ -13,4 +13,4 @@ labels:
 configMapGenerator:
   - name: redis-config
     literals:
-      - REDIS_ADDR=online-boutique-dev-redis.90rvj7.ng.0001.use1.cache.amazonaws.com:6379
+      - REDIS_ADDR=online-boutique-dev-redis.5dnuju.ng.0001.use1.cache.amazonaws.com:6379

@@ -441,3 +441,17 @@ resource "kubernetes_config_map_v1_data" "aws_auth" {
     aws_eks_node_group.main
   ]
 }
+
+
+# Add EKS cluster-managed security group to Redis security group (if Redis SG ID is provided)
+resource "aws_security_group_rule" "redis_from_eks_managed" {
+  count = var.redis_security_group_id != "" ? 1 : 0
+  
+  type                     = "ingress"
+  from_port               = 6379
+  to_port                 = 6379
+  protocol                = "tcp"
+  source_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  security_group_id       = var.redis_security_group_id
+  description             = "Redis access from EKS cluster-managed security group"
+}
