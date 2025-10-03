@@ -17,18 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     
     strategy:
+      fail-fast: false
       matrix:
-        service:
-          - adservice
-          - cartservice
+        sice
           - checkoutservice
-          - currencyservice
+          - currenervice:
+          - adservice
+          - cartservcyservice
           - emailservice
-          - frontend
-          - loadgenerator
-          - paymentservice
+          - frotservice
           - productcatalogservice
-          - recommendationservice
+       ntend
+          - loadgenerator
+          - paymen   - recommendationservice
           - shippingservice
     
     steps:
@@ -45,8 +46,17 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
       
+      - name: Set Dockerfile path
+        id: dockerfile
+        run: |
+          if [ "${{ matrix.service }}" == "cartservice" ]; then
+            echo "path=./src/cartservice/src" >> $GITHUB_OUTPUT
+          else
+            echo "path=./src/${{ matrix.service }}" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Build and push ${{ matrix.service }}
-        working-directory: ./src/${{ matrix.service }}
+        working-directory: ${{ steps.dockerfile.outputs.path }}
         run: |
           docker build -t $ECR_REGISTRY/online-boutique-dev-${{ matrix.service }}:latest .
           docker push $ECR_REGISTRY/online-boutique-dev-${{ matrix.service }}:latest
