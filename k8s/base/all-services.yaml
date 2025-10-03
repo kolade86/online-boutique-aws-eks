@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: frontend:latest
+        image: frontend
         ports:
         - containerPort: 8080
         env:
@@ -92,7 +92,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: cartservice:latest
+        image: cartservice
         ports:
         - containerPort: 7070
         env:
@@ -149,7 +149,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: productcatalogservice:latest
+        image: productcatalogservice
         ports:
         - containerPort: 3550
         env:
@@ -199,7 +199,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: currencyservice:latest
+        image: currencyservice
         ports:
         - containerPort: 7000
         env:
@@ -251,7 +251,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: paymentservice:latest
+        image: paymentservice
         ports:
         - containerPort: 50051
         env:
@@ -303,7 +303,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: shippingservice:latest
+        image: shippingservice
         ports:
         - containerPort: 50051
         env:
@@ -353,7 +353,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: emailservice:latest
+        image: emailservice
         ports:
         - containerPort: 8080
         env:
@@ -403,7 +403,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: checkoutservice:latest
+        image: checkoutservice
         ports:
         - containerPort: 5050
         env:
@@ -465,7 +465,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: recommendationservice:latest
+        image: recommendationservice
         ports:
         - containerPort: 8080
         env:
@@ -517,7 +517,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: adservice:latest
+        image: adservice
         ports:
         - containerPort: 9555
         env:
@@ -569,7 +569,7 @@ spec:
     spec:
       containers:
       - name: main
-        image: loadgenerator:latest
+        image: loadgenerator
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"
