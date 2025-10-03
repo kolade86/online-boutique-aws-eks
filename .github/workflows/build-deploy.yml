@@ -27,7 +27,7 @@ on:
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
-        default: 'all'
+        default: 'frontend'
       skip_build:
         description: 'Skip build and only deploy'
         required: false
@@ -70,7 +70,7 @@ jobs:
             SERVICES_JSON="["
             for i in "${!SERVICES[@]}"; do
               if [ $i -gt 0 ]; then SERVICES_JSON+=","; fi
-              SERVICES_JSON+="\"${SERVICES[i]}\""
+              SERVICES_JSON+="\"$(echo ${SERVICES[i]} | xargs)\""  # Trim whitespace
             done
             SERVICES_JSON+="]"
             echo "matrix=${SERVICES_JSON}" >> $GITHUB_OUTPUT
@@ -111,6 +111,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+      - name: Determine build paths
+        id: paths
+        run: |
+          SERVICE="${{ matrix.service }}"
+          
+          if [ "${SERVICE}" = "cartservice" ]; then
+            BUILD_CONTEXT="./src/cartservice/src"
+            DOCKERFILE="Dockerfile"
+          else
+            BUILD_CONTEXT="./src/${SERVICE}"
+            DOCKERFILE="Dockerfile"
+          fi
+          
+          echo "build-context=${BUILD_CONTEXT}" >> $GITHUB_OUTPUT
+          echo "dockerfile=${DOCKERFILE}" >> $GITHUB_OUTPUT
+          
+          echo "=== Build Configuration for ${SERVICE} ==="
+          echo "Build context: ${BUILD_CONTEXT}"
+          echo "Dockerfile: ${DOCKERFILE}"
+          
+          # Verify paths exist
+          if [ ! -d "${BUILD_CONTEXT}" ]; then
+            echo "ERROR: Build context directory does not exist: ${BUILD_CONTEXT}"
+            exit 1
+          fi
+          
+          if [ ! -f "${BUILD_CONTEXT}/${DOCKERFILE}" ]; then
+            echo "ERROR: Dockerfile does not exist: ${BUILD_CONTEXT}/${DOCKERFILE}"
+            echo "Contents of ${BUILD_CONTEXT}:"
+            ls -la "${BUILD_CONTEXT}"
+            exit 1
+          fi
+          
+          echo "✅ Paths verified for ${SERVICE}"
+      
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -126,20 +161,16 @@ jobs:
           
           if ! aws ecr describe-repositories --repository-names "${REPO_NAME}" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
             echo "Creating ECR repository: ${REPO_NAME}"
-            aws ecr create-repository --repository-name "${REPO_NAME}" --region ${{ env.AWS_REGION }}
-          fi
-      
-      - name: Set Dockerfile path
-        id: dockerfile
-        run: |
-          if [ "${{ matrix.service }}" = "cartservice" ]; then
-            echo "path=./src/cartservice/src" >> $GITHUB_OUTPUT
+            aws ecr create-repository \
+              --repository-name "${REPO_NAME}" \
+              --region ${{ env.AWS_REGION }} \
+              --image-scanning-configuration scanOnPush=true
           else
-            echo "path=./src/${{ matrix.service }}" >> $GITHUB_OUTPUT
+            echo "ECR repository ${REPO_NAME} already exists"
           fi
       
       - name: Build and push image
-        working-directory: ${{ steps.dockerfile.outputs.path }}
+        working-directory: ${{ steps.paths.outputs.build-context }}
         run: |
           REPO_NAME="${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}-${{ matrix.service }}"
           IMAGE_TAG="${{ needs.prepare.outputs.image-tag }}"
@@ -147,20 +178,38 @@ jobs:
           IMAGE_VERSIONED="${{ env.ECR_REGISTRY }}/${REPO_NAME}:${IMAGE_TAG}"
           IMAGE_LATEST="${{ env.ECR_REGISTRY }}/${REPO_NAME}:latest"
           
-          docker build -t "${IMAGE_VERSIONED}" -t "${IMAGE_LATEST}" .
+          echo "=== Building ${{ matrix.service }} ==="
+          echo "Working directory: $(pwd)"
+          echo "Repository: ${REPO_NAME}"
+          echo "Tag: ${IMAGE_TAG}"
+          echo "Dockerfile: ${{ steps.paths.outputs.dockerfile }}"
+          
+          echo "Contents of build context:"
+          ls -la .
+          
+          # Build with progress output
+          docker build \
+            --no-cache \
+            --progress=plain \
+            -f ${{ steps.paths.outputs.dockerfile }} \
+            -t "${IMAGE_VERSIONED}" \
+            -t "${IMAGE_LATEST}" \
+            .
+          
+          echo "Pushing images..."
           docker push "${IMAGE_VERSIONED}"
           docker push "${IMAGE_LATEST}"
           
-          echo "Built and pushed ${{ matrix.service }}:"
+          echo "✅ Successfully built and pushed ${{ matrix.service }}:"
           echo "  Versioned: ${IMAGE_VERSIONED}"
           echo "  Latest: ${IMAGE_LATEST}"
 
   get-infrastructure:
     runs-on: ubuntu-latest
     outputs:
-      redis-endpoint: ${{ steps.redis.outputs.endpoint }}
-      cluster-name: ${{ steps.cluster.outputs.name }}
-      namespace: ${{ steps.namespace.outputs.name }}
+      redis-endpoint: ${{ steps.infrastructure.outputs.redis-endpoint }}
+      cluster-name: ${{ steps.infrastructure.outputs.cluster-name }}
+      namespace: ${{ steps.infrastructure.outputs.namespace }}
     
     steps:
       - name: Configure AWS credentials
@@ -169,76 +218,60 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       
-      - name: Discover Redis endpoint
-        id: redis
+      - name: Discover infrastructure
+        id: infrastructure
         run: |
-          # Try different naming patterns for Redis
-          REDIS_PATTERNS=(
-            "${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}-redis"
-            "${{ github.event.inputs.environment }}-${{ env.PROJECT_NAME }}-redis"
-            "${{ env.PROJECT_NAME }}-redis-${{ github.event.inputs.environment }}"
-          )
+          ENV="${{ github.event.inputs.environment }}"
           
-          REDIS_ENDPOINT=""
-          for pattern in "${REDIS_PATTERNS[@]}"; do
-            if ENDPOINT=$(aws elasticache describe-replication-groups \
-              --replication-group-id "${pattern}" \
-              --region ${{ env.AWS_REGION }} \
-              --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address' \
-              --output text 2>/dev/null) && [ "$ENDPOINT" != "None" ] && [ -n "$ENDPOINT" ]; then
-              REDIS_ENDPOINT="${ENDPOINT}:6379"
-              echo "Found Redis at: ${pattern} -> ${REDIS_ENDPOINT}"
-              break
-            fi
-          done
+          echo "=== Infrastructure Discovery ==="
           
-          if [ -z "$REDIS_ENDPOINT" ]; then
-            echo "Redis cluster not found. Checked patterns: ${REDIS_PATTERNS[*]}"
+          # Discover Redis - we know the exact name from your output
+          REDIS_ID="${{ env.PROJECT_NAME }}-${ENV}-redis"
+          echo "Looking for Redis cluster: ${REDIS_ID}"
+          
+          REDIS_ENDPOINT=$(aws elasticache describe-replication-groups \
+            --replication-group-id "${REDIS_ID}" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address' \
+            --output text):6379
+          
+          if [ "${REDIS_ENDPOINT}" = "None:6379" ]; then
+            echo "ERROR: Redis cluster not found: ${REDIS_ID}"
+            aws elasticache describe-replication-groups --region ${{ env.AWS_REGION }} --query 'ReplicationGroups[*].ReplicationGroupId' --output text
             exit 1
           fi
           
-          echo "endpoint=${REDIS_ENDPOINT}" >> $GITHUB_OUTPUT
-      
-      - name: Discover EKS cluster
-        id: cluster
-        run: |
-          # Try different naming patterns for EKS cluster
-          CLUSTER_PATTERNS=(
-            "${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}-cluster"
-            "${{ github.event.inputs.environment }}-${{ env.PROJECT_NAME }}-cluster"
-            "${{ env.PROJECT_NAME }}-cluster-${{ github.event.inputs.environment }}"
-            "${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}"
-          )
+          echo "✅ Redis found: ${REDIS_ENDPOINT}"
           
-          CLUSTER_NAME=""
-          ALL_CLUSTERS=$(aws eks list-clusters --region ${{ env.AWS_REGION }} --query 'clusters' --output text)
+          # Discover EKS - we know the exact name from your output
+          CLUSTER_NAME="${{ env.PROJECT_NAME }}-${ENV}-cluster"
+          echo "Looking for EKS cluster: ${CLUSTER_NAME}"
           
-          for pattern in "${CLUSTER_PATTERNS[@]}"; do
-            if echo "$ALL_CLUSTERS" | grep -q "$pattern"; then
-              CLUSTER_NAME="$pattern"
-              echo "Found EKS cluster: ${CLUSTER_NAME}"
-              break
-            fi
-          done
-          
-          if [ -z "$CLUSTER_NAME" ]; then
-            echo "EKS cluster not found. Available clusters: $ALL_CLUSTERS"
-            echo "Checked patterns: ${CLUSTER_PATTERNS[*]}"
+          if aws eks describe-cluster --name "${CLUSTER_NAME}" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "✅ EKS cluster found: ${CLUSTER_NAME}"
+          else
+            echo "ERROR: EKS cluster not found: ${CLUSTER_NAME}"
+            echo "Available clusters:"
+            aws eks list-clusters --region ${{ env.AWS_REGION }} --query 'clusters' --output text
             exit 1
           fi
           
-          echo "name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
-      
-      - name: Determine namespace
-        id: namespace
-        run: |
-          NAMESPACE="${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}"
-          echo "name=${NAMESPACE}" >> $GITHUB_OUTPUT
+          # Set namespace
+          NAMESPACE="${{ env.PROJECT_NAME }}-${ENV}"
+          
+          echo "=== Infrastructure Summary ==="
+          echo "Redis: ${REDIS_ENDPOINT}"
+          echo "EKS: ${CLUSTER_NAME}"
+          echo "Namespace: ${NAMESPACE}"
+          
+          echo "redis-endpoint=${REDIS_ENDPOINT}" >> $GITHUB_OUTPUT
+          echo "cluster-name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
 
   deploy:
     runs-on: ubuntu-latest
     needs: [prepare, get-infrastructure]
-    if: always() && !failure()
+    if: always() && !failure() && (needs.prepare.outputs.should-build == 'false' || needs.build.result == 'success')
     
     steps:
       - name: Checkout code
@@ -255,11 +288,26 @@ jobs:
           aws eks update-kubeconfig \
             --name ${{ needs.get-infrastructure.outputs.cluster-name }} \
             --region ${{ env.AWS_REGION }}
+          
+          # Verify connection
+          kubectl cluster-info
+          echo "✅ kubectl configured successfully"
       
       - name: Install Kustomize
         run: |
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/
+          kustomize version
+      
+      - name: Create namespace if needed
+        run: |
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          if ! kubectl get namespace "${NAMESPACE}" > /dev/null 2>&1; then
+            echo "Creating namespace: ${NAMESPACE}"
+            kubectl create namespace "${NAMESPACE}"
+          else
+            echo "Namespace ${NAMESPACE} already exists"
+          fi
       
       - name: Generate deployment configuration
         run: |
@@ -271,6 +319,13 @@ jobs:
           # Create deployment overlay
           OVERLAY_DIR="k8s/overlays/${ENV}-deploy-$(date +%s)"
           mkdir -p "${OVERLAY_DIR}"
+          
+          echo "=== Generating Deployment Configuration ==="
+          echo "Environment: ${ENV}"
+          echo "Image tag: ${IMAGE_TAG}"
+          echo "Redis endpoint: ${REDIS_ENDPOINT}"
+          echo "Namespace: ${NAMESPACE}"
+          echo "Overlay directory: ${OVERLAY_DIR}"
           
           # Generate kustomization.yaml
           cat > "${OVERLAY_DIR}/kustomization.yaml" << EOF
@@ -291,7 +346,7 @@ jobs:
           images:
           EOF
           
-          # Add image transformations for all services
+          # Add image transformations for selected services
           SERVICES=(${{ join(fromJson(needs.prepare.outputs.services-matrix), ' ') }})
           for service in "${SERVICES[@]}"; do
             cat >> "${OVERLAY_DIR}/kustomization.yaml" << EOF
@@ -333,30 +388,39 @@ jobs:
           echo "=== Generated Kustomization ==="
           cat "${OVERLAY_DIR}/kustomization.yaml"
           echo ""
-          echo "=== Configuration Preview ==="
-          kustomize build "${OVERLAY_DIR}" | head -100
+          echo "=== Configuration Preview (first 50 lines) ==="
+          kustomize build "${OVERLAY_DIR}" | head -50
       
       - name: Apply deployment
         run: |
-          echo "Deploying to ${{ github.event.inputs.environment }} environment..."
-          echo "Target namespace: ${{ needs.get-infrastructure.outputs.namespace }}"
+          echo "=== Deploying to Kubernetes ==="
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Namespace: ${{ needs.get-infrastructure.outputs.namespace }}"
           echo "Image tag: ${{ needs.prepare.outputs.image-tag }}"
           echo "Redis endpoint: ${{ needs.get-infrastructure.outputs.redis-endpoint }}"
           
           kustomize build "${OVERLAY_DIR}" | kubectl apply -f -
+          echo "✅ Deployment applied successfully"
       
       - name: Wait for deployment
         run: |
           NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
           
-          # Wait for core services
-          echo "Waiting for critical services to be ready..."
-          kubectl rollout status deployment/frontend -n "${NAMESPACE}" --timeout=600s
-          kubectl rollout status deployment/cartservice -n "${NAMESPACE}" --timeout=600s
+          echo "=== Waiting for deployments to be ready ==="
           
-          # Check all deployments
-          echo "Checking all deployment status..."
-          kubectl get deployments -n "${NAMESPACE}"
+          # Get all deployments that were just applied
+          DEPLOYMENTS=$(kubectl get deployments -n "${NAMESPACE}" -o name | cut -d'/' -f2)
+          
+          for deployment in $DEPLOYMENTS; do
+            echo "Waiting for deployment/${deployment}..."
+            if kubectl rollout status deployment/${deployment} -n "${NAMESPACE}" --timeout=300s; then
+              echo "✅ ${deployment} is ready"
+            else
+              echo "⚠️  ${deployment} failed to become ready"
+              kubectl describe deployment/${deployment} -n "${NAMESPACE}"
+              kubectl get pods -n "${NAMESPACE}" -l app=${deployment}
+            fi
+          done
       
       - name: Verify deployment
         run: |
@@ -379,14 +443,26 @@ jobs:
           kubectl get ingress -n "${NAMESPACE}" || echo "No ingress found"
           echo ""
           
-          echo "=== Redis Connectivity Test ==="
+          echo "=== Recent Events ==="
+          kubectl get events -n "${NAMESPACE}" --sort-by='.lastTimestamp' | tail -10
+      
+      - name: Test Redis connectivity
+        run: |
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          REDIS_HOST=$(echo "${{ needs.get-infrastructure.outputs.redis-endpoint }}" | cut -d':' -f1)
+          REDIS_PORT=$(echo "${{ needs.get-infrastructure.outputs.redis-endpoint }}" | cut -d':' -f2)
+          
+          echo "=== Testing Redis Connectivity ==="
+          echo "Testing connection to ${REDIS_HOST}:${REDIS_PORT}"
+          
           kubectl run redis-test-$(date +%s) --image=busybox --rm -i --restart=Never \
             -n "${NAMESPACE}" \
-            --command -- sh -c "nc -zv ${{ needs.get-infrastructure.outputs.redis-endpoint }} && echo 'Redis connection: SUCCESS' || echo 'Redis connection: FAILED'"
+            --command -- sh -c "nc -zv ${REDIS_HOST} ${REDIS_PORT} && echo 'Redis connection: SUCCESS' || echo 'Redis connection: FAILED'"
       
       - name: Cleanup
         if: always()
         run: |
-          if [ -n "${OVERLAY_DIR}" ]; then
+          if [ -n "${OVERLAY_DIR}" ] && [ -d "${OVERLAY_DIR}" ]; then
             rm -rf "${OVERLAY_DIR}"
+            echo "Cleaned up overlay directory"
           fi
