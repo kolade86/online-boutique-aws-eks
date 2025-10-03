@@ -4,7 +4,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -17,7 +16,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-frontend:latest
+        image: frontend:latest
         ports:
         - containerPort: 8080
         env:
@@ -67,7 +66,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -82,7 +80,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cartservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -95,14 +92,14 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:latest
+        image: cartservice:latest
         ports:
         - containerPort: 7070
         env:
         - name: REDIS_ADDR
           valueFrom:
             configMapKeyRef:
-              name: redis-config-fc78886656
+              name: redis-config
               key: REDIS_ADDR
         - name: PORT
           value: "7070"
@@ -126,7 +123,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cartservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -141,7 +137,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: productcatalogservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -154,7 +149,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-productcatalogservice:latest
+        image: productcatalogservice:latest
         ports:
         - containerPort: 3550
         env:
@@ -178,7 +173,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: productcatalogservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -193,7 +187,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: currencyservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -206,7 +199,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-currencyservice:latest
+        image: currencyservice:latest
         ports:
         - containerPort: 7000
         env:
@@ -232,7 +225,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: currencyservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -247,7 +239,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: paymentservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -260,7 +251,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:latest
+        image: paymentservice:latest
         ports:
         - containerPort: 50051
         env:
@@ -286,7 +277,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: paymentservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -301,7 +291,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: shippingservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -314,7 +303,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-shippingservice:latest
+        image: shippingservice:latest
         ports:
         - containerPort: 50051
         env:
@@ -338,7 +327,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: shippingservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -353,7 +341,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: emailservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -366,7 +353,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:latest
+        image: emailservice:latest
         ports:
         - containerPort: 8080
         env:
@@ -390,7 +377,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: emailservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -405,7 +391,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: checkoutservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -418,7 +403,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:latest
+        image: checkoutservice:latest
         ports:
         - containerPort: 5050
         env:
@@ -454,7 +439,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: checkoutservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -469,7 +453,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: recommendationservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -482,7 +465,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-recommendationservice:latest
+        image: recommendationservice:latest
         ports:
         - containerPort: 8080
         env:
@@ -508,7 +491,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: recommendationservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -523,7 +505,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: adservice
-  namespace: online-boutique-dev
 spec:
   replicas: 2
   selector:
@@ -536,7 +517,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-adservice:latest
+        image: adservice:latest
         ports:
         - containerPort: 9555
         env:
@@ -562,7 +543,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: adservice
-  namespace: online-boutique-dev
 spec:
   type: ClusterIP
   selector:
@@ -577,7 +557,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loadgenerator
-  namespace: online-boutique-dev
 spec:
   replicas: 1
   selector:
@@ -590,7 +569,7 @@ spec:
     spec:
       containers:
       - name: main
-        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-loadgenerator:latest
+        image: loadgenerator:latest
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"

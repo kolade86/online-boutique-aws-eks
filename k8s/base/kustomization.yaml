@@ -10,7 +10,5 @@ labels:
       app.kubernetes.io/part-of: online-boutique
       app.kubernetes.io/managed-by: kustomize
 
-configMapGenerator:
-  - name: redis-config
-    literals:
-      - REDIS_ADDR=online-boutique-dev-redis.5dnuju.ng.0001.use1.cache.amazonaws.com:6379
+# ConfigMap will be generated dynamically by overlays
+# No configMapGenerator here - this will be handled by the workflow overlays
