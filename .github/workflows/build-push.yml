@@ -19,17 +19,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sice
-          - checkoutservice
-          - currenervice:
+        service:
           - adservice
-          - cartservcyservice
+          - cartservice
+          - checkoutservice
+          - currencyservice
           - emailservice
-          - frotservice
-          - productcatalogservice
-       ntend
+          - frontend
           - loadgenerator
-          - paymen   - recommendationservice
+          - paymentservice
+          - productcatalogservice
+          - recommendationservice
           - shippingservice
     
     steps:
