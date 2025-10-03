@@ -255,7 +255,7 @@ jobs:
             - name: redis-config
               literals:
                 - REDIS_ADDR=${REDIS_ENDPOINT}
-              behavior: replace
+              behavior: create
           
           images:
           EOF
