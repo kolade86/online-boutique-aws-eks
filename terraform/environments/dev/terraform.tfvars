@@ -73,7 +73,7 @@ bastion_instance_type = "t3.micro"
 # CICD Configuration
 # ============================================
 
-github_repo = "kolade86/to-do-app"
+github_repo = "kolade86/online-boutique-aws-eks"
 
 # ============================================
 # Observability Configuration
