@@ -28,14 +28,14 @@ on:
         description: 'Services to build (comma-separated or "all")'
         required: false
         default: 'all'
-  push:
-    branches: [ main ]
-    paths:
-    - 'src/**'
-  pull_request:
-    branches: [ main ]
-    paths:
-    - 'src/**'
+      skip_build:
+        description: 'Skip build and only deploy'
+        required: false
+        default: false
+        type: boolean
+      image_tag:
+        description: 'Specific image tag to deploy (if skip_build=true)'
+        required: false
 
 env:
   PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
@@ -80,7 +80,7 @@ jobs:
             SERVICES_JSON="["
             for i in "${!SERVICES[@]}"; do
               if [ $i -gt 0 ]; then SERVICES_JSON+=","; fi
-              SERVICES_JSON+="\"$(echo ${SERVICES[i]} | xargs)\""
+              SERVICES_JSON+="\"${SERVICES[i]}\""
             done
             SERVICES_JSON+="]"
             echo "matrix=${SERVICES_JSON}" >> $GITHUB_OUTPUT
@@ -204,24 +204,237 @@ jobs:
   summary:
     needs: [prepare, build]
     runs-on: ubuntu-latest
-    if: always()
+    outputs:
+      redis-endpoint: ${{ steps.redis.outputs.endpoint }}
+      cluster-name: ${{ steps.cluster.outputs.name }}
+      namespace: ${{ steps.namespace.outputs.name }}
     
     steps:
-      - name: Build Summary
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Discover Redis endpoint
+        id: redis
         run: |
-          echo "=== Build Summary ==="
-          echo "Environment: ${{ needs.prepare.outputs.environment }}"
+          # Try different naming patterns for Redis
+          REDIS_PATTERNS=(
+            "${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}-redis"
+            "${{ github.event.inputs.environment }}-${{ env.PROJECT_NAME }}-redis"
+            "${{ env.PROJECT_NAME }}-redis-${{ github.event.inputs.environment }}"
+          )
+          
+          REDIS_ENDPOINT=""
+          for pattern in "${REDIS_PATTERNS[@]}"; do
+            if ENDPOINT=$(aws elasticache describe-replication-groups \
+              --replication-group-id "${pattern}" \
+              --region ${{ env.AWS_REGION }} \
+              --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address' \
+              --output text 2>/dev/null) && [ "$ENDPOINT" != "None" ] && [ -n "$ENDPOINT" ]; then
+              REDIS_ENDPOINT="${ENDPOINT}:6379"
+              echo "Found Redis at: ${pattern} -> ${REDIS_ENDPOINT}"
+              break
+            fi
+          done
+          
+          if [ -z "$REDIS_ENDPOINT" ]; then
+            echo "Redis cluster not found. Checked patterns: ${REDIS_PATTERNS[*]}"
+            exit 1
+          fi
+          
+          echo "endpoint=${REDIS_ENDPOINT}" >> $GITHUB_OUTPUT
+      
+      - name: Discover EKS cluster
+        id: cluster
+        run: |
+          # Try different naming patterns for EKS cluster
+          CLUSTER_PATTERNS=(
+            "${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}-cluster"
+            "${{ github.event.inputs.environment }}-${{ env.PROJECT_NAME }}-cluster"
+            "${{ env.PROJECT_NAME }}-cluster-${{ github.event.inputs.environment }}"
+            "${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}"
+          )
+          
+          CLUSTER_NAME=""
+          ALL_CLUSTERS=$(aws eks list-clusters --region ${{ env.AWS_REGION }} --query 'clusters' --output text)
+          
+          for pattern in "${CLUSTER_PATTERNS[@]}"; do
+            if echo "$ALL_CLUSTERS" | grep -q "$pattern"; then
+              CLUSTER_NAME="$pattern"
+              echo "Found EKS cluster: ${CLUSTER_NAME}"
+              break
+            fi
+          done
+          
+          if [ -z "$CLUSTER_NAME" ]; then
+            echo "EKS cluster not found. Available clusters: $ALL_CLUSTERS"
+            echo "Checked patterns: ${CLUSTER_PATTERNS[*]}"
+            exit 1
+          fi
+          
+          echo "name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+      
+      - name: Determine namespace
+        id: namespace
+        run: |
+          NAMESPACE="${{ env.PROJECT_NAME }}-${{ github.event.inputs.environment }}"
+          echo "name=${NAMESPACE}" >> $GITHUB_OUTPUT
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [prepare, get-infrastructure]
+    if: always() && !failure()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ needs.get-infrastructure.outputs.cluster-name }} \
+            --region ${{ env.AWS_REGION }}
+      
+      - name: Install Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      
+      - name: Generate deployment configuration
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          IMAGE_TAG="${{ needs.prepare.outputs.image-tag }}"
+          REDIS_ENDPOINT="${{ needs.get-infrastructure.outputs.redis-endpoint }}"
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          
+          # Create deployment overlay
+          OVERLAY_DIR="k8s/overlays/${ENV}-deploy-$(date +%s)"
+          mkdir -p "${OVERLAY_DIR}"
+          
+          # Generate kustomization.yaml
+          cat > "${OVERLAY_DIR}/kustomization.yaml" << EOF
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          
+          namespace: ${NAMESPACE}
+          
+          resources:
+            - ../../base
+          
+          configMapGenerator:
+            - name: redis-config
+              literals:
+                - REDIS_ADDR=${REDIS_ENDPOINT}
+              behavior: replace
+          
+          images:
+          EOF
+          
+          # Add image transformations for all services
+          SERVICES=(${{ join(fromJson(needs.prepare.outputs.services-matrix), ' ') }})
+          for service in "${SERVICES[@]}"; do
+            cat >> "${OVERLAY_DIR}/kustomization.yaml" << EOF
+            - name: ${service}
+              newName: ${{ env.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}-${ENV}-${service}
+              newTag: ${IMAGE_TAG}
+          EOF
+          done
+          
+          # Add labels
+          cat >> "${OVERLAY_DIR}/kustomization.yaml" << EOF
+          
+          labels:
+            - pairs:
+                app.kubernetes.io/version: ${IMAGE_TAG}
+                app.kubernetes.io/environment: ${ENV}
+                app.kubernetes.io/managed-by: github-actions
+          EOF
+          
+          # Add environment-specific patches
+          if [ "${ENV}" = "dev" ]; then
+            cat > "${OVERLAY_DIR}/loadgen-patch.yaml" << EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: loadgenerator
+          spec:
+            replicas: 0
+          EOF
+            echo "" >> "${OVERLAY_DIR}/kustomization.yaml"
+            echo "patchesStrategicMerge:" >> "${OVERLAY_DIR}/kustomization.yaml"
+            echo "  - loadgen-patch.yaml" >> "${OVERLAY_DIR}/kustomization.yaml"
+          fi
+          
+          echo "OVERLAY_DIR=${OVERLAY_DIR}" >> $GITHUB_ENV
+      
+      - name: Validate generated configuration
+        run: |
+          echo "=== Generated Kustomization ==="
+          cat "${OVERLAY_DIR}/kustomization.yaml"
+          echo ""
+          echo "=== Configuration Preview ==="
+          kustomize build "${OVERLAY_DIR}" | head -100
+      
+      - name: Apply deployment
+        run: |
+          echo "Deploying to ${{ github.event.inputs.environment }} environment..."
+          echo "Target namespace: ${{ needs.get-infrastructure.outputs.namespace }}"
+          echo "Image tag: ${{ needs.prepare.outputs.image-tag }}"
+          echo "Redis endpoint: ${{ needs.get-infrastructure.outputs.redis-endpoint }}"
+          
+          kustomize build "${OVERLAY_DIR}" | kubectl apply -f -
+      
+      - name: Wait for deployment
+        run: |
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          
+          # Wait for core services
+          echo "Waiting for critical services to be ready..."
+          kubectl rollout status deployment/frontend -n "${NAMESPACE}" --timeout=600s
+          kubectl rollout status deployment/cartservice -n "${NAMESPACE}" --timeout=600s
+          
+          # Check all deployments
+          echo "Checking all deployment status..."
+          kubectl get deployments -n "${NAMESPACE}"
+      
+      - name: Verify deployment
+        run: |
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          
+          echo "=== Deployment Verification ==="
+          echo "Namespace: ${NAMESPACE}"
           echo "Image Tag: ${{ needs.prepare.outputs.image-tag }}"
           echo "Services Built: ${{ join(fromJson(needs.prepare.outputs.services-matrix), ', ') }}"
           echo ""
           
-          if [ "${{ needs.build.result }}" = "success" ]; then
-            echo "✅ All builds completed successfully!"
-            echo ""
-            echo "To deploy these images, run the Deploy workflow with:"
-            echo "  Environment: ${{ needs.prepare.outputs.environment }}"
-            echo "  Image Tag: ${{ needs.prepare.outputs.image-tag }}"
-          else
-            echo "❌ Some builds failed. Check the build logs above."
-            exit 1
+          echo "=== Pod Status ==="
+          kubectl get pods -n "${NAMESPACE}" -o wide
+          echo ""
+          
+          echo "=== Service Status ==="
+          kubectl get svc -n "${NAMESPACE}"
+          echo ""
+          
+          echo "=== Ingress Status ==="
+          kubectl get ingress -n "${NAMESPACE}" || echo "No ingress found"
+          echo ""
+          
+          echo "=== Redis Connectivity Test ==="
+          kubectl run redis-test-$(date +%s) --image=busybox --rm -i --restart=Never \
+            -n "${NAMESPACE}" \
+            --command -- sh -c "nc -zv ${{ needs.get-infrastructure.outputs.redis-endpoint }} && echo 'Redis connection: SUCCESS' || echo 'Redis connection: FAILED'"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -n "${OVERLAY_DIR}" ]; then
+            rm -rf "${OVERLAY_DIR}"
           fi
