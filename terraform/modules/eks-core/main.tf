@@ -430,11 +430,16 @@ resource "kubernetes_config_map_v1_data" "aws_auth" {
         rolearn  = aws_iam_role.eks_nodes.arn
         username = "system:node:{{EC2PrivateDNSName}}"
         groups   = ["system:bootstrappers", "system:nodes"]
+      },
+      {
+        rolearn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/online-boutique-github-actions-role"
+        username = "github-actions"
+        groups   = ["system:masters"]
       }
     ])
   }
 
-  force = true  # Add this line
+  force = true
 
   depends_on = [
     aws_eks_cluster.main,
