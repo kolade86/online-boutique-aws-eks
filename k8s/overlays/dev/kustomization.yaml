@@ -6,8 +6,9 @@ namespace: online-boutique-dev
 resources:
   - ../../base
 
-patches:  # NEW
-  - path: replica-patch.yaml
+patchesStrategicMerge:
+  - replica-patch.yaml
 
-commonLabels:
-  environment: dev
+labels:
+  - pairs:
+      environment: dev

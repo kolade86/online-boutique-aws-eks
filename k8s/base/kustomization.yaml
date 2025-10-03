@@ -5,7 +5,7 @@ resources:
   - all-services.yaml
   - frontend-ingress.yaml
 
-labels:  # NEW
+labels:
   - pairs:
       app.kubernetes.io/part-of: online-boutique
       app.kubernetes.io/managed-by: kustomize

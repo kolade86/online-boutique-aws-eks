@@ -5,8 +5,8 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REGISTRY: 851725533056.dkr.ecr.us-east-1.amazonaws.com
-  AWS_ROLE_ARN: arn:aws:iam::851725533056:role/online-boutique-github-actions-role
+  ECR_REGISTRY: 225934518357.dkr.ecr.us-east-1.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::225934518357:role/online-boutique-github-actions-role
 
 permissions:
   id-token: write

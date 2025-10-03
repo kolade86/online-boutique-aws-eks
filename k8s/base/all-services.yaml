@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-frontend:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-frontend:latest
         ports:
         - containerPort: 8080
         env:
@@ -37,6 +37,10 @@ spec:
           value: "checkoutservice:5050"
         - name: AD_SERVICE_ADDR
           value: "adservice:9555"
+        - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+          value: ""
+        - name: ENABLE_PROFILER
+          value: "0"
         resources:
           requests:
             cpu: 100m
@@ -93,7 +97,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:latest
         ports:
         - containerPort: 7070
         env:
@@ -152,7 +156,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-productcatalogservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-productcatalogservice:latest
         ports:
         - containerPort: 3550
         env:
@@ -204,12 +208,14 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-currencyservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-currencyservice:latest
         ports:
         - containerPort: 7000
         env:
         - name: PORT
           value: "7000"
+        - name: ENABLE_PROFILER
+          value: "0"
         resources:
           requests:
             cpu: 100m
@@ -256,12 +262,14 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:latest
         ports:
         - containerPort: 50051
         env:
         - name: PORT
           value: "50051"
+        - name: ENABLE_PROFILER
+          value: "0"
         resources:
           requests:
             cpu: 100m
@@ -308,7 +316,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-shippingservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-shippingservice:latest
         ports:
         - containerPort: 50051
         env:
@@ -360,7 +368,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:latest
         ports:
         - containerPort: 8080
         env:
@@ -412,7 +420,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:latest
         ports:
         - containerPort: 5050
         env:
@@ -476,7 +484,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-recommendationservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-recommendationservice:latest
         ports:
         - containerPort: 8080
         env:
@@ -530,7 +538,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-adservice:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-adservice:latest
         ports:
         - containerPort: 9555
         env:
@@ -584,7 +592,7 @@ spec:
     spec:
       containers:
       - name: main
-        image: 975050254882.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-loadgenerator:latest
+        image: 225934518357.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-loadgenerator:latest
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"
