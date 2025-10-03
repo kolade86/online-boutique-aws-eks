@@ -127,9 +127,21 @@ resource "aws_iam_role_policy" "github_actions_eks" {
         Action = [
           "eks:DescribeCluster",
           "eks:ListClusters",
-          "eks:AccessKubernetesApi"
+          "eks:AccessKubernetesApi",
+          "eks:DescribeNodegroup",
+          "eks:ListNodegroups"
         ]
-        Resource = "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:cluster/${var.cluster_name}"
+        Resource = [
+          "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:cluster/${var.cluster_name}",
+          "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:nodegroup/${var.cluster_name}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "eks:ListClusters"
+        ]
+        Resource = "*"
       },
       {
         Effect = "Allow"
@@ -167,7 +179,11 @@ resource "aws_iam_role_policy" "github_actions_ecr" {
           "ecr:InitiateLayerUpload",
           "ecr:UploadLayerPart",
           "ecr:CompleteLayerUpload",
-          "ecr:PutImage"
+          "ecr:PutImage",
+          "ecr:DescribeRepositories",
+          "ecr:CreateRepository",
+          "ecr:ListImages",
+          "ecr:DescribeImages"
         ]
         Resource = [
           for repo in aws_ecr_repository.microservices : repo.arn
@@ -222,6 +238,26 @@ resource "aws_iam_role_policy" "github_actions_sns" {
         Effect = "Allow"
         Action = [
           "sns:ListTopics"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# GitHub Actions for ElastiCache permissions (NEW - ADD THIS)
+resource "aws_iam_role_policy" "github_actions_elasticache" {
+  name = "${var.project_name}-github-actions-elasticache-policy"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticache:DescribeReplicationGroups",
+          "elasticache:DescribeCacheClusters"
         ]
         Resource = "*"
       }
