@@ -1,12 +1,16 @@
 name: Build and Push to ECR
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 851725533056.dkr.ecr.us-east-1.amazonaws.com
   AWS_ROLE_ARN: arn:aws:iam::851725533056:role/online-boutique-github-actions-role
+
+permissions:
+  id-token: write
+  contents: read
   
 jobs:
   build-and-push:
