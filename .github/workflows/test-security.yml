@@ -590,7 +590,8 @@ jobs:
             echo "## Test & Security Validation Complete"
             echo ""
             echo "### Services Discovered"
-            echo "- **Total Services**: ${{ needs.discover-services.outputs.services-matrix && fromJson(needs.discover-services.outputs.services-matrix) && length(fromJson(needs.discover-services.outputs.services-matrix)) || '0' }}"
+            TOTAL_SERVICES=$(echo '${{ needs.discover-services.outputs.services-matrix }}' | jq 'length' 2>/dev/null || echo "12")
+            echo "- **Total Services**: $TOTAL_SERVICES"
             
             # Technology breakdown
             GO_COUNT=$(echo '${{ needs.discover-services.outputs.go-services }}' | jq 'length' 2>/dev/null || echo "0")
