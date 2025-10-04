@@ -36,10 +36,12 @@ spec:
           value: "checkoutservice:5050"
         - name: AD_SERVICE_ADDR
           value: "adservice:9555"
-        - name: SHOPPING_ASSISTANT_SERVICE_ADDR  # ADD THIS LINE
-          value: "shoppingassistantservice:80"    # ADD THIS LINE  
+        - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+          value: "shoppingassistantservice:80"
         - name: ENABLE_PROFILER
           value: "0"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -105,6 +107,8 @@ spec:
               key: REDIS_ADDR
         - name: PORT
           value: "7070"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 200m
@@ -157,6 +161,8 @@ spec:
         env:
         - name: PORT
           value: "3550"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -209,6 +215,8 @@ spec:
           value: "7000"
         - name: ENABLE_PROFILER
           value: "0"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -261,6 +269,8 @@ spec:
           value: "50051"
         - name: ENABLE_PROFILER
           value: "0"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -311,6 +321,8 @@ spec:
         env:
         - name: PORT
           value: "50051"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -361,6 +373,8 @@ spec:
         env:
         - name: PORT
           value: "8080"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -423,6 +437,8 @@ spec:
           value: "currencyservice:7000"
         - name: CART_SERVICE_ADDR
           value: "cartservice:7070"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -475,6 +491,8 @@ spec:
           value: "8080"
         - name: PRODUCT_CATALOG_SERVICE_ADDR
           value: "productcatalogservice:3550"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 100m
@@ -525,6 +543,8 @@ spec:
         env:
         - name: PORT
           value: "9555"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 200m
@@ -577,6 +597,8 @@ spec:
           value: "frontend:80"
         - name: USERS
           value: "10"
+        - name: DISABLE_PROFILER
+          value: "1"
         resources:
           requests:
             cpu: 300m
@@ -584,3 +606,61 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+---
+# ShoppingAssistantService
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shoppingassistantservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shoppingassistantservice
+  template:
+    metadata:
+      labels:
+        app: shoppingassistantservice
+    spec:
+      containers:
+      - name: server
+        image: shoppingassistantservice
+        ports:
+        - containerPort: 80
+        env:
+        - name: PORT
+          value: "80"
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: "productcatalogservice:3550"
+        - name: DISABLE_PROFILER
+          value: "1"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shoppingassistantservice
+spec:
+  type: ClusterIP
+  selector:
+    app: shoppingassistantservice
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
