@@ -70,7 +70,7 @@ jobs:
       - name: Prepare services matrix
         id: services
         run: |
-          ALL_SERVICES='["adservice","cartservice","checkoutservice","currencyservice","emailservice","frontend","loadgenerator","paymentservice","productcatalogservice","recommendationservice","shippingservice","shoppingassistantservice"]'
+          ALL_SERVICES='["adservice","cartservice","checkoutservice","currencyservice","emailservice","frontend","loadgenerator","paymentservice","productcatalogservice","recommendationservice","shippingservice"]'
           
           if [ "${{ github.event.inputs.services }}" = "all" ] || [ -z "${{ github.event.inputs.services }}" ]; then
             echo "matrix=${ALL_SERVICES}" >> $GITHUB_OUTPUT
