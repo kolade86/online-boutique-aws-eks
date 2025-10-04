@@ -36,6 +36,8 @@ spec:
           value: "checkoutservice:5050"
         - name: AD_SERVICE_ADDR
           value: "adservice:9555"
+        - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+          value: "shoppingassistantservice:80"
         - name: ENABLE_PROFILER
           value: "0"
         - name: DISABLE_PROFILER
@@ -604,3 +606,44 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+---
+# Dummy Shopping Assistant Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shoppingassistantservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shoppingassistantservice
+  template:
+    metadata:
+      labels:
+        app: shoppingassistantservice
+    spec:
+      containers:
+      - name: dummy
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shoppingassistantservice
+spec:
+  type: ClusterIP
+  selector:
+    app: shoppingassistantservice
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
