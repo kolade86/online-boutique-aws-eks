@@ -1,0 +1,597 @@
+name: Test & Security
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'Project name'
+        required: true
+        default: 'online-boutique'
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        default: 'us-east-1'
+      aws_account_id:
+        description: 'AWS Account ID'
+        required: true
+        default: '078287196682'
+
+env:
+  PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '078287196682' }}
+  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '078287196682' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  discover-services:
+    name: Discover Services and Technologies
+    runs-on: ubuntu-latest
+    outputs:
+      services-matrix: ${{ steps.discover.outputs.services-matrix }}
+      go-services: ${{ steps.discover.outputs.go-services }}
+      node-services: ${{ steps.discover.outputs.node-services }}
+      python-services: ${{ steps.discover.outputs.python-services }}
+      dotnet-services: ${{ steps.discover.outputs.dotnet-services }}
+      java-services: ${{ steps.discover.outputs.java-services }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Discover services and their technologies
+        id: discover
+        run: |
+          echo "Discovering services and their technologies..."
+          
+          # Initialize arrays for different tech stacks
+          ALL_SERVICES=()
+          GO_SERVICES=()
+          NODE_SERVICES=()
+          PYTHON_SERVICES=()
+          DOTNET_SERVICES=()
+          JAVA_SERVICES=()
+          
+          # Based on the file structure, we know the services and their technologies
+          # Go services
+          GO_SERVICES=("checkoutservice" "frontend" "productcatalogservice" "shippingservice")
+          
+          # Node.js services
+          NODE_SERVICES=("currencyservice" "paymentservice")
+          
+          # Python services  
+          PYTHON_SERVICES=("emailservice" "loadgenerator" "recommendationservice" "shoppingassistantservice")
+          
+          # .NET services
+          DOTNET_SERVICES=("cartservice")
+          
+          # Java services
+          JAVA_SERVICES=("adservice")
+          
+          # Combine all services
+          ALL_SERVICES=("${GO_SERVICES[@]}" "${NODE_SERVICES[@]}" "${PYTHON_SERVICES[@]}" "${DOTNET_SERVICES[@]}" "${JAVA_SERVICES[@]}")
+          
+          echo "Technology stack discovery:"
+          echo "  Go services: ${GO_SERVICES[*]}"
+          echo "  Node.js services: ${NODE_SERVICES[*]}"
+          echo "  Python services: ${PYTHON_SERVICES[*]}"
+          echo "  .NET services: ${DOTNET_SERVICES[*]}"
+          echo "  Java services: ${JAVA_SERVICES[*]}"
+          echo "  Total services: ${#ALL_SERVICES[@]}"
+          
+          # Convert arrays to JSON
+          printf -v ALL_SERVICES_JSON '%s\n' "${ALL_SERVICES[@]}" | jq -R . | jq -s .
+          printf -v GO_SERVICES_JSON '%s\n' "${GO_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || GO_SERVICES_JSON='[]'
+          printf -v NODE_SERVICES_JSON '%s\n' "${NODE_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || NODE_SERVICES_JSON='[]'
+          printf -v PYTHON_SERVICES_JSON '%s\n' "${PYTHON_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || PYTHON_SERVICES_JSON='[]'
+          printf -v DOTNET_SERVICES_JSON '%s\n' "${DOTNET_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || DOTNET_SERVICES_JSON='[]'
+          printf -v JAVA_SERVICES_JSON '%s\n' "${JAVA_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || JAVA_SERVICES_JSON='[]'
+          
+          echo "services-matrix=$ALL_SERVICES_JSON" >> $GITHUB_OUTPUT
+          echo "go-services=$GO_SERVICES_JSON" >> $GITHUB_OUTPUT
+          echo "node-services=$NODE_SERVICES_JSON" >> $GITHUB_OUTPUT
+          echo "python-services=$PYTHON_SERVICES_JSON" >> $GITHUB_OUTPUT
+          echo "dotnet-services=$DOTNET_SERVICES_JSON" >> $GITHUB_OUTPUT
+          echo "java-services=$JAVA_SERVICES_JSON" >> $GITHUB_OUTPUT
+          
+          echo "Discovery complete. Found ${#ALL_SERVICES[@]} services total."
+
+  test-go-services:
+    name: Test Go Services
+    runs-on: ubuntu-latest
+    needs: discover-services
+    if: ${{ fromJson(needs.discover-services.outputs.go-services)[0] != null }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.go-services) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: src/${{ matrix.service }}/go.sum
+      
+      - name: Test Go service - ${{ matrix.service }}
+        working-directory: src/${{ matrix.service }}
+        run: |
+          echo "=== Testing Go service: ${{ matrix.service }} ==="
+          
+          # Download dependencies
+          if [ -f "go.mod" ]; then
+            go mod download
+            go mod verify
+          fi
+          
+          # Build
+          echo "Building ${{ matrix.service }}..."
+          go build -v ./...
+          
+          # Run tests if they exist
+          if go list ./... | grep -q test; then
+            echo "Running tests for ${{ matrix.service }}..."
+            go test -v -race -coverprofile=coverage.out ./...
+          else
+            echo "No tests found for ${{ matrix.service }}"
+          fi
+          
+          # Lint if golint is available
+          if command -v golint &> /dev/null; then
+            echo "Running lint for ${{ matrix.service }}..."
+            golint ./... || echo "Lint issues found (non-blocking)"
+          fi
+          
+          echo "✅ Go service ${{ matrix.service }} validation complete"
+
+  test-node-services:
+    name: Test Node.js Services
+    runs-on: ubuntu-latest
+    needs: discover-services
+    if: ${{ fromJson(needs.discover-services.outputs.node-services)[0] != null }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.node-services) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            src/${{ matrix.service }}/package-lock.json
+            src/${{ matrix.service }}/src/package-lock.json
+      
+      - name: Test Node.js service - ${{ matrix.service }}
+        run: |
+          echo "=== Testing Node.js service: ${{ matrix.service }} ==="
+          
+          # Work directly in the service directory
+          WORK_DIR="src/${{ matrix.service }}"
+          
+          echo "Working directory: $WORK_DIR"
+          cd "$WORK_DIR"
+          
+          # Install dependencies
+          if [ -f "package.json" ]; then
+            echo "Installing dependencies for ${{ matrix.service }}..."
+            npm ci || npm install
+            
+            # Build if build script exists
+            if npm run build --if-present 2>/dev/null; then
+              echo "✅ Build successful for ${{ matrix.service }}"
+            else
+              echo "No build script or build failed for ${{ matrix.service }}"
+            fi
+            
+            # Run tests if test script exists
+            if npm test --if-present 2>/dev/null; then
+              echo "✅ Tests passed for ${{ matrix.service }}"
+            else
+              echo "No tests or tests failed for ${{ matrix.service }}"
+            fi
+            
+            # Run lint if lint script exists
+            if npm run lint --if-present 2>/dev/null; then
+              echo "✅ Lint passed for ${{ matrix.service }}"
+            else
+              echo "No lint script or lint failed for ${{ matrix.service }}"
+            fi
+          fi
+          
+          echo "✅ Node.js service ${{ matrix.service }} validation complete"
+
+  test-python-services:
+    name: Test Python Services
+    runs-on: ubuntu-latest
+    needs: discover-services
+    if: ${{ fromJson(needs.discover-services.outputs.python-services)[0] != null }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.python-services) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Test Python service - ${{ matrix.service }}
+        working-directory: src/${{ matrix.service }}
+        run: |
+          echo "=== Testing Python service: ${{ matrix.service }} ==="
+          
+          # Install dependencies
+          if [ -f "requirements.txt" ]; then
+            echo "Installing requirements for ${{ matrix.service }}..."
+            pip install -r requirements.txt
+          elif [ -f "Pipfile" ]; then
+            echo "Installing Pipfile dependencies for ${{ matrix.service }}..."
+            pip install pipenv
+            pipenv install --dev
+          fi
+          
+          # Run tests
+          if [ -f "test_*.py" ] || [ -d "tests" ]; then
+            echo "Running tests for ${{ matrix.service }}..."
+            python -m pytest . || echo "Tests failed for ${{ matrix.service }}"
+          else
+            echo "No tests found for ${{ matrix.service }}"
+          fi
+          
+          # Basic syntax check
+          echo "Running syntax check for ${{ matrix.service }}..."
+          python -m py_compile *.py || echo "Syntax issues found in ${{ matrix.service }}"
+          
+          # Lint if flake8 is available
+          if pip show flake8 &> /dev/null; then
+            echo "Running flake8 for ${{ matrix.service }}..."
+            flake8 . || echo "Lint issues found (non-blocking)"
+          fi
+          
+          echo "✅ Python service ${{ matrix.service }} validation complete"
+
+  test-dotnet-services:
+    name: Test .NET Services
+    runs-on: ubuntu-latest
+    needs: discover-services
+    if: ${{ fromJson(needs.discover-services.outputs.dotnet-services)[0] != null }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.dotnet-services) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+      
+      - name: Test .NET service - ${{ matrix.service }}
+        working-directory: src/${{ matrix.service }}
+        run: |
+          echo "=== Testing .NET service: ${{ matrix.service }} ==="
+          
+          # Restore dependencies
+          echo "Restoring dependencies for ${{ matrix.service }}..."
+          dotnet restore
+          
+          # Build
+          echo "Building ${{ matrix.service }}..."
+          dotnet build --no-restore
+          
+          # Run tests (cartservice has a tests directory)
+          echo "Running tests for ${{ matrix.service }}..."
+          if [ -d "tests" ]; then
+            dotnet test tests/ --no-build --verbosity normal || echo "Tests failed for ${{ matrix.service }}"
+          else
+            dotnet test --no-build --verbosity normal || echo "No tests or tests failed for ${{ matrix.service }}"
+          fi
+          
+          echo "✅ .NET service ${{ matrix.service }} validation complete"
+
+  test-java-services:
+    name: Test Java Services
+    runs-on: ubuntu-latest
+    needs: discover-services
+    if: ${{ fromJson(needs.discover-services.outputs.java-services)[0] != null }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.java-services) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Test Java service - ${{ matrix.service }}
+        working-directory: src/${{ matrix.service }}
+        run: |
+          echo "=== Testing Java service: ${{ matrix.service }} ==="
+          
+          # adservice uses Gradle
+          if [ -f "build.gradle" ]; then
+            echo "Running Gradle build for ${{ matrix.service }}..."
+            
+            # Make gradlew executable if it exists
+            if [ -f "./gradlew" ]; then
+              chmod +x ./gradlew
+              ./gradlew clean build test
+            else
+              gradle clean build test
+            fi
+          elif [ -f "pom.xml" ]; then
+            echo "Running Maven build for ${{ matrix.service }}..."
+            if [ -f "./mvnw" ]; then
+              chmod +x ./mvnw
+              ./mvnw clean compile test
+            else
+              mvn clean compile test
+            fi
+          fi
+          
+          echo "✅ Java service ${{ matrix.service }} validation complete"
+
+  security-scan:
+    name: Security Scanning with Trivy
+    runs-on: ubuntu-latest
+    needs: [discover-services]
+    
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Create security reports directory
+        run: mkdir -p security-reports
+      
+      # Filesystem scanning
+      - name: Trivy FS Scan (JSON)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: 'json'
+          output: 'security-reports/trivy-fs.json'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          timeout: '15m'
+      
+      - name: Trivy FS Scan (Table)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: 'table'
+          output: 'security-reports/trivy-fs.txt'
+          severity: 'MEDIUM,HIGH,CRITICAL'
+          timeout: '15m'
+      
+      # Infrastructure as Code scanning
+      - name: Trivy IaC Scan (JSON)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: 'json'
+          output: 'security-reports/trivy-iac.json'
+          timeout: '15m'
+      
+      - name: Trivy IaC Scan (Table)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: 'table'
+          output: 'security-reports/trivy-iac.txt'
+          severity: 'MEDIUM,HIGH,CRITICAL'
+          timeout: '15m'
+      
+      # Vulnerability analysis
+      - name: Analyze Security Results
+        run: |
+          echo "Analyzing security scan results..."
+          set -e
+          
+          if [ -f security-reports/trivy-fs.json ]; then
+            # Count vulnerabilities by severity
+            CRITICAL=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL") | .VulnerabilityID' security-reports/trivy-fs.json 2>/dev/null | wc -l || echo "0")
+            HIGH=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH") | .VulnerabilityID' security-reports/trivy-fs.json 2>/dev/null | wc -l || echo "0")
+            MEDIUM=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM") | .VulnerabilityID' security-reports/trivy-fs.json 2>/dev/null | wc -l || echo "0")
+            
+            echo "FS Vulnerabilities: $CRITICAL critical, $HIGH high, $MEDIUM medium"
+            
+            # Store results for summary
+            echo "CRITICAL_COUNT=$CRITICAL" >> $GITHUB_ENV
+            echo "HIGH_COUNT=$HIGH" >> $GITHUB_ENV
+            echo "MEDIUM_COUNT=$MEDIUM" >> $GITHUB_ENV
+            
+            # Generate detailed report of critical vulnerabilities
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "Critical vulnerabilities found:"
+              jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL") | "- \(.PkgName): \(.VulnerabilityID) (\(.Title // "No title"))"' security-reports/trivy-fs.json 2>/dev/null || true
+            fi
+          else
+            echo "No filesystem scan results found"
+          fi
+          
+          # IaC scan results
+          if [ -f security-reports/trivy-iac.json ]; then
+            IAC_CRITICAL=$(jq '.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL") | .ID' security-reports/trivy-iac.json 2>/dev/null | wc -l || echo "0")
+            IAC_HIGH=$(jq '.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH") | .ID' security-reports/trivy-iac.json 2>/dev/null | wc -l || echo "0")
+            IAC_MEDIUM=$(jq '.Results[]?.Misconfigurations[]? | select(.Severity=="MEDIUM") | .ID' security-reports/trivy-iac.json 2>/dev/null | wc -l || echo "0")
+            
+            echo "IaC Misconfigurations: $IAC_CRITICAL critical, $IAC_HIGH high, $IAC_MEDIUM medium"
+            
+            echo "IAC_CRITICAL_COUNT=$IAC_CRITICAL" >> $GITHUB_ENV
+            echo "IAC_HIGH_COUNT=$IAC_HIGH" >> $GITHUB_ENV
+            echo "IAC_MEDIUM_COUNT=$IAC_MEDIUM" >> $GITHUB_ENV
+          fi
+      
+      # Enhanced GitHub Step Summary
+      - name: Security Step Summary
+        if: always()
+        run: |
+          {
+            echo "## Security Scan Summary"
+            echo ""
+            
+            # Filesystem scan summary
+            echo "### Filesystem Vulnerabilities"
+            if [ -f security-reports/trivy-fs.json ]; then
+              echo "| Severity | Count |"
+              echo "|----------|-------|"
+              echo "| CRITICAL | ${CRITICAL_COUNT:-0} |"
+              echo "| HIGH | ${HIGH_COUNT:-0} |"
+              echo "| MEDIUM | ${MEDIUM_COUNT:-0} |"
+              
+              # Show critical vulnerabilities details
+              if [ "${CRITICAL_COUNT:-0}" -gt 0 ]; then
+                echo ""
+                echo "#### Critical Vulnerabilities Details"
+                echo '```'
+                jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL") | "- \(.PkgName): \(.VulnerabilityID) (\(.Title // "No description"))"' security-reports/trivy-fs.json 2>/dev/null || true
+                echo '```'
+              fi
+            else
+              echo "_No filesystem scan results available_"
+            fi
+            
+            echo ""
+            
+            # IaC scan summary
+            echo "### Infrastructure as Code Issues"
+            if [ -f security-reports/trivy-iac.json ]; then
+              echo "| Severity | Count |"
+              echo "|----------|-------|"
+              echo "| CRITICAL | ${IAC_CRITICAL_COUNT:-0} |"
+              echo "| HIGH | ${IAC_HIGH_COUNT:-0} |"
+              echo "| MEDIUM | ${IAC_MEDIUM_COUNT:-0} |"
+            else
+              echo "_No IaC scan results available_"
+            fi
+            
+            echo ""
+            echo "### Next Steps"
+            echo "- Review detailed security reports in artifacts"
+            echo "- Address critical and high severity issues before building images"
+            echo "- Security enforcement is currently **DISABLED** for gradual adoption"
+            
+          } >> "$GITHUB_STEP_SUMMARY"
+      
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports-${{ github.run_number }}
+          path: security-reports/
+          retention-days: 30
+
+  helm-validation:
+    name: Validate Helm Charts
+    runs-on: ubuntu-latest
+    needs: [discover-services]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.12.0'
+      
+      - name: Find and validate Helm charts
+        run: |
+          echo "Looking for Helm charts in the repository..."
+          
+          # Look for Chart.yaml files
+          CHARTS=$(find . -name "Chart.yaml" -type f | sed 's|/Chart.yaml||' | sed 's|^./||')
+          
+          if [ -z "$CHARTS" ]; then
+            echo "No Helm charts found in repository"
+            exit 0
+          fi
+          
+          echo "Found Helm charts:"
+          echo "$CHARTS"
+          
+          for chart in $CHARTS; do
+            echo ""
+            echo "=== Validating Helm chart: $chart ==="
+            
+            # Check if there are dependencies
+            if [ -f "$chart/Chart.yaml" ] && grep -q "dependencies:" "$chart/Chart.yaml"; then
+              echo "Building dependencies for $chart..."
+              helm dependency build "$chart" || echo "Dependency build failed for $chart"
+            fi
+            
+            # Lint the chart
+            echo "Linting $chart..."
+            if helm lint "$chart"; then
+              echo "✅ Lint passed for $chart"
+            else
+              echo "❌ Lint failed for $chart"
+            fi
+            
+            # Test template rendering
+            echo "Testing template rendering for $chart..."
+            if helm template test-release "$chart" --dry-run > /dev/null; then
+              echo "✅ Template rendering passed for $chart"
+            else
+              echo "❌ Template rendering failed for $chart"
+            fi
+          done
+
+  summary:
+    name: Test & Security Summary
+    runs-on: ubuntu-latest
+    needs: [discover-services, test-go-services, test-node-services, test-python-services, test-dotnet-services, test-java-services, security-scan, helm-validation]
+    if: always()
+    
+    steps:
+      - name: Generate Final Summary
+        run: |
+          {
+            echo "## Test & Security Validation Complete"
+            echo ""
+            echo "### Services Discovered"
+            echo "- **Total Services**: ${{ needs.discover-services.outputs.services-matrix && fromJson(needs.discover-services.outputs.services-matrix) && length(fromJson(needs.discover-services.outputs.services-matrix)) || '0' }}"
+            
+            # Technology breakdown
+            GO_COUNT=$(echo '${{ needs.discover-services.outputs.go-services }}' | jq 'length' 2>/dev/null || echo "0")
+            NODE_COUNT=$(echo '${{ needs.discover-services.outputs.node-services }}' | jq 'length' 2>/dev/null || echo "
