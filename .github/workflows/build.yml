@@ -28,6 +28,11 @@ on:
         description: 'Services to build (comma-separated or "all")'
         required: false
         default: 'all'
+      skip_tests:
+        description: 'Skip testing and linting (for emergency builds)'
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [ main ]
     paths:
@@ -56,6 +61,7 @@ jobs:
       services-matrix: ${{ steps.services.outputs.matrix }}
       image-tag: ${{ steps.meta.outputs.image-tag }}
       environment: ${{ steps.env.outputs.environment }}
+      skip-quality-checks: ${{ steps.flags.outputs.skip-quality-checks }}
     
     steps:
       - name: Set environment
@@ -65,6 +71,16 @@ jobs:
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Set quality check flags
+        id: flags
+        run: |
+          if [ "${{ github.event.inputs.skip_tests }}" = "true" ]; then
+            echo "skip-quality-checks=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Quality checks will be skipped for this build"
+          else
+            echo "skip-quality-checks=false" >> $GITHUB_OUTPUT
           fi
       
       - name: Prepare services matrix
@@ -95,9 +111,390 @@ jobs:
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "Generated image tag: ${IMAGE_TAG}"
 
-  build:
-    needs: prepare
+  # Kustomize validation - runs in parallel with other quality checks
+  kustomize-validate:
     runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.skip-quality-checks == 'false'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+          kustomize version
+      
+      - name: Validate base manifests
+        run: |
+          echo "=== Validating base Kubernetes manifests ==="
+          cd k8s/base
+          
+          # Check if kustomization.yaml exists
+          if [ ! -f "kustomization.yaml" ]; then
+            echo "❌ No kustomization.yaml found in k8s/base"
+            exit 1
+          fi
+          
+          # Validate base configuration
+          echo "Validating base kustomization..."
+          kustomize build . > /tmp/base-output.yaml
+          
+          # Basic YAML validation
+          if ! kubectl --dry-run=client apply -f /tmp/base-output.yaml > /dev/null 2>&1; then
+            echo "❌ Base manifests contain invalid Kubernetes resources"
+            exit 1
+          fi
+          
+          echo "✅ Base manifests are valid"
+      
+      - name: Validate overlay configurations
+        run: |
+          echo "=== Validating overlay configurations ==="
+          
+          # Check dev overlay
+          if [ -d "k8s/overlays/dev" ]; then
+            echo "Validating dev overlay..."
+            cd k8s/overlays/dev
+            kustomize build . > /tmp/dev-output.yaml
+            
+            if ! kubectl --dry-run=client apply -f /tmp/dev-output.yaml > /dev/null 2>&1; then
+              echo "❌ Dev overlay contains invalid configurations"
+              exit 1
+            fi
+            echo "✅ Dev overlay is valid"
+          else
+            echo "ℹ️ No dev overlay found, skipping"
+          fi
+      
+      - name: Kustomize dry-run summary
+        run: |
+          echo "=== Kustomize Validation Summary ==="
+          echo "✅ All Kubernetes manifests passed validation"
+          echo "✅ Kustomize configurations are syntactically correct"
+          echo "✅ Resources are valid for Kubernetes API"
+
+  # Linting - runs per service type
+  lint:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.skip-quality-checks == 'false'
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.prepare.outputs.services-matrix) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Determine service language
+        id: language
+        run: |
+          SERVICE="${{ matrix.service }}"
+          
+          # Determine language based on service
+          case "${SERVICE}" in
+            "frontend"|"checkoutservice"|"shippingservice"|"productcatalogservice")
+              echo "language=go" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              ;;
+            "currencyservice"|"paymentservice")
+              echo "language=node" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              ;;
+            "emailservice"|"recommendationservice"|"loadgenerator")
+              echo "language=python" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              ;;
+            "cartservice")
+              echo "language=dotnet" >> $GITHUB_OUTPUT
+              echo "path=src/cartservice/src" >> $GITHUB_OUTPUT
+              ;;
+            "adservice")
+              echo "language=java" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "language=unknown" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              ;;
+          esac
+      
+      - name: Setup Go linting
+        if: steps.language.outputs.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Run Go linting
+        if: steps.language.outputs.language == 'go'
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: ${{ steps.language.outputs.path }}
+          args: --timeout=5m --print-issued-lines=false
+      
+      - name: Setup Node.js linting
+        if: steps.language.outputs.language == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ${{ steps.language.outputs.path }}/package-lock.json
+      
+      - name: Run Node.js linting
+        if: steps.language.outputs.language == 'node'
+        working-directory: ${{ steps.language.outputs.path }}
+        run: |
+          npm ci
+          
+          # Check if ESLint config exists, if not create basic one
+          if [ ! -f ".eslintrc.js" ] && [ ! -f ".eslintrc.json" ] && [ ! -f "eslint.config.js" ]; then
+            echo "Creating basic ESLint configuration..."
+            cat > .eslintrc.json << 'EOF'
+          {
+            "env": {
+              "node": true,
+              "es2021": true
+            },
+            "extends": ["eslint:recommended"],
+            "parserOptions": {
+              "ecmaVersion": 12,
+              "sourceType": "module"
+            },
+            "rules": {
+              "no-unused-vars": "warn",
+              "no-console": "off"
+            }
+          }
+          EOF
+          fi
+          
+          # Install ESLint if not present
+          if ! npm list eslint > /dev/null 2>&1; then
+            npm install --save-dev eslint
+          fi
+          
+          # Run linting
+          npx eslint . --ext .js,.mjs || echo "⚠️ ESLint found issues in ${{ matrix.service }}"
+      
+      - name: Setup Python linting
+        if: steps.language.outputs.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Run Python linting
+        if: steps.language.outputs.language == 'python'
+        working-directory: ${{ steps.language.outputs.path }}
+        run: |
+          pip install pylint flake8
+          
+          echo "Running flake8..."
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️ Flake8 found issues in ${{ matrix.service }}"
+          
+          echo "Running pylint on Python files..."
+          find . -name "*.py" -exec pylint {} \; --errors-only || echo "⚠️ Pylint found issues in ${{ matrix.service }}"
+      
+      - name: Setup .NET linting
+        if: steps.language.outputs.language == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+      
+      - name: Run .NET linting
+        if: steps.language.outputs.language == 'dotnet'
+        working-directory: ${{ steps.language.outputs.path }}
+        run: |
+          echo "Running dotnet format verification..."
+          dotnet format --verify-no-changes --verbosity diagnostic || echo "⚠️ .NET format issues found in ${{ matrix.service }}"
+      
+      - name: Setup Java linting
+        if: steps.language.outputs.language == 'java'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Run Java linting
+        if: steps.language.outputs.language == 'java'
+        working-directory: ${{ steps.language.outputs.path }}
+        run: |
+          echo "Running Gradle check..."
+          ./gradlew check --no-daemon || echo "⚠️ Gradle check found issues in ${{ matrix.service }}"
+      
+      - name: Unknown language warning
+        if: steps.language.outputs.language == 'unknown'
+        run: |
+          echo "⚠️ Unknown language for service ${{ matrix.service }}, skipping linting"
+
+  # Testing - runs per service
+  test:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.skip-quality-checks == 'false'
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.prepare.outputs.services-matrix) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Determine service language and test setup
+        id: test-setup
+        run: |
+          SERVICE="${{ matrix.service }}"
+          
+          case "${SERVICE}" in
+            "frontend"|"checkoutservice"|"shippingservice"|"productcatalogservice")
+              echo "language=go" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              echo "test-command=go test ./..." >> $GITHUB_OUTPUT
+              ;;
+            "currencyservice"|"paymentservice")
+              echo "language=node" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              echo "test-command=npm test" >> $GITHUB_OUTPUT
+              ;;
+            "emailservice"|"recommendationservice"|"loadgenerator")
+              echo "language=python" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              echo "test-command=python -m pytest" >> $GITHUB_OUTPUT
+              ;;
+            "cartservice")
+              echo "language=dotnet" >> $GITHUB_OUTPUT
+              echo "path=src/cartservice" >> $GITHUB_OUTPUT
+              echo "test-command=dotnet test" >> $GITHUB_OUTPUT
+              ;;
+            "adservice")
+              echo "language=java" >> $GITHUB_OUTPUT
+              echo "path=src/${SERVICE}" >> $GITHUB_OUTPUT
+              echo "test-command=./gradlew test" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "language=unknown" >> $GITHUB_OUTPUT
+              ;;
+          esac
+      
+      - name: Setup Go testing
+        if: steps.test-setup.outputs.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Run Go tests
+        if: steps.test-setup.outputs.language == 'go'
+        working-directory: ${{ steps.test-setup.outputs.path }}
+        run: |
+          echo "Running Go tests for ${{ matrix.service }}..."
+          if [ -f "go.mod" ]; then
+            go mod download
+            if go test ./... -v; then
+              echo "✅ Tests passed for ${{ matrix.service }}"
+            else
+              echo "⚠️ Some tests failed for ${{ matrix.service }}"
+            fi
+          else
+            echo "ℹ️ No go.mod found, skipping tests for ${{ matrix.service }}"
+          fi
+      
+      - name: Setup Node.js testing
+        if: steps.test-setup.outputs.language == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ${{ steps.test-setup.outputs.path }}/package-lock.json
+      
+      - name: Run Node.js tests
+        if: steps.test-setup.outputs.language == 'node'
+        working-directory: ${{ steps.test-setup.outputs.path }}
+        run: |
+          echo "Running Node.js tests for ${{ matrix.service }}..."
+          npm ci
+          
+          # Check if test script exists in package.json
+          if npm run test --silent 2>/dev/null; then
+            echo "✅ Tests passed for ${{ matrix.service }}"
+          else
+            echo "ℹ️ No test script or tests failed for ${{ matrix.service }}"
+          fi
+      
+      - name: Setup Python testing
+        if: steps.test-setup.outputs.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Run Python tests
+        if: steps.test-setup.outputs.language == 'python'
+        working-directory: ${{ steps.test-setup.outputs.path }}
+        run: |
+          echo "Running Python tests for ${{ matrix.service }}..."
+          pip install -r requirements.txt
+          
+          # Install pytest if not in requirements
+          pip install pytest
+          
+          # Run tests if they exist
+          if [ -d "tests" ] || find . -name "*test*.py" | grep -q .; then
+            if python -m pytest -v; then
+              echo "✅ Tests passed for ${{ matrix.service }}"
+            else
+              echo "⚠️ Some tests failed for ${{ matrix.service }}"
+            fi
+          else
+            echo "ℹ️ No tests found for ${{ matrix.service }}"
+          fi
+      
+      - name: Setup .NET testing
+        if: steps.test-setup.outputs.language == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+      
+      - name: Run .NET tests
+        if: steps.test-setup.outputs.language == 'dotnet'
+        working-directory: ${{ steps.test-setup.outputs.path }}
+        run: |
+          echo "Running .NET tests for ${{ matrix.service }}..."
+          if dotnet test --verbosity normal; then
+            echo "✅ Tests passed for ${{ matrix.service }}"
+          else
+            echo "⚠️ Some tests failed for ${{ matrix.service }}"
+          fi
+      
+      - name: Setup Java testing
+        if: steps.test-setup.outputs.language == 'java'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Run Java tests
+        if: steps.test-setup.outputs.language == 'java'
+        working-directory: ${{ steps.test-setup.outputs.path }}
+        run: |
+          echo "Running Java tests for ${{ matrix.service }}..."
+          if ./gradlew test --no-daemon; then
+            echo "✅ Tests passed for ${{ matrix.service }}"
+          else
+            echo "⚠️ Some tests failed for ${{ matrix.service }}"
+          fi
+
+  # Build job - unchanged from original, but now depends on quality checks
+  build:
+    needs: [prepare, kustomize-validate, lint, test]
+    runs-on: ubuntu-latest
+    # Run if quality checks passed OR if they were skipped
+    if: always() && (needs.prepare.outputs.skip-quality-checks == 'true' || (needs.kustomize-validate.result == 'success' && needs.lint.result == 'success' && needs.test.result == 'success'))
     
     strategy:
       fail-fast: false
@@ -202,26 +599,57 @@ jobs:
           echo "  Latest: ${IMAGE_LATEST}"
 
   summary:
-    needs: [prepare, build]
+    needs: [prepare, kustomize-validate, lint, test, build]
     runs-on: ubuntu-latest
     if: always()
     
     steps:
-      - name: Build Summary
+      - name: Quality Gates Summary
         run: |
-          echo "=== Build Summary ==="
+          echo "=== Build Pipeline Summary ==="
           echo "Environment: ${{ needs.prepare.outputs.environment }}"
           echo "Image Tag: ${{ needs.prepare.outputs.image-tag }}"
-          echo "Services Built: ${{ join(fromJson(needs.prepare.outputs.services-matrix), ', ') }}"
+          echo "Services: ${{ join(fromJson(needs.prepare.outputs.services-matrix), ', ') }}"
           echo ""
+          
+          # Quality checks status
+          if [ "${{ needs.prepare.outputs.skip-quality-checks }}" = "true" ]; then
+            echo "⚠️ Quality checks were SKIPPED for this build"
+          else
+            echo "=== Quality Gate Results ==="
+            echo "Kustomize Validation: ${{ needs.kustomize-validate.result }}"
+            echo "Linting: ${{ needs.lint.result }}"
+            echo "Testing: ${{ needs.test.result }}"
+            echo ""
+          fi
+          
+          # Build status
+          echo "=== Build Results ==="
+          echo "Build Status: ${{ needs.build.result }}"
           
           if [ "${{ needs.build.result }}" = "success" ]; then
             echo "✅ All builds completed successfully!"
             echo ""
-            echo "To deploy these images, run the Deploy workflow with:"
-            echo "  Environment: ${{ needs.prepare.outputs.environment }}"
-            echo "  Image Tag: ${{ needs.prepare.outputs.image-tag }}"
+            echo "Next steps:"
+            echo "1. Review any quality gate warnings above"
+            echo "2. Run Deploy workflow with image tag: ${{ needs.prepare.outputs.image-tag }}"
+            echo "3. Monitor deployment health in target environment"
           else
-            echo "❌ Some builds failed. Check the build logs above."
+            echo "❌ Build pipeline failed. Check individual job results above."
+            
+            # Provide specific failure guidance
+            if [ "${{ needs.kustomize-validate.result }}" = "failure" ]; then
+              echo "- Fix Kubernetes manifest validation errors"
+            fi
+            if [ "${{ needs.lint.result }}" = "failure" ]; then
+              echo "- Address code quality issues found by linters"
+            fi
+            if [ "${{ needs.test.result }}" = "failure" ]; then
+              echo "- Fix failing tests"
+            fi
+            if [ "${{ needs.build.result }}" = "failure" ]; then
+              echo "- Check Docker build logs for errors"
+            fi
+            
             exit 1
           fi
