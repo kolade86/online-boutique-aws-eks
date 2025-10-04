@@ -40,10 +40,10 @@ on:
 env:
   PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
   AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '225934518357' }}
+  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '078287196682' }}
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '225934518357' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
-  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '225934518357' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
+  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '078287196682' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '078287196682' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
 
 permissions:
   id-token: write
