@@ -66,8 +66,8 @@ jobs:
           # Node.js services
           NODE_SERVICES=("currencyservice" "paymentservice")
           
-          # Python services  
-          PYTHON_SERVICES=("emailservice" "loadgenerator" "recommendationservice" "shoppingassistantservice")
+          # Python services (excluding shoppingassistantservice - placeholder only)
+          PYTHON_SERVICES=("emailservice" "loadgenerator" "recommendationservice")
           
           # .NET services
           DOTNET_SERVICES=("cartservice")
@@ -75,16 +75,17 @@ jobs:
           # Java services
           JAVA_SERVICES=("adservice")
           
-          # Combine all services
+          # Combine all services (total should be 11 working services)
           ALL_SERVICES=("${GO_SERVICES[@]}" "${NODE_SERVICES[@]}" "${PYTHON_SERVICES[@]}" "${DOTNET_SERVICES[@]}" "${JAVA_SERVICES[@]}")
           
           echo "Technology stack discovery:"
-          echo "  Go services: ${GO_SERVICES[*]}"
-          echo "  Node.js services: ${NODE_SERVICES[*]}"
-          echo "  Python services: ${PYTHON_SERVICES[*]}"
-          echo "  .NET services: ${DOTNET_SERVICES[*]}"
-          echo "  Java services: ${JAVA_SERVICES[*]}"
+          echo "  Go services (${#GO_SERVICES[@]}): ${GO_SERVICES[*]}"
+          echo "  Node.js services (${#NODE_SERVICES[@]}): ${NODE_SERVICES[*]}"
+          echo "  Python services (${#PYTHON_SERVICES[@]}): ${PYTHON_SERVICES[*]}"
+          echo "  .NET services (${#DOTNET_SERVICES[@]}): ${DOTNET_SERVICES[*]}"
+          echo "  Java services (${#JAVA_SERVICES[@]}): ${JAVA_SERVICES[*]}"
           echo "  Total services: ${#ALL_SERVICES[@]}"
+          echo "  Note: shoppingassistantservice excluded (placeholder/stub only)"
           
           # Convert arrays to JSON
           printf -v ALL_SERVICES_JSON '%s\n' "${ALL_SERVICES[@]}" | jq -R . | jq -s .
@@ -102,12 +103,18 @@ jobs:
           echo "java-services=$JAVA_SERVICES_JSON" >> $GITHUB_OUTPUT
           
           echo "Discovery complete. Found ${#ALL_SERVICES[@]} services total."
+          echo "Output values for debugging:"
+          echo "  GO_SERVICES_JSON: $GO_SERVICES_JSON"
+          echo "  NODE_SERVICES_JSON: $NODE_SERVICES_JSON"
+          echo "  PYTHON_SERVICES_JSON: $PYTHON_SERVICES_JSON"
+          echo "  DOTNET_SERVICES_JSON: $DOTNET_SERVICES_JSON"
+          echo "  JAVA_SERVICES_JSON: $JAVA_SERVICES_JSON"
 
   test-go-services:
     name: Test Go Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.go-services != '[]' && needs.discover-services.outputs.go-services != '' }}
+    if: ${{ needs.discover-services.outputs.go-services != '[]' }}
     
     strategy:
       fail-fast: false
@@ -159,7 +166,7 @@ jobs:
     name: Test Node.js Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.node-services != '[]' && needs.discover-services.outputs.node-services != '' }}
+    if: ${{ needs.discover-services.outputs.node-services != '[]' }}
     
     strategy:
       fail-fast: false
@@ -222,7 +229,7 @@ jobs:
     name: Test Python Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.python-services != '[]' && needs.discover-services.outputs.python-services != '' }}
+    if: ${{ needs.discover-services.outputs.python-services != '[]' }}
     
     strategy:
       fail-fast: false
@@ -277,7 +284,7 @@ jobs:
     name: Test .NET Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.dotnet-services != '[]' && needs.discover-services.outputs.dotnet-services != '' }}
+    if: ${{ needs.discover-services.outputs.dotnet-services != '[]' }}
     
     strategy:
       fail-fast: false
@@ -320,7 +327,7 @@ jobs:
     name: Test Java Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.java-services != '[]' && needs.discover-services.outputs.java-services != '' }}
+    if: ${{ needs.discover-services.outputs.java-services != '[]' }}
     
     strategy:
       fail-fast: false
