@@ -87,13 +87,42 @@ jobs:
           echo "  Total services: ${#ALL_SERVICES[@]}"
           echo "  Note: shoppingassistantservice excluded (placeholder/stub only)"
           
-          # Convert arrays to JSON
-          printf -v ALL_SERVICES_JSON '%s\n' "${ALL_SERVICES[@]}" | jq -R . | jq -s .
-          printf -v GO_SERVICES_JSON '%s\n' "${GO_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || GO_SERVICES_JSON='[]'
-          printf -v NODE_SERVICES_JSON '%s\n' "${NODE_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || NODE_SERVICES_JSON='[]'
-          printf -v PYTHON_SERVICES_JSON '%s\n' "${PYTHON_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || PYTHON_SERVICES_JSON='[]'
-          printf -v DOTNET_SERVICES_JSON '%s\n' "${DOTNET_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || DOTNET_SERVICES_JSON='[]'
-          printf -v JAVA_SERVICES_JSON '%s\n' "${JAVA_SERVICES[@]}" | jq -R . | jq -s . 2>/dev/null || JAVA_SERVICES_JSON='[]'
+          # Convert arrays to JSON - ensuring proper format
+          if [ ${#ALL_SERVICES[@]} -gt 0 ]; then
+            ALL_SERVICES_JSON=$(printf '%s\n' "${ALL_SERVICES[@]}" | jq -R . | jq -s .)
+          else
+            ALL_SERVICES_JSON='[]'
+          fi
+          
+          if [ ${#GO_SERVICES[@]} -gt 0 ]; then
+            GO_SERVICES_JSON=$(printf '%s\n' "${GO_SERVICES[@]}" | jq -R . | jq -s .)
+          else
+            GO_SERVICES_JSON='[]'
+          fi
+          
+          if [ ${#NODE_SERVICES[@]} -gt 0 ]; then
+            NODE_SERVICES_JSON=$(printf '%s\n' "${NODE_SERVICES[@]}" | jq -R . | jq -s .)
+          else
+            NODE_SERVICES_JSON='[]'
+          fi
+          
+          if [ ${#PYTHON_SERVICES[@]} -gt 0 ]; then
+            PYTHON_SERVICES_JSON=$(printf '%s\n' "${PYTHON_SERVICES[@]}" | jq -R . | jq -s .)
+          else
+            PYTHON_SERVICES_JSON='[]'
+          fi
+          
+          if [ ${#DOTNET_SERVICES[@]} -gt 0 ]; then
+            DOTNET_SERVICES_JSON=$(printf '%s\n' "${DOTNET_SERVICES[@]}" | jq -R . | jq -s .)
+          else
+            DOTNET_SERVICES_JSON='[]'
+          fi
+          
+          if [ ${#JAVA_SERVICES[@]} -gt 0 ]; then
+            JAVA_SERVICES_JSON=$(printf '%s\n' "${JAVA_SERVICES[@]}" | jq -R . | jq -s .)
+          else
+            JAVA_SERVICES_JSON='[]'
+          fi
           
           echo "services-matrix=$ALL_SERVICES_JSON" >> $GITHUB_OUTPUT
           echo "go-services=$GO_SERVICES_JSON" >> $GITHUB_OUTPUT
@@ -114,7 +143,7 @@ jobs:
     name: Test Go Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.go-services != '[]' }}
+    if: contains(needs.discover-services.outputs.go-services, 'checkoutservice')
     
     strategy:
       fail-fast: false
@@ -166,7 +195,7 @@ jobs:
     name: Test Node.js Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.node-services != '[]' }}
+    if: contains(needs.discover-services.outputs.node-services, 'currencyservice')
     
     strategy:
       fail-fast: false
@@ -229,7 +258,7 @@ jobs:
     name: Test Python Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.python-services != '[]' }}
+    if: contains(needs.discover-services.outputs.python-services, 'emailservice')
     
     strategy:
       fail-fast: false
@@ -284,7 +313,7 @@ jobs:
     name: Test .NET Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.dotnet-services != '[]' }}
+    if: contains(needs.discover-services.outputs.dotnet-services, 'cartservice')
     
     strategy:
       fail-fast: false
@@ -327,7 +356,7 @@ jobs:
     name: Test Java Services
     runs-on: ubuntu-latest
     needs: discover-services
-    if: ${{ needs.discover-services.outputs.java-services != '[]' }}
+    if: contains(needs.discover-services.outputs.java-services, 'adservice')
     
     strategy:
       fail-fast: false
