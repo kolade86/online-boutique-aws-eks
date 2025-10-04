@@ -9,18 +9,19 @@
 # Replace single repository with multiple repositories
 locals {
   microservices = [
-    "frontend",
-    "cartservice",
-    "productcatalogservice",
-    "currencyservice",
-    "paymentservice",
-    "shippingservice",
-    "emailservice",
-    "checkoutservice",
-    "recommendationservice",
-    "adservice",
-    "loadgenerator"
-  ]
+  "frontend",
+  "cartservice",
+  "productcatalogservice",
+  "currencyservice", 
+  "paymentservice",
+  "shippingservice",
+  "emailservice",
+  "checkoutservice",
+  "recommendationservice",
+  "adservice",
+  "loadgenerator",
+  "shoppingassistantservice"
+]
 }
 
 resource "aws_ecr_repository" "microservices" {

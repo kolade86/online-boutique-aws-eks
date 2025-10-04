@@ -144,6 +144,33 @@ resource "aws_iam_role_policy_attachment" "efs_csi_driver" {
   role       = aws_iam_role.efs_csi_driver.name
 }
 
+# IAM Role for EBS CSI Driver
+resource "aws_iam_role" "ebs_csi_driver" {
+  name = "${var.project_name}-${var.environment}-ebs-csi-driver-role"
+
+  assume_role_policy = jsonencode({
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" : "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+          "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" : "sts.amazonaws.com"
+        }
+      }
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.eks.arn
+      }
+    }]
+    Version = "2012-10-17"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+  role       = aws_iam_role.ebs_csi_driver.name
+}
+
 # CloudWatch Log Group for EKS
 resource "aws_cloudwatch_log_group" "eks_cluster" {
   name              = "/aws/eks/${local.cluster_name}/cluster"
@@ -382,8 +409,13 @@ resource "aws_eks_addon" "ebs_csi" {
   cluster_name                = aws_eks_cluster.main.name
   addon_name                  = "aws-ebs-csi-driver"
   resolve_conflicts_on_create = "OVERWRITE"
+  service_account_role_arn    = aws_iam_role.ebs_csi_driver.arn  # Add this line
 
-  depends_on = [aws_eks_node_group.main]
+  depends_on = [
+    aws_iam_role_policy_attachment.ebs_csi_driver,  # Add this
+    aws_eks_node_group.main
+  ]
+  #depends_on = [aws_eks_node_group.main]
 
   timeouts { 
     create = "20m" 
@@ -450,13 +482,21 @@ resource "kubernetes_config_map_v1_data" "aws_auth" {
 
 # Add EKS cluster-managed security group to Redis security group (if Redis SG ID is provided)
 resource "aws_security_group_rule" "redis_from_eks_managed" {
-  count = var.redis_security_group_id != "" ? 1 : 0
-  
+  count = var.enable_redis_sg_rule ? 1 : 0
+
   type                     = "ingress"
-  from_port               = 6379
-  to_port                 = 6379
-  protocol                = "tcp"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
   source_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
-  security_group_id       = var.redis_security_group_id
-  description             = "Redis access from EKS cluster-managed security group"
+  security_group_id        = var.redis_security_group_id
+  description              = "Redis access from EKS cluster-managed security group"
+
+  # Optional: fail fast if enabled but no ID passed
+  lifecycle {
+    precondition {
+      condition     = var.redis_security_group_id != null && var.redis_security_group_id != ""
+      error_message = "Set redis_security_group_id when enable_redis_sg_rule=true."
+    }
+  }
 }

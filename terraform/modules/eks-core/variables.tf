@@ -117,8 +117,14 @@ variable "node_subnet_ids" {
 }
 
 # Redis Security Group Configuration
+variable "enable_redis_sg_rule" {
+  description = "Create SG rule allowing EKS-managed SG to access Redis"
+  type        = bool
+  default     = false
+}
+
 variable "redis_security_group_id" {
-  description = "Security group ID for Redis cluster (optional - used to add EKS-managed security group rule)"
+  description = "Security group ID for Redis cluster (optional)"
   type        = string
-  default     = ""
+  default     = null
 }
