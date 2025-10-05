@@ -23,7 +23,7 @@ on:
       aws_account_id:
         description: 'AWS Account ID'
         required: true
-        default: '882816896880'
+        default: '078287196682'
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
@@ -40,18 +40,24 @@ on:
 env:
   PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
   AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '882816896880' }}
+  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '078287196682' }}
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '882816896880' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
-  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '882816896880' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
+  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '078287196682' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '078287196682' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
 
 permissions:
   id-token: write
   contents: read
 
+# Safe concurrency to auto-cancel overlapping runs
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       services-matrix: ${{ steps.services.outputs.matrix }}
       image-tag: ${{ steps.meta.outputs.image-tag }}
@@ -95,9 +101,58 @@ jobs:
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "Generated image tag: ${IMAGE_TAG}"
 
+  # Comprehensive filesystem scan (runs once per workflow, not per service)
+  scan-repository:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run Trivy filesystem scan (SARIF format)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+          exit-code: '0'
+      
+      - name: Run Trivy filesystem scan (human readable)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          output: 'trivy-fs-report.txt'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+          exit-code: '0'
+      
+      - name: Upload filesystem scan to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+      
+      - name: Upload filesystem scan artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-filesystem-scan
+          path: |
+            trivy-fs-results.sarif
+            trivy-fs-report.txt
+          retention-days: 7
+
   build:
     needs: prepare
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     
     strategy:
       fail-fast: false
@@ -143,6 +198,13 @@ jobs:
           
           echo "✅ Paths verified for ${SERVICE}"
       
+      # Dockerfile lint on PRs
+      - name: Lint Dockerfile (hadolint)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ steps.paths.outputs.build-context }}/${{ steps.paths.outputs.dockerfile }}
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -151,6 +213,9 @@ jobs:
       
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       
       - name: Ensure ECR repository exists
         run: |
@@ -166,46 +231,99 @@ jobs:
             echo "ECR repository ${REPO_NAME} already exists"
           fi
       
-      - name: Build and push image
-        working-directory: ${{ steps.paths.outputs.build-context }}
+      - name: Build and push image with cache
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ steps.paths.outputs.build-context }}
+          file: ${{ steps.paths.outputs.build-context }}/${{ steps.paths.outputs.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}-${{ needs.prepare.outputs.environment }}-${{ matrix.service }}:${{ needs.prepare.outputs.image-tag }}
+            ${{ env.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}-${{ needs.prepare.outputs.environment }}-${{ matrix.service }}:latest
+          # GitHub Actions cache for faster builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Use cache except for production releases (optional)
+          no-cache: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' }}
+
+      # Record built images as artifacts
+      - name: Record built images
         run: |
           REPO_NAME="${{ env.PROJECT_NAME }}-${{ needs.prepare.outputs.environment }}-${{ matrix.service }}"
           IMAGE_TAG="${{ needs.prepare.outputs.image-tag }}"
+          {
+            echo "${{ env.ECR_REGISTRY }}/${REPO_NAME}:${IMAGE_TAG}"
+            echo "${{ env.ECR_REGISTRY }}/${REPO_NAME}:latest"
+          } > "images-${{ matrix.service }}.txt"
+
+      - name: Upload images list artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ matrix.service }}
+          path: images-${{ matrix.service }}.txt
+          retention-days: 7
+
+      # Generate SBOM for compliance
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}-${{ needs.prepare.outputs.environment }}-${{ matrix.service }}:${{ needs.prepare.outputs.image-tag }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.service }}.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.spdx.json
+          retention-days: 30
+
+      # Enhanced Trivy image scanning
+      - name: Run Trivy image scan (SARIF format)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}-${{ needs.prepare.outputs.environment }}-${{ matrix.service }}:${{ needs.prepare.outputs.image-tag }}
+          format: 'sarif'
+          output: 'trivy-image-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+          exit-code: '0'   # Non-blocking for now
           
-          IMAGE_VERSIONED="${{ env.ECR_REGISTRY }}/${REPO_NAME}:${IMAGE_TAG}"
-          IMAGE_LATEST="${{ env.ECR_REGISTRY }}/${REPO_NAME}:latest"
-          
-          echo "=== Building ${{ matrix.service }} ==="
-          echo "Working directory: $(pwd)"
-          echo "Repository: ${REPO_NAME}"
-          echo "Tag: ${IMAGE_TAG}"
-          echo "Dockerfile: ${{ steps.paths.outputs.dockerfile }}"
-          
-          echo "Contents of build context:"
-          ls -la .
-          
-          # Build with progress output
-          docker build \
-            --no-cache \
-            --progress=plain \
-            -f ${{ steps.paths.outputs.dockerfile }} \
-            -t "${IMAGE_VERSIONED}" \
-            -t "${IMAGE_LATEST}" \
-            .
-          
-          echo "Pushing images..."
-          docker push "${IMAGE_VERSIONED}"
-          docker push "${IMAGE_LATEST}"
-          
-          echo "✅ Successfully built and pushed ${{ matrix.service }}:"
-          echo "  Versioned: ${IMAGE_VERSIONED}"
-          echo "  Latest: ${IMAGE_LATEST}"
+          # --- FUTURE: Uncomment to block builds on critical vulnerabilities ---
+          # exit-code: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '1' || '0' }}
+
+      - name: Run Trivy image scan (human readable)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.PROJECT_NAME }}-${{ needs.prepare.outputs.environment }}-${{ matrix.service }}:${{ needs.prepare.outputs.image-tag }}
+          format: 'table'
+          output: 'trivy-image-${{ matrix.service }}.txt'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Upload Trivy image scan to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-${{ matrix.service }}.sarif'
+
+      - name: Upload Trivy image scan artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-scan-${{ matrix.service }}
+          path: |
+            trivy-image-${{ matrix.service }}.sarif
+            trivy-image-${{ matrix.service }}.txt
+          retention-days: 30
 
   summary:
-    needs: [prepare, build]
+    needs: [prepare, build, scan-repository]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
-    
+
     steps:
       - name: Build Summary
         run: |
@@ -225,3 +343,73 @@ jobs:
             echo "❌ Some builds failed. Check the build logs above."
             exit 1
           fi
+
+      # Aggregate artifacts into the GitHub Job Summary
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Job Summary (markdown)
+        run: |
+          {
+            echo "## 🚀 Build Summary"
+            echo "- **Environment**: ${{ needs.prepare.outputs.environment }}"
+            echo "- **Image Tag**: \`${{ needs.prepare.outputs.image-tag }}\`"
+            echo "- **Event**: \`${{ github.event_name }}\`"
+            echo "- **Build Status**: ${{ needs.build.result == 'success' && '✅ Success' || '❌ Failed' }}"
+            echo ""
+            
+            # Built Images Section
+            echo "### 📦 Built Images"
+            if ls images-*/images-*.txt >/dev/null 2>&1; then
+              for f in images-*/images-*.txt; do
+                service_name=$(basename "$f" .txt | sed 's/images-//')
+                echo ""
+                echo "**${service_name}**"
+                sed 's/^/- /' "$f"
+              done
+            else
+              echo "_No image artifacts found._"
+            fi
+            
+            # Security Scan Results
+            echo ""
+            echo "### 🔒 Security Scan Results"
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "- **Filesystem Scan**: ${{ needs.scan-repository.result == 'success' && '✅ Completed' || '❌ Failed' }}"
+              if [ -f "trivy-filesystem-scan/trivy-fs-report.txt" ]; then
+                echo "- **Filesystem Issues Found**: $(grep -c "CRITICAL\|HIGH" trivy-filesystem-scan/trivy-fs-report.txt 2>/dev/null || echo "0")"
+              fi
+            fi
+            
+            # Count image scan issues
+            total_image_issues=0
+            if ls trivy-image-scan-*/trivy-image-*.txt >/dev/null 2>&1; then
+              for f in trivy-image-scan-*/trivy-image-*.txt; do
+                issues=$(grep -c "CRITICAL\|HIGH" "$f" 2>/dev/null || echo "0")
+                total_image_issues=$((total_image_issues + issues))
+              done
+            fi
+            echo "- **Image Scan Issues (CRITICAL/HIGH)**: ${total_image_issues}"
+            echo "- **Security Reports**: Available in GitHub Security tab and artifacts"
+            
+            # Available Artifacts Section
+            echo ""
+            echo "### 📋 Available Artifacts"
+            echo "- **Container Images**: Pushed to ECR with tags \`${{ needs.prepare.outputs.image-tag }}\` and \`latest\`"
+            echo "- **SBOMs**: Software Bill of Materials for compliance (30-day retention)"
+            echo "- **Security Scans**: Trivy vulnerability reports (30-day retention)"
+            echo "- **Image Lists**: Registry URLs for deployment workflows (7-day retention)"
+            
+            # Next Steps
+            echo ""
+            echo "### 🚦 Next Steps"
+            if [ "${{ needs.build.result }}" = "success" ]; then
+              echo "1. Review security scan results in the **Security** tab"
+              echo "2. Run the **Deploy** workflow with the generated image tag"
+              echo "3. Monitor application deployment and health checks"
+            else
+              echo "1. Check build logs for failed services above"
+              echo "2. Fix any build or security issues"
+              echo "3. Re-run the workflow once issues are resolved"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
