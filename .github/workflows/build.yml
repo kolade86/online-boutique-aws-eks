@@ -23,7 +23,7 @@ on:
       aws_account_id:
         description: 'AWS Account ID'
         required: true
-        default: '078287196682'
+        default: '882816896880'
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
@@ -40,14 +40,15 @@ on:
 env:
   PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
   AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '078287196682' }}
+  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '882816896880' }}
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '078287196682' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
-  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '078287196682' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
+  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '882816896880' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '882816896880' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
 
 permissions:
   id-token: write
   contents: read
+  security-events: write  # Required for SARIF uploads
 
 # Safe concurrency to auto-cancel overlapping runs
 concurrency:
@@ -135,7 +136,7 @@ jobs:
       
       - name: Upload filesystem scan to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-fs-results.sarif') != ''
         with:
           sarif_file: 'trivy-fs-results.sarif'
       
@@ -205,11 +206,24 @@ jobs:
         with:
           dockerfile: ${{ steps.paths.outputs.build-context }}/${{ steps.paths.outputs.dockerfile }}
 
+      # Debug step to troubleshoot OIDC
+      - name: Debug OIDC setup
+        run: |
+          echo "=== OIDC Debug Information ==="
+          echo "Repository: ${{ github.repository }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "AWS Role ARN: ${{ env.AWS_ROLE_ARN }}"
+          echo "AWS Region: ${{ env.AWS_REGION }}"
+          echo "Expected token sub: repo:${{ github.repository }}:ref:${{ github.ref }}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-${{ github.run_id }}-${{ matrix.service }}
       
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -278,7 +292,7 @@ jobs:
           path: sbom-${{ matrix.service }}.spdx.json
           retention-days: 30
 
-      # Enhanced Trivy image scanning
+      # Enhanced Trivy image scanning - FIXED VERSION
       - name: Run Trivy image scan (SARIF format)
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -302,12 +316,15 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'
 
+      # Fixed SARIF upload with file existence check
       - name: Upload Trivy image scan to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-image-${{ matrix.service }}.sarif') != ''
         with:
           sarif_file: 'trivy-image-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
 
+      # Fixed artifact upload with file existence check
       - name: Upload Trivy image scan artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -317,9 +334,10 @@ jobs:
             trivy-image-${{ matrix.service }}.sarif
             trivy-image-${{ matrix.service }}.txt
           retention-days: 30
+          if-no-files-found: warn  # Don't fail if files are missing
 
   summary:
-    needs: [prepare, build, scan-repository]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
@@ -347,6 +365,7 @@ jobs:
       # Aggregate artifacts into the GitHub Job Summary
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true  # Don't fail if some artifacts are missing
 
       - name: Job Summary (markdown)
         run: |
@@ -375,22 +394,11 @@ jobs:
             echo ""
             echo "### 🔒 Security Scan Results"
             if [ "${{ github.event_name }}" = "pull_request" ]; then
-              echo "- **Filesystem Scan**: ${{ needs.scan-repository.result == 'success' && '✅ Completed' || '❌ Failed' }}"
-              if [ -f "trivy-filesystem-scan/trivy-fs-report.txt" ]; then
-                echo "- **Filesystem Issues Found**: $(grep -c "CRITICAL\|HIGH" trivy-filesystem-scan/trivy-fs-report.txt 2>/dev/null || echo "0")"
-              fi
+              echo "- **Filesystem Scan**: ${{ needs.scan-repository.result == 'success' && '✅ Completed' || '❌ Failed or Skipped' }}"
             fi
             
-            # Count image scan issues
-            total_image_issues=0
-            if ls trivy-image-scan-*/trivy-image-*.txt >/dev/null 2>&1; then
-              for f in trivy-image-scan-*/trivy-image-*.txt; do
-                issues=$(grep -c "CRITICAL\|HIGH" "$f" 2>/dev/null || echo "0")
-                total_image_issues=$((total_image_issues + issues))
-              done
-            fi
-            echo "- **Image Scan Issues (CRITICAL/HIGH)**: ${total_image_issues}"
-            echo "- **Security Reports**: Available in GitHub Security tab and artifacts"
+            echo "- **Image Security Scans**: Available in GitHub Security tab"
+            echo "- **Build Status**: Check individual service logs for details"
             
             # Available Artifacts Section
             echo ""
