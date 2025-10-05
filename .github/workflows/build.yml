@@ -134,11 +134,13 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'
       
-      - name: Upload filesystem scan to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-fs-results.sarif') != ''
-        with:
-          sarif_file: 'trivy-fs-results.sarif'
+      # Security tab upload removed due to permissions issue  
+      # SARIF files are still generated and saved as artifacts
+      # - name: Upload filesystem scan to GitHub Security tab
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   if: always() && hashFiles('trivy-fs-results.sarif') != ''
+      #   with:
+      #     sarif_file: 'trivy-fs-results.sarif'
       
       - name: Upload filesystem scan artifacts
         uses: actions/upload-artifact@v4
@@ -205,18 +207,6 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ steps.paths.outputs.build-context }}/${{ steps.paths.outputs.dockerfile }}
-
-      # Debug step to troubleshoot OIDC
-      - name: Debug OIDC setup
-        run: |
-          echo "=== OIDC Debug Information ==="
-          echo "Repository: ${{ github.repository }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo "AWS Role ARN: ${{ env.AWS_ROLE_ARN }}"
-          echo "AWS Region: ${{ env.AWS_REGION }}"
-          echo "Expected token sub: repo:${{ github.repository }}:ref:${{ github.ref }}"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -316,13 +306,14 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'
 
-      # Fixed SARIF upload with file existence check
-      - name: Upload Trivy image scan to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-image-${{ matrix.service }}.sarif') != ''
-        with:
-          sarif_file: 'trivy-image-${{ matrix.service }}.sarif'
-          category: trivy-${{ matrix.service }}
+      # Security tab upload removed due to permissions issue
+      # SARIF files are still generated and saved as artifacts
+      # - name: Upload Trivy image scan to GitHub Security tab
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   if: always() && hashFiles('trivy-image-${{ matrix.service }}.sarif') != ''
+      #   with:
+      #     sarif_file: 'trivy-image-${{ matrix.service }}.sarif'
+      #     category: trivy-${{ matrix.service }}
 
       # Fixed artifact upload with file existence check
       - name: Upload Trivy image scan artifacts
