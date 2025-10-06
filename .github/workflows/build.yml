@@ -23,7 +23,7 @@ on:
       aws_account_id:
         description: 'AWS Account ID'
         required: true
-        default: '958312553089'
+        default: '637423575535'
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
@@ -40,10 +40,10 @@ on:
 env:
   PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
   AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '958312553089' }}
+  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '637423575535' }}
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '958312553089' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
-  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '958312553089' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
+  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '637423575535' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '637423575535' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
 
 permissions:
   id-token: write
