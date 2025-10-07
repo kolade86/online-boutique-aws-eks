@@ -5,7 +5,7 @@ fullnameOverride: "monitoring"
 # Environment-specific settings
 environment: dev
 awsRegion: us-east-1
-awsAccountId: "637423575535"
+awsAccountId: "401399516967"
 projectName: online-boutique
 
 # Service Account IRSA Configuration

@@ -3,12 +3,12 @@ environment: dev
 
 serviceAccounts:
   prometheus:
-    roleArn: arn:aws:iam::637423575535:role/online-boutique-prometheus-role
+    roleArn: arn:aws:iam::401399516967:role/online-boutique-prometheus-role
   alertmanager:
-    roleArn: arn:aws:iam::637423575535:role/online-boutique-alertmanager-sns-role
+    roleArn: arn:aws:iam::401399516967:role/online-boutique-alertmanager-sns-role
 
 sns:
-  topicArn: arn:aws:sns:us-east-1:637423575535:online-boutique-dev-alertmanager-notifications
+  topicArn: arn:aws:sns:us-east-1:401399516967:online-boutique-dev-alertmanager-notifications
 
 grafana:
   ingress:
