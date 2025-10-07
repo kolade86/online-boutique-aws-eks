@@ -1,0 +1,11 @@
+apiVersion: v2
+name: online-boutique-monitoring
+description: Complete monitoring stack for Online Boutique microservices
+type: application
+version: 1.0.0
+appVersion: "1.0"
+
+dependencies:
+  - name: kube-prometheus-stack
+    version: "~61.0.0"
+    repository: "https://prometheus-community.github.io/helm-charts"

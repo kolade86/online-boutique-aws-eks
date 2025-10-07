@@ -6,8 +6,12 @@ namespace: online-boutique-dev
 resources:
   - ../../base
 
-patchesStrategicMerge:
-  - replica-patch.yaml  # References the separate patch file
+# Replace patchesStrategicMerge with patches
+patches:
+  - path: replica-patch.yaml
+    target:
+      kind: Deployment
+      name: loadgenerator
 
 labels:
   - pairs:

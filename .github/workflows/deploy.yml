@@ -23,7 +23,7 @@ on:
       aws_account_id:
         description: 'AWS Account ID'
         required: true
-        default: '637423575535'
+        default: '078287196682'
       image_tag:
         description: 'Image tag to deploy (e.g., v20241003-abc123)'
         required: true
@@ -121,14 +121,14 @@ jobs:
             exit 1
           fi
           
-          echo "✅ Redis found: ${REDIS_ENDPOINT}"
+          echo "Redis found: ${REDIS_ENDPOINT}"
           
           # Discover EKS
           CLUSTER_NAME="${{ env.PROJECT_NAME }}-${ENV}-cluster"
           echo "Looking for EKS cluster: ${CLUSTER_NAME}"
           
           if aws eks describe-cluster --name "${CLUSTER_NAME}" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
-            echo "✅ EKS cluster found: ${CLUSTER_NAME}"
+            echo "EKS cluster found: ${CLUSTER_NAME}"
           else
             echo "ERROR: EKS cluster not found: ${CLUSTER_NAME}"
             echo "Available clusters:"
@@ -175,9 +175,9 @@ jobs:
             --repository-name "${REPO_NAME}" \
             --image-ids imageTag="${IMAGE_TAG}" \
             --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
-            echo "✅ Image found: ${REPO_NAME}:${IMAGE_TAG}"
+            echo "Image found: ${REPO_NAME}:${IMAGE_TAG}"
           else
-            echo "❌ Image not found: ${REPO_NAME}:${IMAGE_TAG}"
+            echo "Image not found: ${REPO_NAME}:${IMAGE_TAG}"
             echo "Available tags in repository:"
             aws ecr list-images --repository-name "${REPO_NAME}" --region ${{ env.AWS_REGION }} --query 'imageIds[*].imageTag' --output text | head -10
             exit 1
@@ -205,7 +205,7 @@ jobs:
           
           # Verify connection
           kubectl cluster-info
-          echo "✅ kubectl configured successfully"
+          echo "kubectl configured successfully"
       
       - name: Install Kustomize
         run: |
@@ -222,7 +222,8 @@ jobs:
           else
             echo "Namespace ${NAMESPACE} already exists"
           fi
-      
+
+
       - name: Generate deployment configuration
         run: |
           ENV="${{ github.event.inputs.environment }}"
@@ -241,7 +242,7 @@ jobs:
           echo "Namespace: ${NAMESPACE}"
           echo "Overlay directory: ${OVERLAY_DIR}"
           
-          # Generate kustomization.yaml
+          # Generate kustomization.yaml with NEW patches syntax
           cat > "${OVERLAY_DIR}/kustomization.yaml" << EOF
           apiVersion: kustomize.config.k8s.io/v1beta1
           kind: Kustomization
@@ -280,7 +281,7 @@ jobs:
                 app.kubernetes.io/managed-by: github-actions
           EOF
           
-          # Add environment-specific patches
+          # Add environment-specific patches using NEW syntax
           if [ "${ENV}" = "dev" ]; then
             cat > "${OVERLAY_DIR}/loadgen-patch.yaml" << EOF
           apiVersion: apps/v1
@@ -290,9 +291,15 @@ jobs:
           spec:
             replicas: 0
           EOF
-            echo "" >> "${OVERLAY_DIR}/kustomization.yaml"
-            echo "patchesStrategicMerge:" >> "${OVERLAY_DIR}/kustomization.yaml"
-            echo "  - loadgen-patch.yaml" >> "${OVERLAY_DIR}/kustomization.yaml"
+            # Use NEW patches syntax instead of patchesStrategicMerge
+            cat >> "${OVERLAY_DIR}/kustomization.yaml" << EOF
+          
+          patches:
+            - path: loadgen-patch.yaml
+              target:
+                kind: Deployment
+                name: loadgenerator
+          EOF
           fi
           
           echo "OVERLAY_DIR=${OVERLAY_DIR}" >> $GITHUB_ENV
@@ -305,7 +312,7 @@ jobs:
           echo "=== Configuration Preview (first 50 lines) ==="
           kustomize build "${OVERLAY_DIR}" | head -50
       
-      - name: Apply deployment
+      - name: Apply deployment with resilience
         run: |
           echo "=== Deploying to Kubernetes ==="
           echo "Environment: ${{ github.event.inputs.environment }}"
@@ -314,8 +321,24 @@ jobs:
           echo "Redis endpoint: ${{ needs.get-infrastructure.outputs.redis-endpoint }}"
           echo "Services: ${{ join(fromJson(needs.prepare.outputs.services-matrix), ', ') }}"
           
-          kustomize build "${OVERLAY_DIR}" | kubectl apply -f -
-          echo "✅ Deployment applied successfully"
+          # Apply with retries for webhook resilience
+          max_attempts=3
+          for attempt in $(seq 1 $max_attempts); do
+            echo "Deployment attempt $attempt of $max_attempts..."
+            
+            if kustomize build "${OVERLAY_DIR}" | kubectl apply -f -; then
+              echo "Deployment applied successfully on attempt $attempt"
+              break
+            else
+              if [ $attempt -lt $max_attempts ]; then
+                echo "Attempt $attempt failed, waiting 30 seconds before retry..."
+                sleep 30
+              else
+                echo "All deployment attempts failed"
+                exit 1
+              fi
+            fi
+          done
       
       - name: Wait for deployment
         run: |
@@ -329,9 +352,9 @@ jobs:
           for deployment in $DEPLOYMENTS; do
             echo "Waiting for deployment/${deployment}..."
             if kubectl rollout status deployment/${deployment} -n "${NAMESPACE}" --timeout=300s; then
-              echo "✅ ${deployment} is ready"
+              echo "${deployment} is ready"
             else
-              echo "⚠️  ${deployment} failed to become ready"
+              echo "${deployment} failed to become ready"
               kubectl describe deployment/${deployment} -n "${NAMESPACE}"
               kubectl get pods -n "${NAMESPACE}" -l app=${deployment}
             fi
@@ -400,12 +423,12 @@ jobs:
           echo ""
           
           if [ "${{ needs.deploy.result }}" = "success" ]; then
-            echo "✅ Deployment completed successfully!"
+            echo "Deployment completed successfully!"
             echo ""
             echo "Access your application:"
             echo "  kubectl get svc -n ${{ needs.get-infrastructure.outputs.namespace }}"
             echo "  kubectl get ingress -n ${{ needs.get-infrastructure.outputs.namespace }}"
           else
-            echo "❌ Deployment failed. Check the logs above."
+            echo "Deployment failed. Check the logs above."
             exit 1
           fi

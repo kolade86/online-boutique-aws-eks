@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: online-boutique-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "online-boutique-monitoring.labels" . | nindent 4 }}
+spec:
+  groups:
+  - name: online-boutique.rules
+    rules:
+    - alert: HighErrorRate
+      expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High error rate detected"
+        description: "Error rate is above 10% for 5 minutes"
+    
+    - alert: PodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod is crash looping"
+        description: "Pod {{`{{ $labels.pod }}`}} is restarting frequently"
+    
+    - alert: CartServiceDown
+      expr: up{job="online-boutique-services",instance=~".*cartservice.*"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Cart service is down"
+        description: "Cart service has been down for more than 2 minutes"

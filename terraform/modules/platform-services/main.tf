@@ -1088,6 +1088,12 @@ resource "helm_release" "aws_load_balancer_controller" {
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
   namespace  = "kube-system"
+  
+  # Increase timeouts for better reliability
+  wait            = true
+  timeout         = 900  # 15 minutes
+  atomic          = true
+  cleanup_on_fail = true
 
   set {
     name  = "clusterName"
@@ -1114,14 +1120,82 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = var.vpc_id
   }
 
+  # Configure webhook timeouts and failure policies
+  set {
+    name  = "webhookTimeoutSeconds"
+    value = "30"  # Increase from default 10s to 30s
+  }
+
+  set {
+    name  = "webhookFailurePolicy"
+    value = "Ignore"  # Changed from "Fail" to "Ignore" for more resilient deployments
+  }
+
+  # Alternative: keep Fail but with longer timeout
+  # set {
+  #   name  = "webhookFailurePolicy" 
+  #   value = "Fail"
+  # }
+
+  # Resource limits for better stability
+  set {
+    name  = "resources.limits.cpu"
+    value = "200m"
+  }
+
+  set {
+    name  = "resources.limits.memory"
+    value = "500Mi"
+  }
+
+  set {
+    name  = "resources.requests.cpu"
+    value = "100m"
+  }
+
+  set {
+    name  = "resources.requests.memory"
+    value = "200Mi"
+  }
+
+  # Enable more detailed logging for troubleshooting
+  set {
+    name  = "logLevel"
+    value = "info"
+  }
+
+  # Configure replica count for high availability
+  set {
+    name  = "replicaCount"
+    value = "2"
+  }
+
+  # Pod disruption budget
+  set {
+    name  = "podDisruptionBudget.maxUnavailable"
+    value = "1"
+  }
+
+  # Configure leader election settings
+  set {
+    name  = "enableLeaderElection"
+    value = "true"
+  }
+
+  set {
+    name  = "leaderElectionNamespace"
+    value = "kube-system"
+  }
+
   depends_on = [
     kubernetes_service_account.aws_load_balancer_controller
   ]
 }
 
+# Increase the wait time after deployment
 resource "time_sleep" "wait_for_load_balancer_controller" {
   depends_on      = [helm_release.aws_load_balancer_controller]
-  create_duration = "120s"  # Wait for controller to be fully ready
+  create_duration = "300s"  # Wait 5 minutes for full initialization
 }
 
 #=======================================================

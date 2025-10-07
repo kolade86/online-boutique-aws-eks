@@ -1,0 +1,120 @@
+# Default values for online-boutique-monitoring
+nameOverride: ""
+fullnameOverride: "monitoring"
+
+# Environment-specific settings
+environment: dev
+awsRegion: us-east-1
+awsAccountId: "637423575535"
+projectName: online-boutique
+
+# Service Account IRSA Configuration
+serviceAccounts:
+  prometheus:
+    name: monitoring-kube-prometheus-prometheus
+    roleArn: ""
+  alertmanager:
+    name: monitoring-kube-prometheus-alertmanager
+    roleArn: ""
+
+# SNS Configuration
+sns:
+  topicArn: ""
+
+# Grafana Ingress Configuration
+grafana:
+  ingress:
+    enabled: true
+    className: alb
+    scheme: internet-facing
+    loadBalancerName: monitoring-alb
+    annotations: {}
+
+# kube-prometheus-stack configuration
+kube-prometheus-stack:
+  fullnameOverride: "monitoring"
+  
+  prometheus:
+    prometheusSpec:
+      serviceAccount:
+        create: false
+        name: monitoring-kube-prometheus-prometheus
+      retention: 30d
+      retentionSize: "15GB"
+      resources:
+        requests:
+          cpu: 500m
+          memory: 2Gi
+        limits:
+          cpu: 1000m
+          memory: 4Gi
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: gp3-retain
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 20Gi
+  
+  grafana:
+    adminPassword: admin123
+    persistence:
+      enabled: true
+      storageClassName: gp3-standard
+      size: 10Gi
+    service:
+      type: ClusterIP
+      port: 80
+    ingress:
+      enabled: false
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  alertmanager:
+    alertmanagerSpec:
+      serviceAccount:
+        create: false
+        name: monitoring-kube-prometheus-alertmanager
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+      storage:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: gp3-standard
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+
+  nodeExporter:
+    enabled: true
+
+  kubeStateMetrics:
+    enabled: true
+
+  prometheusOperator:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  defaultRules:
+    create: true
+    rules:
+      etcd: false
+      kubeScheduler: false
