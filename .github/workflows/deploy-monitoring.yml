@@ -1,0 +1,262 @@
+name: Deploy Monitoring
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'install'
+        type: choice
+        options:
+        - install
+        - upgrade
+        - uninstall
+
+env:
+  PROJECT_NAME: online-boutique
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: 401399516967
+  ENVIRONMENT: ${{ github.event.inputs.environment }}
+  AWS_ROLE_ARN: arn:aws:iam::401399516967:role/online-boutique-github-actions-role
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      cluster-name: ${{ steps.infrastructure.outputs.cluster-name }}
+      namespace: ${{ steps.infrastructure.outputs.namespace }}
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Discover infrastructure
+        id: infrastructure
+        run: |
+          echo "=== Infrastructure Discovery ==="
+          
+          CLUSTER_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-cluster"
+          NAMESPACE="monitoring"
+          
+          # Verify EKS cluster exists
+          if aws eks describe-cluster --name "${CLUSTER_NAME}" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "✅ EKS cluster found: ${CLUSTER_NAME}"
+          else
+            echo "❌ EKS cluster not found: ${CLUSTER_NAME}"
+            exit 1
+          fi
+          
+          # Verify IAM roles exist
+          if aws iam get-role --role-name "${{ env.PROJECT_NAME }}-prometheus-role" > /dev/null 2>&1; then
+            echo "✅ Prometheus IAM role found"
+          else
+            echo "❌ Prometheus IAM role not found"
+            exit 1
+          fi
+          
+          if aws iam get-role --role-name "${{ env.PROJECT_NAME }}-alertmanager-sns-role" > /dev/null 2>&1; then
+            echo "✅ AlertManager IAM role found"
+          else
+            echo "❌ AlertManager IAM role not found"
+            exit 1
+          fi
+          
+          echo "cluster-name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+
+  deploy-monitoring:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ github.event.inputs.action == 'install' || github.event.inputs.action == 'upgrade' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ needs.prepare.outputs.cluster-name }} \
+            --region ${{ env.AWS_REGION }}
+          
+          kubectl cluster-info
+          echo "✅ kubectl configured successfully"
+      
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+      
+      - name: Add Helm repositories
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          echo "✅ Helm repositories added"
+      
+      - name: Install Helm dependencies
+        run: |
+          cd helm/monitoring
+          helm dependency build
+          echo "✅ Helm dependencies installed"
+      
+      - name: Deploy/Upgrade Monitoring Stack
+        run: |
+          echo "=== Deploying Monitoring Stack ==="
+          
+          cd helm/monitoring
+          
+          if [ "${{ github.event.inputs.action }}" = "install" ]; then
+            helm install monitoring . \
+              --namespace ${{ needs.prepare.outputs.namespace }} \
+              --values values.yaml \
+              --values values-${{ env.ENVIRONMENT }}.yaml \
+              --wait \
+              --timeout=600s
+            echo "✅ Monitoring stack installed"
+          else
+            helm upgrade monitoring . \
+              --namespace ${{ needs.prepare.outputs.namespace }} \
+              --values values.yaml \
+              --values values-${{ env.ENVIRONMENT }}.yaml \
+              --wait \
+              --timeout=600s
+            echo "✅ Monitoring stack upgraded"
+          fi
+      
+      - name: Wait for deployment
+        run: |
+          echo "=== Waiting for deployments to be ready ==="
+          
+          # Wait for Prometheus Operator
+          kubectl rollout status deployment/monitoring-kube-prometheus-operator -n ${{ needs.prepare.outputs.namespace }} --timeout=300s
+          echo "✅ Prometheus Operator ready"
+          
+          # Wait for Grafana
+          kubectl rollout status deployment/monitoring-grafana -n ${{ needs.prepare.outputs.namespace }} --timeout=300s
+          echo "✅ Grafana ready"
+          
+          # Wait for AlertManager
+          kubectl rollout status statefulset/alertmanager-monitoring-kube-prometheus-alertmanager -n ${{ needs.prepare.outputs.namespace }} --timeout=300s
+          echo "✅ AlertManager ready"
+          
+          # Wait for Prometheus server
+          kubectl rollout status statefulset/prometheus-monitoring-kube-prometheus-prometheus -n ${{ needs.prepare.outputs.namespace }} --timeout=300s
+          echo "✅ Prometheus server ready"
+      
+      - name: Verify deployment
+        run: |
+          echo "=== Deployment Verification ==="
+          
+          echo "=== Pod Status ==="
+          kubectl get pods -n ${{ needs.prepare.outputs.namespace }}
+          echo ""
+          
+          echo "=== Service Status ==="
+          kubectl get svc -n ${{ needs.prepare.outputs.namespace }}
+          echo ""
+          
+          echo "=== Ingress Status ==="
+          kubectl get ingress -n ${{ needs.prepare.outputs.namespace }}
+          echo ""
+          
+          # Get Grafana ALB URL
+          GRAFANA_URL=$(kubectl get ingress monitoring-grafana -n ${{ needs.prepare.outputs.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Not ready yet")
+          echo "=== Grafana Access ==="
+          echo "URL: http://${GRAFANA_URL}"
+          echo "Username: admin"
+          echo "Password: admin123"
+          echo ""
+          
+          echo "=== Port Forward Commands ==="
+          echo "Grafana: kubectl port-forward -n ${{ needs.prepare.outputs.namespace }} svc/monitoring-grafana 3000:80"
+          echo "Prometheus: kubectl port-forward -n ${{ needs.prepare.outputs.namespace }} svc/monitoring-kube-prometheus-prometheus 9090:9090"
+          echo "AlertManager: kubectl port-forward -n ${{ needs.prepare.outputs.namespace }} svc/monitoring-kube-prometheus-alertmanager 9093:9093"
+
+  uninstall-monitoring:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ github.event.inputs.action == 'uninstall' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ needs.prepare.outputs.cluster-name }} \
+            --region ${{ env.AWS_REGION }}
+      
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+      
+      - name: Uninstall Monitoring Stack
+        run: |
+          echo "=== Uninstalling Monitoring Stack ==="
+          
+          helm uninstall monitoring --namespace ${{ needs.prepare.outputs.namespace }} || true
+          
+          # Clean up PVCs (optional - comment out to preserve data)
+          # kubectl delete pvc --all -n ${{ needs.prepare.outputs.namespace }} || true
+          
+          echo "✅ Monitoring stack uninstalled"
+
+  summary:
+    needs: [prepare, deploy-monitoring]
+    runs-on: ubuntu-latest
+    if: always() && (needs.deploy-monitoring.result == 'success' || needs.deploy-monitoring.result == 'skipped')
+    
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "=== Monitoring Deployment Summary ==="
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "Cluster: ${{ needs.prepare.outputs.cluster-name }}"
+          echo "Namespace: ${{ needs.prepare.outputs.namespace }}"
+          echo "Action: ${{ github.event.inputs.action }}"
+          echo ""
+          
+          if [ "${{ needs.deploy-monitoring.result }}" = "success" ]; then
+            echo "✅ Monitoring deployment completed successfully!"
+            echo ""
+            echo "Next steps:"
+            echo "1. Access Grafana via ALB (check ingress for URL)"
+            echo "2. Or use port-forwarding:"
+            echo "   kubectl port-forward -n ${{ needs.prepare.outputs.namespace }} svc/monitoring-grafana 3000:80"
+            echo "3. Add prometheus.io annotations to your services"
+            echo "4. Visit http://localhost:3000 (admin/admin123)"
+          else
+            echo "❌ Monitoring deployment failed. Check the logs above."
+            exit 1
+          fi
