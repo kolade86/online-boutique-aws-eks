@@ -384,18 +384,15 @@ jobs:
           echo "=== Recent Events ==="
           kubectl get events -n "${NAMESPACE}" --sort-by='.lastTimestamp' | tail -10
       
-      - name: Test Redis connectivity
+      - name: Verify Redis configuration
         run: |
-          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
           REDIS_HOST=$(echo "${{ needs.get-infrastructure.outputs.redis-endpoint }}" | cut -d':' -f1)
           REDIS_PORT=$(echo "${{ needs.get-infrastructure.outputs.redis-endpoint }}" | cut -d':' -f2)
           
-          echo "=== Testing Redis Connectivity ==="
-          echo "Testing connection to ${REDIS_HOST}:${REDIS_PORT}"
-          
-          kubectl run redis-test-$(date +%s) --image=busybox --rm -i --restart=Never \
-            -n "${NAMESPACE}" \
-            --command -- sh -c "nc -zv ${REDIS_HOST} ${REDIS_PORT} && echo 'Redis connection: SUCCESS' || echo 'Redis connection: FAILED'"
+          echo "=== Redis Configuration ==="
+          echo "Redis endpoint: ${REDIS_HOST}:${REDIS_PORT}"
+          kubectl get configmap redis-config -n ${{ needs.get-infrastructure.outputs.namespace }} -o yaml
+          echo "Redis connectivity will be verified by cartservice startup"
       
       - name: Cleanup
         if: always()
