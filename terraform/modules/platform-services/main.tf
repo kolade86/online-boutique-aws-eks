@@ -971,7 +971,9 @@ resource "aws_iam_policy" "aws_load_balancer_controller" {
           "elasticloadbalancing:CreateListener",
           "elasticloadbalancing:DeleteListener",
           "elasticloadbalancing:CreateRule",
-          "elasticloadbalancing:DeleteRule"
+          "elasticloadbalancing:DeleteRule",
+          "elasticloadbalancing:ModifyRule",
+          "elasticloadbalancing:ModifyListener"
         ]
         Resource = "*"
       },
@@ -1218,7 +1220,11 @@ resource "kubernetes_config_map" "redis_config" {
 # Kubernetes Storage Classes
 # ============================================
 
-# GP3 Storage Class - General Purpose (Default)
+# ============================================
+# Kubernetes Storage Classes (KMS-friendly)
+# ============================================
+
+# GP3 Storage Class - Standard (with default EBS encryption)
 resource "kubernetes_storage_class" "gp3_standard" {
   metadata {
     name = "gp3-standard"
@@ -1238,97 +1244,44 @@ resource "kubernetes_storage_class" "gp3_standard" {
 
   parameters = {
     type       = "gp3"
-    iops       = "3000" # Baseline IOPS for gp3
-    throughput = "125"  # MiB/s
-    encrypted  = "true"
-    kmsKeyId   = var.ebs_kms_key_arn
-    fsType     = "ext4"
-  }
-
-  depends_on = [helm_release.aws_load_balancer_controller]
-}
-
-# GP3 High Performance Storage Class
-resource "kubernetes_storage_class" "gp3_high_performance" {
-  metadata {
-    name = "gp3-high-performance"
-    labels = {
-      "app.kubernetes.io/managed-by" = "terraform"
-      "storage-tier"                 = "high-performance"
-    }
-  }
-
-  storage_provisioner    = "ebs.csi.aws.com"
-  volume_binding_mode    = "WaitForFirstConsumer"
-  allow_volume_expansion = true
-  reclaim_policy         = "Delete"
-
-  parameters = {
-    type       = "gp3"
-    iops       = "6000" # Higher IOPS for demanding apps
-    throughput = "250"  # Higher throughput
-    encrypted  = "true"
-    kmsKeyId   = var.ebs_kms_key_arn
-    fsType     = "ext4"
-  }
-
-  depends_on = [helm_release.aws_load_balancer_controller]
-}
-
-# IO2 Storage Class - High IOPS for databases
-resource "kubernetes_storage_class" "io2_database" {
-  metadata {
-    name = "io2-database"
-    labels = {
-      "app.kubernetes.io/managed-by" = "terraform"
-      "storage-tier"                 = "database"
-    }
-  }
-
-  storage_provisioner    = "ebs.csi.aws.com"
-  volume_binding_mode    = "WaitForFirstConsumer"
-  allow_volume_expansion = true
-  reclaim_policy         = "Retain" # Retain for databases
-
-  parameters = {
-    type      = "io2"
-    iops      = "10000" # High IOPS for database workloads
-    encrypted = "true"
-    kmsKeyId  = var.ebs_kms_key_arn
-    fsType    = "ext4"
-  }
-
-  depends_on = [helm_release.aws_load_balancer_controller]
-}
-
-# GP3 Retain Storage Class - For critical data
-resource "kubernetes_storage_class" "gp3_retain" {
-  metadata {
-    name = "gp3-retain"
-    labels = {
-      "app.kubernetes.io/managed-by" = "terraform"
-      "storage-tier"                 = "retain"
-    }
-  }
-
-  storage_provisioner    = "ebs.csi.aws.com"
-  volume_binding_mode    = "WaitForFirstConsumer"
-  allow_volume_expansion = true
-  reclaim_policy         = "Retain" # Don't delete volumes when PVC is deleted
-
-  parameters = {
-    type       = "gp3"
     iops       = "3000"
     throughput = "125"
     encrypted  = "true"
-    kmsKeyId   = var.ebs_kms_key_arn
+    # Removed kmsKeyId to use default EBS encryption
     fsType     = "ext4"
   }
 
   depends_on = [helm_release.aws_load_balancer_controller]
 }
 
-# EFS Storage Class
+# GP3 High Performance Storage Class (for Prometheus)
+resource "kubernetes_storage_class" "gp3_monitoring" {
+  metadata {
+    name = "gp3-monitoring"
+    labels = {
+      "app.kubernetes.io/managed-by" = "terraform"
+      "storage-tier"                 = "monitoring"
+    }
+  }
+
+  storage_provisioner    = "ebs.csi.aws.com"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+  reclaim_policy         = "Retain"  # Retain monitoring data
+
+  parameters = {
+    type       = "gp3"
+    iops       = "4000"  # Higher IOPS for metrics ingestion
+    throughput = "200"   # Higher throughput for Prometheus
+    encrypted  = "true"
+    # Removed kmsKeyId to use default EBS encryption
+    fsType     = "ext4"
+  }
+
+  depends_on = [helm_release.aws_load_balancer_controller]
+}
+
+# EFS Storage Class (keep this one as-is since it doesn't use KMS key reference)
 resource "kubernetes_storage_class" "efs_shared" {
   metadata {
     name = "efs-shared"
@@ -1344,7 +1297,7 @@ resource "kubernetes_storage_class" "efs_shared" {
   reclaim_policy         = "Retain"
 
   parameters = {
-    provisioningMode = "efs-ap" # EFS Access Points
+    provisioningMode = "efs-ap"
     fileSystemId     = var.efs_file_system_id
     directoryPerms   = "0755"
     gidRangeStart    = "1000"

@@ -357,3 +357,206 @@ resource "kubernetes_secret" "alertmanager_sns_config" {
     aws_sns_topic.alertmanager_notifications
   ]
 }
+
+# Add this to the END of your terraform/modules/observability/main.tf
+
+# ============================================
+# kube-prometheus-stack Helm Release (Clean Version)
+# ============================================
+
+# Generate a secure password for Grafana admin
+resource "random_password" "grafana_admin_password" {
+  length  = 16
+  special = true
+}
+
+# Store Grafana admin password in Kubernetes secret
+resource "kubernetes_secret" "grafana_admin_credentials" {
+  metadata {
+    name      = "grafana-admin-credentials"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  data = {
+    admin-user     = "admin"
+    admin-password = random_password.grafana_admin_password.result
+  }
+
+  type = "Opaque"
+
+  depends_on = [kubernetes_namespace.monitoring]
+}
+
+# Deploy kube-prometheus-stack using external values file
+resource "helm_release" "kube_prometheus_stack" {
+  name       = "monitoring"
+  repository = "https://prometheus-community.github.io/helm-charts"
+  chart      = "kube-prometheus-stack"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+  version    = "~> 55.0"
+
+  wait            = true
+  timeout         = 900
+  atomic          = true
+  cleanup_on_fail = true
+
+  # Use the external values file with template variables
+  values = [
+    templatefile("${path.module}/prometheus-values.yaml", {
+      prometheus_role_arn     = aws_iam_role.prometheus.arn
+      alertmanager_role_arn   = aws_iam_role.alertmanager_sns.arn
+      grafana_secret_name     = kubernetes_secret.grafana_admin_credentials.metadata[0].name
+      sns_topic_arn          = aws_sns_topic.alertmanager_notifications.arn
+      project_name           = var.project_name
+      environment            = var.environment
+      environment_upper      = upper(var.environment)
+      cluster_name           = var.cluster_name
+    })
+  ]
+
+  depends_on = [
+    kubernetes_namespace.monitoring,
+    kubernetes_secret.grafana_admin_credentials,
+    aws_iam_role.prometheus,
+    aws_iam_role.alertmanager_sns,
+    aws_sns_topic.alertmanager_notifications
+  ]
+}
+
+# Wait for monitoring stack to be ready
+resource "time_sleep" "wait_for_monitoring_stack" {
+  depends_on      = [helm_release.kube_prometheus_stack]
+  create_duration = "120s"
+}
+
+# ============================================
+# Shared Monitoring Ingress (ALB with path-based routing)
+# ============================================
+
+resource "kubernetes_ingress_v1" "monitoring_ingress" {
+  metadata {
+    name      = "monitoring-ingress"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    
+    annotations = {
+      "kubernetes.io/ingress.class"                    = "alb"
+      "alb.ingress.kubernetes.io/scheme"               = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"          = "ip"
+      "alb.ingress.kubernetes.io/load-balancer-name"   = "boutique-dev-monitoring-alb"
+      "alb.ingress.kubernetes.io/listen-ports"         = "[{\"HTTP\": 80}]"
+      "alb.ingress.kubernetes.io/success-codes"        = "200,301,302"
+# Remove the specific health check path to let ALB use defaults for each service
+      "alb.ingress.kubernetes.io/group.name"           = "${var.project_name}-${var.environment}-monitoring"
+      
+      # For HTTPS (uncomment when you have certificates)
+      # "alb.ingress.kubernetes.io/listen-ports"       = "[{\"HTTPS\": 443}]"
+      # "alb.ingress.kubernetes.io/certificate-arn"    = "your-certificate-arn"
+      # "alb.ingress.kubernetes.io/ssl-redirect"       = "443"
+    }
+  }
+
+  spec {
+    ingress_class_name = "alb"
+    
+    rule {
+      #host = "monitoring-${var.environment}.${var.project_name}.local"
+      
+      http {
+        # Grafana path
+        path {
+          path      = "/grafana"
+          path_type = "Prefix"
+          
+          backend {
+            service {
+              name = "monitoring-grafana"
+              port {
+                number = 80
+              }
+            }
+          }
+        }
+        
+        # Grafana path with trailing slash
+        path {
+          path      = "/grafana/"
+          path_type = "Prefix"
+          
+          backend {
+            service {
+              name = "monitoring-grafana"
+              port {
+                number = 80
+              }
+            }
+          }
+        }
+        
+        # Prometheus path
+        path {
+          path      = "/prometheus"
+          path_type = "Prefix"
+          
+          backend {
+            service {
+              name = "monitoring-kube-prometheus-prometheus"
+              port {
+                number = 9090
+              }
+            }
+          }
+        }
+        
+        # Prometheus path with trailing slash
+        path {
+          path      = "/prometheus/"
+          path_type = "Prefix"
+          
+          backend {
+            service {
+              name = "monitoring-kube-prometheus-prometheus"
+              port {
+                number = 9090
+              }
+            }
+          }
+        }
+        
+        # AlertManager path (optional)
+        path {
+          path      = "/alertmanager"
+          path_type = "Prefix"
+          
+          backend {
+            service {
+              name = "monitoring-kube-prometheus-alertmanager"
+              port {
+                number = 9093
+              }
+            }
+          }
+        }
+        
+        # Root path redirects to Grafana
+        path {
+          path      = "/"
+          path_type = "Prefix"
+          
+          backend {
+            service {
+              name = "monitoring-grafana"
+              port {
+                number = 80
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    helm_release.kube_prometheus_stack,
+    time_sleep.wait_for_monitoring_stack
+  ]
+}

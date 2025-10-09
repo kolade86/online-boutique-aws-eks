@@ -100,10 +100,10 @@ variable "redis_port" {
 # Add these variables to the END of your terraform/modules/platform-services/variables.tf file
 
 # Storage Configuration Variables (from data-persistence module)
-variable "ebs_kms_key_arn" {
-  description = "ARN of the EBS KMS encryption key for storage classes"
-  type        = string
-}
+# variable "ebs_kms_key_arn" {
+#   description = "ARN of the EBS KMS encryption key for storage classes"
+#   type        = string
+# }
 
 variable "efs_file_system_id" {
   description = "ID of the EFS file system for EFS storage class"

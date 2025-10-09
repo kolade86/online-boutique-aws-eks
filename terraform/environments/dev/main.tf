@@ -115,14 +115,16 @@ module "platform_services" {
   secrets_manager_secret_arn  = module.data_persistence.secrets_manager_secret_arn
   secrets_manager_secret_name = module.data_persistence.secrets_manager_secret_name
 
-  # Storage Configuration (NEW)
-  ebs_kms_key_arn    = module.data_persistence.ebs_kms_key_arn
+  # Storage Configuration - REMOVE THIS LINE:
+  # ebs_kms_key_arn    = module.data_persistence.ebs_kms_key_arn
+  
+  # Keep this line for EFS:
   efs_file_system_id = module.data_persistence.efs_file_system_id
 
   # Cluster Autoscaler
   cluster_autoscaler_version = var.cluster_autoscaler_version
 
-  # Add Redis connection info
+  # Redis connection info
   redis_endpoint = module.data_persistence.redis_endpoint
   redis_port     = module.data_persistence.redis_port
 

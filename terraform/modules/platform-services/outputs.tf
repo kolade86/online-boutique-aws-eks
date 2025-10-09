@@ -79,30 +79,19 @@ output "verification_commands" {
     check_metrics_server     = "kubectl get deployment metrics-server -n kube-system"
     check_cluster_autoscaler = "kubectl get deployment ${kubernetes_deployment.cluster_autoscaler.metadata[0].name} -n kube-system"
     check_load_balancer      = "kubectl get deployment aws-load-balancer-controller -n kube-system"
-    #check_hpa                = "kubectl get hpa -n ${kubernetes_namespace.app.metadata[0].name}"
     check_secret_sync        = "kubectl get secret ${var.project_name}-db-credentials -n ${kubernetes_namespace.app.metadata[0].name}"
   }
 }
 
-# Storage Class Outputs
+# Storage Class Outputs (Updated to match actual resources)
 output "storage_class_gp3_standard" {
   description = "Name of the GP3 standard storage class"
   value       = kubernetes_storage_class.gp3_standard.metadata[0].name
 }
 
-output "storage_class_gp3_high_performance" {
-  description = "Name of the GP3 high performance storage class"
-  value       = kubernetes_storage_class.gp3_high_performance.metadata[0].name
-}
-
-output "storage_class_io2_database" {
-  description = "Name of the IO2 database storage class"
-  value       = kubernetes_storage_class.io2_database.metadata[0].name
-}
-
-output "storage_class_gp3_retain" {
-  description = "Name of the GP3 retain storage class"
-  value       = kubernetes_storage_class.gp3_retain.metadata[0].name
+output "storage_class_gp3_monitoring" {
+  description = "Name of the GP3 monitoring storage class"
+  value       = kubernetes_storage_class.gp3_monitoring.metadata[0].name
 }
 
 output "storage_class_efs_shared" {
@@ -115,10 +104,9 @@ output "storage_usage_guide" {
   description = "Guide for using different storage classes"
   value = {
     default_storage        = "gp3-standard (default for most workloads)"
-    high_performance      = "gp3-high-performance (for demanding applications)"
-    database_storage      = "io2-database (for database workloads, retained on deletion)"
-    critical_data         = "gp3-retain (for critical data that should be retained)"
+    monitoring_storage     = "gp3-monitoring (for Prometheus and monitoring workloads)"
     shared_storage        = "efs-shared (for shared file system across pods)"
-    encryption_info       = "All storage classes use KMS encryption"
+    encryption_info       = "All storage classes use default EBS encryption"
+    monitoring_retention  = "gp3-monitoring uses Retain policy to preserve monitoring data"
   }
 }

@@ -1,0 +1,192 @@
+# k8s/base/servicemonitors.yaml
+# ServiceMonitor resources for Prometheus Operator to scrape microservices
+
+---
+# ServiceMonitor for Frontend
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: frontend-metrics
+  labels:
+    app: frontend
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for CartService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cartservice-metrics
+  labels:
+    app: cartservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: cartservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for ProductCatalogService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: productcatalogservice-metrics
+  labels:
+    app: productcatalogservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: productcatalogservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for CurrencyService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: currencyservice-metrics
+  labels:
+    app: currencyservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: currencyservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for PaymentService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: paymentservice-metrics
+  labels:
+    app: paymentservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: paymentservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for ShippingService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: shippingservice-metrics
+  labels:
+    app: shippingservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: shippingservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for EmailService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: emailservice-metrics
+  labels:
+    app: emailservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: emailservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for CheckoutService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: checkoutservice-metrics
+  labels:
+    app: checkoutservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: checkoutservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for RecommendationService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: recommendationservice-metrics
+  labels:
+    app: recommendationservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: recommendationservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http
+
+---
+# ServiceMonitor for AdService
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: adservice-metrics
+  labels:
+    app: adservice
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: adservice
+  endpoints:
+  - port: grpc
+    path: /metrics
+    interval: 30s
+    scheme: http

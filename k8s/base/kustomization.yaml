@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - all-services.yaml
   - frontend-ingress.yaml
+  - servicemonitors.yaml
 
 labels:
   - pairs:
