@@ -13,15 +13,15 @@ on:
         - staging
         - prod
       project_name:
-        description: 'Project name (leave empty to use repository variable)'
+        description: 'Project name'
         required: false
         default: ''
       aws_region:
-        description: 'AWS Region (leave empty to use repository variable)'
+        description: 'AWS Region'
         required: false
         default: ''
       aws_account_id:
-        description: 'AWS Account ID (leave empty to use repository variable)'
+        description: 'AWS Account ID'
         required: false
         default: ''
       services:
@@ -79,14 +79,11 @@ jobs:
         run: |
           ALL_SERVICES='${{ vars.ALL_SERVICES }}'
           
-          # Handle both workflow_dispatch with empty/all input and push/PR triggers
-          SERVICES_INPUT="${{ github.event.inputs.services }}"
-          
-          if [ -z "${SERVICES_INPUT}" ] || [ "${SERVICES_INPUT}" = "all" ]; then
+          if [ "${{ github.event.inputs.services }}" = "all" ] || [ -z "${{ github.event.inputs.services }}" ]; then
             echo "matrix=${ALL_SERVICES}" >> $GITHUB_OUTPUT
           else
             # Convert comma-separated input to JSON array
-            IFS=',' read -ra SERVICES <<< "${SERVICES_INPUT}"
+            IFS=',' read -ra SERVICES <<< "${{ github.event.inputs.services }}"
             SERVICES_JSON="["
             for i in "${!SERVICES[@]}"; do
               if [ $i -gt 0 ]; then SERVICES_JSON+=","; fi
