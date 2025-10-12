@@ -13,17 +13,17 @@ on:
         - staging
         - prod
       project_name:
-        description: 'Project name'
-        required: true
-        default: ${{ vars.PROJECT_NAME }}
+        description: 'Project name (leave empty to use repository variable)'
+        required: false
+        default: ''
       aws_region:
-        description: 'AWS Region'
-        required: true
-        default: ${{ vars.AWS_REGION }}
+        description: 'AWS Region (leave empty to use repository variable)'
+        required: false
+        default: ''
       aws_account_id:
-        description: 'AWS Account ID'
-        required: true
-        default: ${{ vars.AWS_ACCOUNT_ID }}
+        description: 'AWS Account ID (leave empty to use repository variable)'
+        required: false
+        default: ''
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
