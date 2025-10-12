@@ -79,11 +79,14 @@ jobs:
         run: |
           ALL_SERVICES='${{ vars.ALL_SERVICES }}'
           
-          if [ "${{ github.event.inputs.services }}" = "all" ] || [ -z "${{ github.event.inputs.services }}" ]; then
+          # Handle both workflow_dispatch with empty/all input and push/PR triggers
+          SERVICES_INPUT="${{ github.event.inputs.services }}"
+          
+          if [ -z "${SERVICES_INPUT}" ] || [ "${SERVICES_INPUT}" = "all" ]; then
             echo "matrix=${ALL_SERVICES}" >> $GITHUB_OUTPUT
           else
             # Convert comma-separated input to JSON array
-            IFS=',' read -ra SERVICES <<< "${{ github.event.inputs.services }}"
+            IFS=',' read -ra SERVICES <<< "${SERVICES_INPUT}"
             SERVICES_JSON="["
             for i in "${!SERVICES[@]}"; do
               if [ $i -gt 0 ]; then SERVICES_JSON+=","; fi
