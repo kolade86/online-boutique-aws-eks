@@ -6,15 +6,15 @@ on:
       project_name:
         description: 'Project name'
         required: true
-        default: ${{ vars.PROJECT_NAME }}
+        default: 'online-boutique'
       aws_region:
         description: 'AWS Region'
         required: true
-        default: ${{ vars.AWS_REGION }}
+        default: 'us-east-1'
       aws_account_id:
         description: 'AWS Account ID'
         required: true
-        default: ${{ vars.AWS_ACCOUNT_ID }}
+        default: '648098100376'
       environment:
         description: 'Environment (for naming)'
         required: true
