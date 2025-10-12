@@ -3,18 +3,6 @@ name: Bootstrap Terraform Backend
 on:
   workflow_dispatch:
     inputs:
-      project_name:
-        description: 'Project name'
-        required: true
-        default: 'online-boutique'
-      aws_region:
-        description: 'AWS Region'
-        required: true
-        default: 'us-east-1'
-      aws_account_id:
-        description: 'AWS Account ID'
-        required: true
-        default: '648098100376'
       environment:
         description: 'Environment (for naming)'
         required: true
@@ -26,11 +14,11 @@ on:
           - prod
 
 env:
-  PROJECT_NAME: ${{ github.event.inputs.project_name }}
-  AWS_REGION: ${{ github.event.inputs.aws_region }}
-  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id }}
+  PROJECT_NAME: online-boutique
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: '648098100376'
   ENVIRONMENT: ${{ github.event.inputs.environment }}
-  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id }}:role/${{ github.event.inputs.project_name }}-github-actions-role
+  AWS_ROLE_ARN: arn:aws:iam::648098100376:role/online-boutique-github-actions-role
 
 permissions:
   id-token: write
