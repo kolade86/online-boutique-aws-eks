@@ -14,16 +14,16 @@ on:
         - prod
       project_name:
         description: 'Project name'
-        required: false
-        default: ''
+        required: true
+        default: ${{ vars.PROJECT_NAME }}
       aws_region:
         description: 'AWS Region'
-        required: false
-        default: ''
+        required: true
+        default: ${{ vars.AWS_REGION }}
       aws_account_id:
         description: 'AWS Account ID'
-        required: false
-        default: ''
+        required: true
+        default: ${{ vars.AWS_ACCOUNT_ID }}
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
