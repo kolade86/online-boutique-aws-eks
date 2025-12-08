@@ -403,14 +403,14 @@ resource "helm_release" "kube_prometheus_stack" {
   # Use the external values file with template variables
   values = [
     templatefile("${path.module}/prometheus-values.yaml", {
-      prometheus_role_arn     = aws_iam_role.prometheus.arn
-      alertmanager_role_arn   = aws_iam_role.alertmanager_sns.arn
-      grafana_secret_name     = kubernetes_secret.grafana_admin_credentials.metadata[0].name
-      sns_topic_arn          = aws_sns_topic.alertmanager_notifications.arn
-      project_name           = var.project_name
-      environment            = var.environment
-      environment_upper      = upper(var.environment)
-      cluster_name           = var.cluster_name
+      prometheus_role_arn   = aws_iam_role.prometheus.arn
+      alertmanager_role_arn = aws_iam_role.alertmanager_sns.arn
+      grafana_secret_name   = kubernetes_secret.grafana_admin_credentials.metadata[0].name
+      sns_topic_arn         = aws_sns_topic.alertmanager_notifications.arn
+      project_name          = var.project_name
+      environment           = var.environment
+      environment_upper     = upper(var.environment)
+      cluster_name          = var.cluster_name
     })
   ]
 
@@ -437,17 +437,17 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
   metadata {
     name      = "monitoring-ingress"
     namespace = kubernetes_namespace.monitoring.metadata[0].name
-    
+
     annotations = {
-      "kubernetes.io/ingress.class"                    = "alb"
-      "alb.ingress.kubernetes.io/scheme"               = "internet-facing"
-      "alb.ingress.kubernetes.io/target-type"          = "ip"
-      "alb.ingress.kubernetes.io/load-balancer-name"   = "boutique-dev-monitoring-alb"
-      "alb.ingress.kubernetes.io/listen-ports"         = "[{\"HTTP\": 80}]"
-      "alb.ingress.kubernetes.io/success-codes"        = "200,301,302"
-# Remove the specific health check path to let ALB use defaults for each service
-      "alb.ingress.kubernetes.io/group.name"           = "${var.project_name}-${var.environment}-monitoring"
-      
+      "kubernetes.io/ingress.class"                  = "alb"
+      "alb.ingress.kubernetes.io/scheme"             = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"        = "ip"
+      "alb.ingress.kubernetes.io/load-balancer-name" = "boutique-dev-monitoring-alb"
+      "alb.ingress.kubernetes.io/listen-ports"       = "[{\"HTTP\": 80}]"
+      "alb.ingress.kubernetes.io/success-codes"      = "200,301,302"
+      # Remove the specific health check path to let ALB use defaults for each service
+      "alb.ingress.kubernetes.io/group.name" = "${var.project_name}-${var.environment}-monitoring"
+
       # For HTTPS (uncomment when you have certificates)
       # "alb.ingress.kubernetes.io/listen-ports"       = "[{\"HTTPS\": 443}]"
       # "alb.ingress.kubernetes.io/certificate-arn"    = "your-certificate-arn"
@@ -457,16 +457,16 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
 
   spec {
     ingress_class_name = "alb"
-    
+
     rule {
       #host = "monitoring-${var.environment}.${var.project_name}.local"
-      
+
       http {
         # Grafana path
         path {
           path      = "/grafana"
           path_type = "Prefix"
-          
+
           backend {
             service {
               name = "monitoring-grafana"
@@ -476,12 +476,12 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
             }
           }
         }
-        
+
         # Grafana path with trailing slash
         path {
           path      = "/grafana/"
           path_type = "Prefix"
-          
+
           backend {
             service {
               name = "monitoring-grafana"
@@ -491,12 +491,12 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
             }
           }
         }
-        
+
         # Prometheus path
         path {
           path      = "/prometheus"
           path_type = "Prefix"
-          
+
           backend {
             service {
               name = "monitoring-kube-prometheus-prometheus"
@@ -506,12 +506,12 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
             }
           }
         }
-        
+
         # Prometheus path with trailing slash
         path {
           path      = "/prometheus/"
           path_type = "Prefix"
-          
+
           backend {
             service {
               name = "monitoring-kube-prometheus-prometheus"
@@ -521,12 +521,12 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
             }
           }
         }
-        
+
         # AlertManager path (optional)
         path {
           path      = "/alertmanager"
           path_type = "Prefix"
-          
+
           backend {
             service {
               name = "monitoring-kube-prometheus-alertmanager"
@@ -536,12 +536,12 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
             }
           }
         }
-        
+
         # Root path redirects to Grafana
         path {
           path      = "/"
           path_type = "Prefix"
-          
+
           backend {
             service {
               name = "monitoring-grafana"
@@ -558,5 +558,53 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
   depends_on = [
     helm_release.kube_prometheus_stack,
     time_sleep.wait_for_monitoring_stack
+  ]
+}
+
+# ============================================
+# Prometheus RBAC for ServiceMonitor Discovery
+# ============================================
+
+# ClusterRole to allow Prometheus to discover ServiceMonitors across all namespaces
+resource "kubernetes_cluster_role" "prometheus_servicemonitor_reader" {
+  metadata {
+    name = "prometheus-servicemonitor-reader"
+    labels = {
+      app        = "prometheus"
+      managed-by = "terraform"
+    }
+  }
+
+  rule {
+    api_groups = ["monitoring.coreos.com"]
+    resources  = ["servicemonitors", "podmonitors"]
+    verbs      = ["get", "list", "watch"]
+  }
+}
+
+# ClusterRoleBinding to bind the role to Prometheus ServiceAccount
+resource "kubernetes_cluster_role_binding" "prometheus_servicemonitor_reader" {
+  metadata {
+    name = "prometheus-servicemonitor-reader"
+    labels = {
+      app        = "prometheus"
+      managed-by = "terraform"
+    }
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.prometheus_servicemonitor_reader.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = "monitoring-kube-prometheus-prometheus"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  depends_on = [
+    helm_release.kube_prometheus_stack
   ]
 }

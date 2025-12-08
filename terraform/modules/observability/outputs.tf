@@ -134,10 +134,10 @@ output "grafana_admin_credentials_secret" {
 output "monitoring_services" {
   description = "Information about monitoring services"
   value = {
-    prometheus_service  = "monitoring-kube-prometheus-prometheus"
-    grafana_service     = "monitoring-grafana"
+    prometheus_service   = "monitoring-kube-prometheus-prometheus"
+    grafana_service      = "monitoring-grafana"
     alertmanager_service = "monitoring-kube-prometheus-alertmanager"
-    namespace           = kubernetes_namespace.monitoring.metadata[0].name
+    namespace            = kubernetes_namespace.monitoring.metadata[0].name
   }
 }
 
@@ -145,7 +145,7 @@ output "monitoring_services" {
 output "enhanced_verification_commands" {
   description = "Commands to verify monitoring stack"
   value = {
-    check_prometheus_pods    = "kubectl get pods -n ${kubernetes_namespace.monitoring.metadata[0].name} -l app.kubernetes.io/name=prometheus"
+    check_prometheus_pods   = "kubectl get pods -n ${kubernetes_namespace.monitoring.metadata[0].name} -l app.kubernetes.io/name=prometheus"
     check_grafana_pods      = "kubectl get pods -n ${kubernetes_namespace.monitoring.metadata[0].name} -l app.kubernetes.io/name=grafana"
     check_alertmanager_pods = "kubectl get pods -n ${kubernetes_namespace.monitoring.metadata[0].name} -l app.kubernetes.io/name=alertmanager"
     check_all_monitoring    = "kubectl get all -n ${kubernetes_namespace.monitoring.metadata[0].name}"
@@ -184,11 +184,11 @@ output "monitoring_urls" {
 output "monitoring_ingress_info" {
   description = "Information about the monitoring ingress"
   value = {
-    name              = kubernetes_ingress_v1.monitoring_ingress.metadata[0].name
-    namespace         = kubernetes_namespace.monitoring.metadata[0].name
-    hostname          = "monitoring-${var.environment}.${var.project_name}.local"
-    load_balancer     = "${var.project_name}-${var.environment}-monitoring-alb"
-    class             = "alb"
+    name          = kubernetes_ingress_v1.monitoring_ingress.metadata[0].name
+    namespace     = kubernetes_namespace.monitoring.metadata[0].name
+    hostname      = "monitoring-${var.environment}.${var.project_name}.local"
+    load_balancer = "${var.project_name}-${var.environment}-monitoring-alb"
+    class         = "alb"
   }
 }
 
@@ -196,12 +196,12 @@ output "monitoring_ingress_info" {
 output "monitoring_storage_info" {
   description = "Storage information for monitoring components"
   value = {
-    prometheus_storage_class = "gp3-monitoring"
-    prometheus_storage_size  = "50Gi"
-    grafana_storage_class    = "gp3-monitoring"
-    grafana_storage_size     = "10Gi"
+    prometheus_storage_class   = "gp3-monitoring"
+    prometheus_storage_size    = "50Gi"
+    grafana_storage_class      = "gp3-monitoring"
+    grafana_storage_size       = "10Gi"
     alertmanager_storage_class = "gp3-monitoring"
-    alertmanager_storage_size = "10Gi"
-    retention_period         = "30 days"
+    alertmanager_storage_size  = "10Gi"
+    retention_period           = "30 days"
   }
 }

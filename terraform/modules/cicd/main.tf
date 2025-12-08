@@ -9,36 +9,36 @@
 # Replace single repository with multiple repositories
 locals {
   microservices = [
-  "frontend",
-  "cartservice",
-  "productcatalogservice",
-  "currencyservice", 
-  "paymentservice",
-  "shippingservice",
-  "emailservice",
-  "checkoutservice",
-  "recommendationservice",
-  "adservice",
-  "loadgenerator",
-  "shoppingassistantservice"
-]
+    "frontend",
+    "cartservice",
+    "productcatalogservice",
+    "currencyservice",
+    "paymentservice",
+    "shippingservice",
+    "emailservice",
+    "checkoutservice",
+    "recommendationservice",
+    "adservice",
+    "loadgenerator",
+    "shoppingassistantservice"
+  ]
 }
 
 resource "aws_ecr_repository" "microservices" {
   for_each = toset(local.microservices)
-  
+
   name                 = "${var.project_name}-${var.environment}-${each.value}"
   image_tag_mutability = "MUTABLE"
-  
+
   image_scanning_configuration {
     scan_on_push = true
   }
-  
+
   encryption_configuration {
     encryption_type = "KMS"
     kms_key         = var.eks_kms_key_arn
   }
-  
+
   tags = {
     Name        = "${var.project_name}-${var.environment}-${each.value}"
     Environment = var.environment
@@ -50,7 +50,7 @@ resource "aws_ecr_repository" "microservices" {
 resource "aws_ecr_lifecycle_policy" "microservices" {
   for_each   = aws_ecr_repository.microservices
   repository = each.value.name
-  
+
   policy = jsonencode({
     rules = [
       {

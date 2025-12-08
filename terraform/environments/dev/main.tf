@@ -50,7 +50,7 @@ module "eks_core" {
   node_subnet_ids = module.networking.private_subnet_ids
 
   # Redis Security Group (for adding security group rule after cluster creation)
-  enable_redis_sg_rule  = true
+  enable_redis_sg_rule    = true
   redis_security_group_id = module.networking.redis_security_group_id
 
   depends_on = [module.networking]
@@ -117,7 +117,7 @@ module "platform_services" {
 
   # Storage Configuration - REMOVE THIS LINE:
   # ebs_kms_key_arn    = module.data_persistence.ebs_kms_key_arn
-  
+
   # Keep this line for EFS:
   efs_file_system_id = module.data_persistence.efs_file_system_id
 

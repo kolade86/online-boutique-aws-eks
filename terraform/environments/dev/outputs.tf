@@ -171,7 +171,7 @@ output "post_deployment_notes" {
     bastion_access       = "Access bastion via: ${module.bastion.bastion_connection_command}"
     database_credentials = "Database credentials stored in: ${module.data_persistence.secrets_manager_secret_name}"
     github_actions_setup = "Configure GitHub Actions with role: ${module.cicd.github_actions_role_arn}"
-    ecr_repositories = "ECR repositories created: ${length(module.cicd.ecr_repository_urls)} microservices"
+    ecr_repositories     = "ECR repositories created: ${length(module.cicd.ecr_repository_urls)} microservices"
     check_ecr_repos      = "List all ECR repos: aws ecr describe-repositories --region ${var.aws_region}"
   }
 }

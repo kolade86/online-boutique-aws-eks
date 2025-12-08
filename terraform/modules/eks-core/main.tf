@@ -188,6 +188,10 @@ resource "aws_eks_cluster" "main" {
   role_arn = aws_iam_role.eks_cluster.arn
   version  = var.cluster_version
 
+  upgrade_policy {
+    support_type = "STANDARD"
+  }
+
   vpc_config {
     subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
     endpoint_private_access = var.endpoint_private_access
@@ -233,8 +237,8 @@ resource "aws_iam_openid_connect_provider" "eks" {
 
 # Launch Template for EKS Worker Nodes
 resource "aws_launch_template" "eks_nodes" {
-  name_prefix   = "${var.project_name}-${var.environment}-node-"
-  description   = "Launch template for EKS worker nodes"
+  name_prefix = "${var.project_name}-${var.environment}-node-"
+  description = "Launch template for EKS worker nodes"
   #instance_type = var.instance_types[0]
 
   vpc_security_group_ids = [var.eks_nodes_security_group_id]
@@ -346,8 +350,8 @@ resource "aws_eks_node_group" "main" {
   }
 
   tags = {
-    Name                                               = "${var.project_name}-${var.environment}-nodes"
-    Environment                                        = var.environment
+    Name                                              = "${var.project_name}-${var.environment}-nodes"
+    Environment                                       = var.environment
     "k8s.io/cluster-autoscaler/enabled"               = "true"
     "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
   }
@@ -361,8 +365,8 @@ resource "aws_eks_addon" "coredns" {
 
   depends_on = [aws_eks_node_group.main]
 
-  timeouts { 
-    create = "20m" 
+  timeouts {
+    create = "20m"
   }
 
   tags = {
@@ -378,8 +382,8 @@ resource "aws_eks_addon" "kube_proxy" {
 
   depends_on = [aws_eks_node_group.main]
 
-  timeouts { 
-    create = "20m" 
+  timeouts {
+    create = "20m"
   }
 
   tags = {
@@ -395,8 +399,8 @@ resource "aws_eks_addon" "vpc_cni" {
 
   depends_on = [aws_eks_node_group.main]
 
-  timeouts { 
-    create = "20m" 
+  timeouts {
+    create = "20m"
   }
 
   tags = {
@@ -409,16 +413,16 @@ resource "aws_eks_addon" "ebs_csi" {
   cluster_name                = aws_eks_cluster.main.name
   addon_name                  = "aws-ebs-csi-driver"
   resolve_conflicts_on_create = "OVERWRITE"
-  service_account_role_arn    = aws_iam_role.ebs_csi_driver.arn  # Add this line
+  service_account_role_arn    = aws_iam_role.ebs_csi_driver.arn # Add this line
 
   depends_on = [
-    aws_iam_role_policy_attachment.ebs_csi_driver,  # Add this
+    aws_iam_role_policy_attachment.ebs_csi_driver, # Add this
     aws_eks_node_group.main
   ]
   #depends_on = [aws_eks_node_group.main]
 
-  timeouts { 
-    create = "20m" 
+  timeouts {
+    create = "20m"
   }
 
   tags = {
@@ -439,8 +443,8 @@ resource "aws_eks_addon" "efs_csi" {
     aws_eks_node_group.main
   ]
 
-  timeouts { 
-    create = "20m" 
+  timeouts {
+    create = "20m"
   }
 
   tags = {

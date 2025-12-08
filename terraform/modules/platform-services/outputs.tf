@@ -103,10 +103,10 @@ output "storage_class_efs_shared" {
 output "storage_usage_guide" {
   description = "Guide for using different storage classes"
   value = {
-    default_storage        = "gp3-standard (default for most workloads)"
-    monitoring_storage     = "gp3-monitoring (for Prometheus and monitoring workloads)"
-    shared_storage        = "efs-shared (for shared file system across pods)"
-    encryption_info       = "All storage classes use default EBS encryption"
-    monitoring_retention  = "gp3-monitoring uses Retain policy to preserve monitoring data"
+    default_storage      = "gp3-standard (default for most workloads)"
+    monitoring_storage   = "gp3-monitoring (for Prometheus and monitoring workloads)"
+    shared_storage       = "efs-shared (for shared file system across pods)"
+    encryption_info      = "All storage classes use default EBS encryption"
+    monitoring_retention = "gp3-monitoring uses Retain policy to preserve monitoring data"
   }
 }

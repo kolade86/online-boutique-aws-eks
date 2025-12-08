@@ -244,29 +244,29 @@ resource "aws_elasticache_subnet_group" "redis" {
 # ElastiCache Redis Cluster
 resource "aws_elasticache_replication_group" "redis" {
   replication_group_id = "${var.project_name}-${var.environment}-redis"
-  description          = "Redis cluster for Online Boutique cart service"  
+  description          = "Redis cluster for Online Boutique cart service"
   engine               = "redis"
   engine_version       = "7.0"
   node_type            = "cache.t3.micro"
   num_cache_clusters   = var.environment == "prod" ? 2 : 1
   parameter_group_name = "default.redis7"
   port                 = 6379
-  
+
   subnet_group_name = aws_elasticache_subnet_group.redis.name
   # Use only the custom Redis security group initially
   security_group_ids = [
     var.redis_security_group_id
   ]
-  
+
   at_rest_encryption_enabled = true
   transit_encryption_enabled = false
-  
+
   automatic_failover_enabled = var.environment == "prod" ? true : false
-  multi_az_enabled          = var.environment == "prod" ? true : false
-  
+  multi_az_enabled           = var.environment == "prod" ? true : false
+
   snapshot_retention_limit = 5
-  snapshot_window         = "03:00-05:00"
-  
+  snapshot_window          = "03:00-05:00"
+
   tags = {
     Name        = "${var.project_name}-redis"
     Environment = var.environment

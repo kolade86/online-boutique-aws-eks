@@ -145,12 +145,12 @@ resource "helm_release" "external_secrets" {
   chart      = "external-secrets"
   namespace  = kubernetes_namespace.external_secrets_system.metadata[0].name
 
-   # Add these settings for better reliability
+  # Add these settings for better reliability
   wait            = true
   timeout         = 600
   atomic          = true
   cleanup_on_fail = true
-   
+
   set {
     name  = "installCRDs"
     value = "true"
@@ -263,7 +263,7 @@ resource "kubectl_manifest" "external_secret" {
     }
     spec = {
       secretStoreRef = {
-        name =  "${var.project_name}-${var.environment}-secret-store"
+        name = "${var.project_name}-${var.environment}-secret-store"
         kind = "SecretStore"
       }
       target = {
@@ -1090,10 +1090,10 @@ resource "helm_release" "aws_load_balancer_controller" {
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
   namespace  = "kube-system"
-  
+
   # Increase timeouts for better reliability
   wait            = true
-  timeout         = 900  # 15 minutes
+  timeout         = 900 # 15 minutes
   atomic          = true
   cleanup_on_fail = true
 
@@ -1125,12 +1125,12 @@ resource "helm_release" "aws_load_balancer_controller" {
   # Configure webhook timeouts and failure policies
   set {
     name  = "webhookTimeoutSeconds"
-    value = "30"  # Increase from default 10s to 30s
+    value = "30" # Increase from default 10s to 30s
   }
 
   set {
     name  = "webhookFailurePolicy"
-    value = "Ignore"  # Changed from "Fail" to "Ignore" for more resilient deployments
+    value = "Ignore" # Changed from "Fail" to "Ignore" for more resilient deployments
   }
 
   # Alternative: keep Fail but with longer timeout
@@ -1197,7 +1197,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 # Increase the wait time after deployment
 resource "time_sleep" "wait_for_load_balancer_controller" {
   depends_on      = [helm_release.aws_load_balancer_controller]
-  create_duration = "300s"  # Wait 5 minutes for full initialization
+  create_duration = "300s" # Wait 5 minutes for full initialization
 }
 
 #=======================================================
@@ -1248,7 +1248,7 @@ resource "kubernetes_storage_class" "gp3_standard" {
     throughput = "125"
     encrypted  = "true"
     # Removed kmsKeyId to use default EBS encryption
-    fsType     = "ext4"
+    fsType = "ext4"
   }
 
   depends_on = [helm_release.aws_load_balancer_controller]
@@ -1267,15 +1267,15 @@ resource "kubernetes_storage_class" "gp3_monitoring" {
   storage_provisioner    = "ebs.csi.aws.com"
   volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
-  reclaim_policy         = "Retain"  # Retain monitoring data
+  reclaim_policy         = "Retain" # Retain monitoring data
 
   parameters = {
     type       = "gp3"
-    iops       = "4000"  # Higher IOPS for metrics ingestion
-    throughput = "200"   # Higher throughput for Prometheus
+    iops       = "4000" # Higher IOPS for metrics ingestion
+    throughput = "200"  # Higher throughput for Prometheus
     encrypted  = "true"
     # Removed kmsKeyId to use default EBS encryption
-    fsType     = "ext4"
+    fsType = "ext4"
   }
 
   depends_on = [helm_release.aws_load_balancer_controller]

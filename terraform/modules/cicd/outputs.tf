@@ -5,7 +5,7 @@
 output "ecr_repository_urls" {
   description = "Map of ECR repository URLs by service name"
   value = {
-    for service, repo in aws_ecr_repository.microservices : 
+    for service, repo in aws_ecr_repository.microservices :
     service => repo.repository_url
   }
 }
@@ -13,7 +13,7 @@ output "ecr_repository_urls" {
 output "ecr_repository_arns" {
   description = "Map of ECR repository ARNs"
   value = {
-    for service, repo in aws_ecr_repository.microservices : 
+    for service, repo in aws_ecr_repository.microservices :
     service => repo.arn
   }
 }
@@ -21,14 +21,14 @@ output "ecr_repository_arns" {
 output "ecr_repository_names" {
   description = "Map of ECR repository names"
   value = {
-    for service, repo in aws_ecr_repository.microservices : 
+    for service, repo in aws_ecr_repository.microservices :
     service => repo.name
   }
 }
 
 output "ecr_registry_id" {
   description = "Registry ID (same for all repos)"
-  value = values(aws_ecr_repository.microservices)[0].registry_id
+  value       = values(aws_ecr_repository.microservices)[0].registry_id
 }
 
 # GitHub OIDC Outputs
@@ -50,7 +50,7 @@ output "github_actions_role_name" {
 # ECR Login Command
 output "ecr_login_command" {
   description = "Command to login to ECR"
-  value = "aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${split("/", values(aws_ecr_repository.microservices)[0].repository_url)[0]}"
+  value       = "aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${split("/", values(aws_ecr_repository.microservices)[0].repository_url)[0]}"
 }
 
 # List all repository URLs for easy reference
@@ -66,11 +66,11 @@ output "all_repository_urls" {
 output "github_actions_workflow_info" {
   description = "Information needed for GitHub Actions workflow configuration"
   value = {
-    aws_region     = var.aws_region
-    role_arn       = aws_iam_role.github_actions.arn
-    cluster_name   = var.cluster_name
-    ecr_registry   = split("/", values(aws_ecr_repository.microservices)[0].repository_url)[0]
-    github_repo    = var.github_repo
+    aws_region   = var.aws_region
+    role_arn     = aws_iam_role.github_actions.arn
+    cluster_name = var.cluster_name
+    ecr_registry = split("/", values(aws_ecr_repository.microservices)[0].repository_url)[0]
+    github_repo  = var.github_repo
   }
 }
 

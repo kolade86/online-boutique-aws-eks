@@ -1,4 +1,4 @@
- #modules/bastion/outputs.tf
+#modules/bastion/outputs.tf
 # Outputs from the Bastion Module
 
 # Instance Information
