@@ -23,7 +23,7 @@ RUN apk update \
 # get packages
 COPY requirements.txt .
 RUN pip install -r requirements.txt \
-    && pip install --no-cache-dir setuptools
+    && pip install --no-cache-dir 'setuptools<81'
 
 FROM base
 
