@@ -22,7 +22,8 @@ RUN apk update \
 
 # get packages
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+    && pip install --no-cache-dir setuptools
 
 FROM base
 
@@ -40,9 +41,6 @@ WORKDIR /email_server
 
 # Grab packages from builder
 COPY --from=builder /usr/local/lib/python3.12/ /usr/local/lib/python3.12/
-
-# Fix: setuptools (provides pkg_resources) is no longer bundled in Python 3.12
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Add the application
 COPY . .
