@@ -9,15 +9,32 @@ prometheus:
   prometheusSpec:
     # Use your existing IRSA role
     serviceAccountName: monitoring-kube-prometheus-prometheus
-    
+
+    # Grafana Cloud Remote Write (AIOps ML features)
+%{ if enable_grafana_cloud }
+    remoteWrite:
+      - url: "${grafana_cloud_remote_write_url}"
+        basicAuth:
+          username:
+            name: grafana-cloud-credentials
+            key: username
+          password:
+            name: grafana-cloud-credentials
+            key: password
+        writeRelabeling:
+          - sourceLabels: [__name__]
+            regex: "(up|container_cpu_usage_seconds_total|container_memory_working_set_bytes|kube_pod_status_phase|kube_deployment_status_replicas|kube_deployment_spec_replicas|node_cpu_seconds_total|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_filesystem_avail_bytes|node_filesystem_size_bytes|http_request_duration_seconds.*|http_requests_total|grpc_server_handled_total|grpc_server_handling_seconds.*|kube_pod_container_resource_requests|kube_pod_container_resource_limits|container_network_receive_bytes_total|container_network_transmit_bytes_total|kube_node_status_condition|kube_pod_status_ready)"
+            action: keep
+%{ endif }
+
     # Configure external URL for subpath - using relative path for ALB compatibility
     externalUrl: "/prometheus/"
     routePrefix: "/prometheus/"
-    
+
     # Retention settings
     retention: 30d
     retentionSize: 50GB
-    
+
     # Resource limits
     resources:
       limits:
@@ -26,7 +43,7 @@ prometheus:
       requests:
         cpu: 500m
         memory: 2Gi
-    
+
     # Storage configuration
     storageSpec:
       volumeClaimTemplate:
@@ -37,7 +54,7 @@ prometheus:
           resources:
             requests:
               storage: 50Gi
-    
+
     # Additional scrape configs for your microservices
     additionalScrapeConfigs:
       - job_name: kubernetes-pods
@@ -56,21 +73,21 @@ prometheus:
             regex: ([^:]+)(?::\d+)?;(\d+)
             replacement: $1:$2
             target_label: __address__
-      
+
       # Redis metrics scraping
       - job_name: redis-exporter
         static_configs:
           - targets: ['redis-exporter:9121']
         scrape_interval: 30s
         metrics_path: /metrics
-  
+
   # Service account configuration
   serviceAccount:
     create: true
     name: monitoring-kube-prometheus-prometheus
     annotations:
       eks.amazonaws.com/role-arn: "${prometheus_role_arn}"
-  
+
   # Disable individual Prometheus ingress
   ingress:
     enabled: false
@@ -80,7 +97,7 @@ alertmanager:
   alertmanagerSpec:
     # Use your existing IRSA role
     serviceAccountName: monitoring-kube-prometheus-alertmanager
-    
+
     # Storage
     storage:
       volumeClaimTemplate:
@@ -91,7 +108,7 @@ alertmanager:
           resources:
             requests:
               storage: 10Gi
-    
+
     # Resource limits
     resources:
       limits:
@@ -100,27 +117,27 @@ alertmanager:
       requests:
         cpu: 100m
         memory: 256Mi
-  
+
   # Service account configuration
   serviceAccount:
     create: true
     name: monitoring-kube-prometheus-alertmanager
     annotations:
       eks.amazonaws.com/role-arn: "${alertmanager_role_arn}"
-  
+
   # AlertManager configuration
   config:
     global:
       smtp_smarthost: localhost:587
       smtp_from: "alertmanager@${project_name}.local"
-    
+
     route:
       group_by: ['alertname']
       group_wait: 10s
       group_interval: 10s
       repeat_interval: 1h
       receiver: web.hook
-    
+
     receivers:
       - name: web.hook
         sns_configs:
@@ -145,13 +162,13 @@ grafana:
     existingSecret: "${grafana_secret_name}"
     userKey: admin-user
     passwordKey: admin-password
-  
+
   # Persistence
   persistence:
     enabled: true
     storageClassName: gp3-monitoring
     size: 10Gi
-  
+
   # Resource limits
   resources:
     limits:
@@ -160,24 +177,24 @@ grafana:
     requests:
       cpu: 250m
       memory: 512Mi
-  
+
   # Configure Grafana to work behind a reverse proxy with subpath
   grafana.ini:
     server:
       root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
       serve_from_sub_path: true
-  
+
   # Disable individual Grafana ingress - we'll create a shared one
   ingress:
     enabled: false
-  
+
   # Environment variables
   env:
     GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel
-  
+
   # Default dashboards
   defaultDashboardsEnabled: true
-  
+
   # Additional dashboards for your microservices
   dashboardProviders:
     dashboardproviders.yaml:

@@ -358,6 +358,28 @@ resource "kubernetes_secret" "alertmanager_sns_config" {
   ]
 }
 
+# ============================================
+# Grafana Cloud Remote Write Credentials
+# ============================================
+
+resource "kubernetes_secret" "grafana_cloud_credentials" {
+  count = var.enable_grafana_cloud ? 1 : 0
+
+  metadata {
+    name      = "grafana-cloud-credentials"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  data = {
+    username = var.grafana_cloud_remote_write_username
+    password = var.grafana_cloud_remote_write_password
+  }
+
+  type = "Opaque"
+
+  depends_on = [kubernetes_namespace.monitoring]
+}
+
 # Add this to the END of your terraform/modules/observability/main.tf
 
 # ============================================
@@ -402,21 +424,24 @@ resource "helm_release" "kube_prometheus_stack" {
 
   # Use the external values file with template variables
   values = [
-    templatefile("${path.module}/prometheus-values.yaml", {
-      prometheus_role_arn   = aws_iam_role.prometheus.arn
-      alertmanager_role_arn = aws_iam_role.alertmanager_sns.arn
-      grafana_secret_name   = kubernetes_secret.grafana_admin_credentials.metadata[0].name
-      sns_topic_arn         = aws_sns_topic.alertmanager_notifications.arn
-      project_name          = var.project_name
-      environment           = var.environment
-      environment_upper     = upper(var.environment)
-      cluster_name          = var.cluster_name
+    templatefile("${path.module}/prometheus-values.yaml.tftpl", {
+      prometheus_role_arn            = aws_iam_role.prometheus.arn
+      alertmanager_role_arn          = aws_iam_role.alertmanager_sns.arn
+      grafana_secret_name            = kubernetes_secret.grafana_admin_credentials.metadata[0].name
+      sns_topic_arn                  = aws_sns_topic.alertmanager_notifications.arn
+      project_name                   = var.project_name
+      environment                    = var.environment
+      environment_upper              = upper(var.environment)
+      cluster_name                   = var.cluster_name
+      enable_grafana_cloud           = var.enable_grafana_cloud
+      grafana_cloud_remote_write_url = var.grafana_cloud_remote_write_url
     })
   ]
 
   depends_on = [
     kubernetes_namespace.monitoring,
     kubernetes_secret.grafana_admin_credentials,
+    kubernetes_secret.grafana_cloud_credentials,
     aws_iam_role.prometheus,
     aws_iam_role.alertmanager_sns,
     aws_sns_topic.alertmanager_notifications
@@ -560,3 +585,4 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
     time_sleep.wait_for_monitoring_stack
   ]
 }
+

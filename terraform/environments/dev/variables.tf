@@ -199,3 +199,32 @@ variable "alert_email_address" {
   description = "Email address for AlertManager notifications"
   type        = string
 }
+
+# ============================================
+# Grafana Cloud AIOps Configuration
+# ============================================
+
+variable "enable_grafana_cloud" {
+  description = "Enable Grafana Cloud remote write for AIOps ML features"
+  type        = bool
+  default     = false
+}
+
+variable "grafana_cloud_remote_write_url" {
+  description = "Grafana Cloud Prometheus remote write endpoint URL"
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_remote_write_username" {
+  description = "Grafana Cloud Prometheus remote write username (Metrics instance ID)"
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_remote_write_password" {
+  description = "Grafana Cloud API token for remote write"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

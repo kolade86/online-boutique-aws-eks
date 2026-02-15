@@ -202,6 +202,12 @@ module "observability" {
   # Alerting Configuration
   alert_email_address = var.alert_email_address
 
+  # Grafana Cloud AIOps Configuration
+  enable_grafana_cloud                = var.enable_grafana_cloud
+  grafana_cloud_remote_write_url      = var.grafana_cloud_remote_write_url
+  grafana_cloud_remote_write_username = var.grafana_cloud_remote_write_username
+  grafana_cloud_remote_write_password = var.grafana_cloud_remote_write_password
+
   depends_on = [module.eks_core]
 }
 
