@@ -384,6 +384,22 @@ jobs:
           echo "=== Recent Events ==="
           kubectl get events -n "${NAMESPACE}" --sort-by='.lastTimestamp' | tail -10
       
+      - name: Annotate Grafana Cloud deployment
+        if: success()
+        run: |
+          TIMESTAMP=$(date +%s)000
+          SERVICES="${{ join(fromJson(needs.prepare.outputs.services-matrix), ', ') }}"
+          
+          curl -s -X POST \
+            https://odusanyakolade20.grafana.net/api/annotations \
+            -H "Authorization: Bearer ${{ secrets.GRAFANA_CLOUD_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"time\": ${TIMESTAMP},
+              \"tags\": [\"deployment\", \"${{ github.event.inputs.environment }}\", \"github-actions\"],
+              \"text\": \"Deployed ${SERVICES} with tag ${{ needs.prepare.outputs.image-tag }} to ${{ github.event.inputs.environment }} by ${{ github.actor }}\"
+            }" && echo "Grafana annotation created" || echo "Grafana annotation failed (non-blocking)"
+      
       - name: Verify Redis configuration
         run: |
           REDIS_HOST=$(echo "${{ needs.get-infrastructure.outputs.redis-endpoint }}" | cut -d':' -f1)
