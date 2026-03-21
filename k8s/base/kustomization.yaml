@@ -5,6 +5,8 @@ resources:
   - all-services.yaml
   - frontend-ingress.yaml
   - servicemonitors.yaml
+  - hpa.yaml
+  - pdb.yaml
 
 labels:
   - pairs:

@@ -1,0 +1,128 @@
+---
+# PodDisruptionBudget definitions for all Online Boutique microservices
+# Protects availability during voluntary disruptions:
+#   - Node drains (kubectl drain), cluster upgrades, rolling deployments
+# Strategy: minAvailable: 1 — at least 1 pod must stay up at all times
+# Services with 2 base replicas: losing 1 pod is allowed, losing both is not
+# -------------------------------------------------------------------
+
+# Frontend - customer-facing, must stay reachable
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+---
+# CartService - session data loss if all pods go down simultaneously
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cartservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cartservice
+---
+# CheckoutService - in-flight transactions must not be dropped
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: checkoutservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: checkoutservice
+---
+# PaymentService - financial transactions, highest disruption risk
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paymentservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paymentservice
+---
+# ProductCatalogService - browsing breaks if unavailable
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: productcatalogservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: productcatalogservice
+---
+# CurrencyService - required for all price displays
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: currencyservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: currencyservice
+---
+# ShippingService - required during checkout flow
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shippingservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: shippingservice
+---
+# RecommendationService - degrades UX if down, not transactional
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: recommendationservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: recommendationservice
+---
+# AdService - non-critical, but minAvailable: 1 maintains baseline
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: adservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: adservice
+---
+# EmailService - async, order confirmations; 1 pod sufficient during drain
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: emailservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: emailservice
+---
+# ShoppingAssistantService - placeholder; minAvailable: 1 for consistency
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shoppingassistantservice-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: shoppingassistantservice
