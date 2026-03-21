@@ -23,7 +23,7 @@ on:
       aws_account_id:
         description: 'AWS Account ID'
         required: true
-        default: '712416034449'
+        default: '444847049446'
       image_tag:
         description: 'Image tag to deploy (e.g., v20241003-abc123)'
         required: true
