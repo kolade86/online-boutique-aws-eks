@@ -218,7 +218,7 @@ jobs:
           if ! helm status online-boutique -n "${NAMESPACE}" > /dev/null 2>&1; then
             echo "No existing Helm release found. Adopting existing resources..."
 
-            RESOURCE_TYPES="deployment service configmap horizontalpodautoscaler podDisruptionBudget ingress"
+            RESOURCE_TYPES="deployment service configmap hpa pdb ingress servicemonitor"
 
             for kind in $RESOURCE_TYPES; do
               RESOURCES=$(kubectl get "${kind}" -n "${NAMESPACE}" -o name 2>/dev/null || true)
@@ -260,19 +260,6 @@ jobs:
             echo "Using environment values file: values-${ENV}.yaml"
           fi
 
-          # Dry-run first
-          echo "=== Dry Run ==="
-          helm upgrade --install online-boutique ./helm/online-boutique \
-            --namespace "${NAMESPACE}" \
-            --create-namespace \
-            --set image.registry=${{ env.ECR_REGISTRY }} \
-            --set image.prefix=${{ env.PROJECT_NAME }}-${ENV} \
-            --set image.tag=${IMAGE_TAG} \
-            --set redis.addr=${REDIS_ENDPOINT} \
-            ${VALUES_ARGS} \
-            --dry-run
-
-          # Apply
           echo "=== Deploying ==="
           helm upgrade --install online-boutique ./helm/online-boutique \
             --namespace "${NAMESPACE}" \
