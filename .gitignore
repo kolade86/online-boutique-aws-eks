@@ -31,5 +31,8 @@ Thumbs.db
 # Build artifacts
 build-all.sh
 
+# Claude Code
+CLAUDE.md
+
 # Git
 .git/
