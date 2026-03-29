@@ -1,0 +1,10 @@
+{{- if .Values.redis.addr }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  labels:
+    {{- include "online-boutique.labels" . | nindent 4 }}
+data:
+  REDIS_ADDR: {{ .Values.redis.addr | quote }}
+{{- end }}

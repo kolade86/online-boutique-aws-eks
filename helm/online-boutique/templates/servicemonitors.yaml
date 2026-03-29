@@ -1,0 +1,22 @@
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.serviceMonitor (not $svc.noServiceMonitor) }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-metrics
+  labels:
+    app: {{ $name }}
+    release: monitoring
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  endpoints:
+  - port: {{ $svc.serviceMonitor.port }}
+    path: {{ $svc.serviceMonitor.path }}
+    interval: 30s
+    scheme: http
+{{- end }}
+{{- end }}

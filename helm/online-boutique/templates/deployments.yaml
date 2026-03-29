@@ -1,0 +1,50 @@
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+        {{- include "online-boutique.labels" $ | nindent 8 }}
+    spec:
+      containers:
+      - name: {{ $svc.containerName | default "server" }}
+        image: {{ include "online-boutique.image" (dict "svc" $svc "global" $.Values "name" $name) }}
+        {{- if $svc.port }}
+        ports:
+        - containerPort: {{ $svc.port }}
+        {{- end }}
+        env:
+        {{- if $svc.useRedis }}
+        - name: REDIS_ADDR
+          valueFrom:
+            configMapKeyRef:
+              name: redis-config
+              key: REDIS_ADDR
+        {{- end }}
+        {{- range $svc.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        resources:
+          {{- toYaml $svc.resources | nindent 10 }}
+        {{- if $svc.readinessProbe }}
+        readinessProbe:
+          {{- toYaml $svc.readinessProbe | nindent 10 }}
+        {{- end }}
+        {{- if $svc.livenessProbe }}
+        livenessProbe:
+          {{- toYaml $svc.livenessProbe | nindent 10 }}
+        {{- end }}
+{{- end }}
