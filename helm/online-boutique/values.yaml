@@ -255,8 +255,6 @@ services:
     protocol: grpc
     replicas: 2
     containerName: server
-    podAnnotations:
-      instrumentation.opentelemetry.io/inject-python: "false"
     env:
       - name: PORT
         value: "8080"
@@ -335,8 +333,6 @@ services:
     protocol: grpc
     replicas: 2
     containerName: server
-    podAnnotations:
-      instrumentation.opentelemetry.io/inject-python: "false"
     env:
       - name: PORT
         value: "8080"
@@ -372,8 +368,6 @@ services:
     protocol: grpc
     replicas: 2
     containerName: server
-    podAnnotations:
-      instrumentation.opentelemetry.io/inject-java: "false"
     env:
       - name: PORT
         value: "9555"

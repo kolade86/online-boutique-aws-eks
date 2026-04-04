@@ -166,6 +166,17 @@ resource "aws_eks_addon" "cloudwatch_observability" {
       enabled = true
     }
 
+    # Disable auto-injection of OTel instrumentation into pods.
+    # Prevents the mutating webhook from adding instrumentation annotations.
+    # Services that need tracing can opt in via the CloudWatch console.
+    manager = {
+      applicationSignals = {
+        autoMonitor = {
+          monitorAllServices = false
+        }
+      }
+    }
+
     # CloudWatch Agent configuration
     agent = {
       config = {
