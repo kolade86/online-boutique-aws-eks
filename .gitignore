@@ -33,6 +33,7 @@ build-all.sh
 
 # Claude Code
 CLAUDE.md
+HELM-GUIDE.md
 
 # Git
 .git/

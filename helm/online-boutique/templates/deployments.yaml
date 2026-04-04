@@ -17,6 +17,10 @@ spec:
       labels:
         app: {{ $name }}
         {{- include "online-boutique.labels" $ | nindent 8 }}
+      {{- if $svc.podAnnotations }}
+      annotations:
+        {{- toYaml $svc.podAnnotations | nindent 8 }}
+      {{- end }}
     spec:
       containers:
       - name: {{ $svc.containerName | default "server" }}
