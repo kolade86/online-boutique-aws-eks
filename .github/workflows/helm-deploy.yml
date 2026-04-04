@@ -239,7 +239,20 @@ jobs:
             echo "Helm release already exists, skipping adoption"
           fi
 
+      - name: Record pre-deploy revision
+        id: pre-deploy
+        run: |
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          REVISION=$(helm history online-boutique -n "${NAMESPACE}" --max 1 -o json 2>/dev/null | jq -r '.[0].revision // empty' || echo "")
+          echo "revision=${REVISION}" >> $GITHUB_OUTPUT
+          if [ -n "${REVISION}" ]; then
+            echo "Current Helm revision: ${REVISION}"
+          else
+            echo "No existing release found (first deploy)"
+          fi
+
       - name: Deploy with Helm
+        id: helm-deploy
         run: |
           ENV="${{ github.event.inputs.environment }}"
           IMAGE_TAG="${{ needs.prepare.outputs.image-tag }}"
@@ -275,8 +288,10 @@ jobs:
           echo "Helm deploy completed successfully"
 
       - name: Wait for deployments
+        id: rollout-check
         run: |
           NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          FAILED=false
 
           echo "=== Waiting for deployments to be ready ==="
 
@@ -287,11 +302,33 @@ jobs:
             if kubectl rollout status deployment/${deployment} -n "${NAMESPACE}" --timeout=300s; then
               echo "${deployment} is ready"
             else
-              echo "${deployment} failed to become ready"
+              echo "::error::${deployment} failed to become ready"
               kubectl describe deployment/${deployment} -n "${NAMESPACE}"
               kubectl get pods -n "${NAMESPACE}" -l app=${deployment}
+              FAILED=true
             fi
           done
+
+          if [ "${FAILED}" = "true" ]; then
+            echo "deploy-healthy=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "deploy-healthy=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rollback on failure
+        if: failure() && steps.pre-deploy.outputs.revision != ''
+        run: |
+          NAMESPACE="${{ needs.get-infrastructure.outputs.namespace }}"
+          PREV_REVISION="${{ steps.pre-deploy.outputs.revision }}"
+
+          echo "::warning::Deployment failed — rolling back to revision ${PREV_REVISION}"
+
+          helm rollback online-boutique "${PREV_REVISION}" -n "${NAMESPACE}" --wait --timeout 5m
+
+          echo "=== Rollback complete ==="
+          echo "Rolled back to revision: ${PREV_REVISION}"
+          kubectl get pods -n "${NAMESPACE}"
 
       - name: Verify deployment
         run: |
