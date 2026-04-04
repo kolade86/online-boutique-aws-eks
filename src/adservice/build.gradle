@@ -50,6 +50,7 @@ dependencies {
 
     testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
     testImplementation "io.grpc:grpc-testing:${grpcVersion}"
+    testImplementation "io.grpc:grpc-inprocess:${grpcVersion}"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
