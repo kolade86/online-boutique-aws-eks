@@ -1,33 +1,40 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 import sys
 import os
 
 # Add service directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Mock all heavy dependencies BEFORE importing recommendation_server.
+# These modules are imported at module level, so they must exist in
+# sys.modules before the first import.
+_MOCKED_MODULES = {
+    'grpc': MagicMock(),
+    'googlecloudprofiler': MagicMock(),
+    'google.auth.exceptions': MagicMock(),
+    'demo_pb2': MagicMock(),
+    'demo_pb2_grpc': MagicMock(),
+    'grpc_health.v1': MagicMock(),
+    'grpc_health.v1.health_pb2': MagicMock(),
+    'grpc_health.v1.health_pb2_grpc': MagicMock(),
+    'opentelemetry': MagicMock(),
+    'opentelemetry.trace': MagicMock(),
+    'opentelemetry.instrumentation.grpc': MagicMock(),
+    'opentelemetry.sdk.trace': MagicMock(),
+    'opentelemetry.sdk.trace.export': MagicMock(),
+    'opentelemetry.exporter.otlp.proto.grpc.trace_exporter': MagicMock(),
+    'logger': MagicMock(),
+}
+
+for mod_name, mock_obj in _MOCKED_MODULES.items():
+    sys.modules.setdefault(mod_name, mock_obj)
+
+import recommendation_server
+
 
 class TestRecommendationService(unittest.TestCase):
     """Tests for the RecommendationService.ListRecommendations logic."""
-
-    def _get_service_class(self):
-        """Import with mocked heavy dependencies."""
-        with patch.dict('sys.modules', {
-            'opentelemetry': MagicMock(),
-            'opentelemetry.trace': MagicMock(),
-            'opentelemetry.instrumentation.grpc': MagicMock(),
-            'opentelemetry.sdk.trace': MagicMock(),
-            'opentelemetry.sdk.trace.export': MagicMock(),
-            'opentelemetry.exporter.otlp.proto.grpc.trace_exporter': MagicMock(),
-            'googlecloudprofiler': MagicMock(),
-            'google.auth.exceptions': MagicMock(),
-            'grpc_health.v1': MagicMock(),
-            'grpc_health.v1.health_pb2': MagicMock(),
-            'grpc_health.v1.health_pb2_grpc': MagicMock(),
-            'logger': MagicMock(),
-        }):
-            import recommendation_server
-            return recommendation_server.RecommendationService
 
     def _make_product(self, product_id):
         p = MagicMock()
@@ -43,87 +50,67 @@ class TestRecommendationService(unittest.TestCase):
         return stub
 
     def test_returns_max_5_recommendations(self):
-        ServiceClass = self._get_service_class()
-        service = ServiceClass()
-
         all_products = [f'PROD{i}' for i in range(10)]
-        import recommendation_server
         recommendation_server.product_catalog_stub = self._mock_catalog(all_products)
 
         request = MagicMock()
         request.product_ids = []
         context = MagicMock()
 
-        response = service.ListRecommendations(request, context)
-        self.assertEqual(len(response.product_ids.extend.call_args[0][0]), 5)
+        response = recommendation_server.RecommendationService().ListRecommendations(request, context)
+        recommended = response.product_ids.extend.call_args[0][0]
+        self.assertEqual(len(recommended), 5)
 
     def test_filters_out_requested_products(self):
-        ServiceClass = self._get_service_class()
-        service = ServiceClass()
-
         all_products = ['A', 'B', 'C', 'D', 'E', 'F']
-        import recommendation_server
         recommendation_server.product_catalog_stub = self._mock_catalog(all_products)
 
         request = MagicMock()
         request.product_ids = ['A', 'B']
         context = MagicMock()
 
-        response = service.ListRecommendations(request, context)
+        response = recommendation_server.RecommendationService().ListRecommendations(request, context)
         recommended = response.product_ids.extend.call_args[0][0]
         for pid in recommended:
             self.assertNotIn(pid, ['A', 'B'])
 
     def test_returns_fewer_when_catalog_is_small(self):
-        ServiceClass = self._get_service_class()
-        service = ServiceClass()
-
         all_products = ['A', 'B']
-        import recommendation_server
         recommendation_server.product_catalog_stub = self._mock_catalog(all_products)
 
         request = MagicMock()
         request.product_ids = []
         context = MagicMock()
 
-        response = service.ListRecommendations(request, context)
+        response = recommendation_server.RecommendationService().ListRecommendations(request, context)
         recommended = response.product_ids.extend.call_args[0][0]
         self.assertEqual(len(recommended), 2)
 
     def test_empty_catalog_returns_empty(self):
-        ServiceClass = self._get_service_class()
-        service = ServiceClass()
-
-        import recommendation_server
         recommendation_server.product_catalog_stub = self._mock_catalog([])
 
         request = MagicMock()
         request.product_ids = []
         context = MagicMock()
 
-        response = service.ListRecommendations(request, context)
+        response = recommendation_server.RecommendationService().ListRecommendations(request, context)
         recommended = response.product_ids.extend.call_args[0][0]
         self.assertEqual(len(recommended), 0)
 
     def test_all_products_filtered_returns_empty(self):
-        ServiceClass = self._get_service_class()
-        service = ServiceClass()
-
         all_products = ['A', 'B']
-        import recommendation_server
         recommendation_server.product_catalog_stub = self._mock_catalog(all_products)
 
         request = MagicMock()
         request.product_ids = ['A', 'B']
         context = MagicMock()
 
-        response = service.ListRecommendations(request, context)
+        response = recommendation_server.RecommendationService().ListRecommendations(request, context)
         recommended = response.product_ids.extend.call_args[0][0]
         self.assertEqual(len(recommended), 0)
 
     def test_health_check(self):
-        ServiceClass = self._get_service_class()
-        service = ServiceClass()
+        service = recommendation_server.RecommendationService()
         request = MagicMock()
         context = MagicMock()
 

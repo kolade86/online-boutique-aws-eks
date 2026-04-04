@@ -90,7 +90,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: src/${{ matrix.service }}
-        run: npm install
+        run: npm install --ignore-scripts
 
       - name: Run tests
         working-directory: src/${{ matrix.service }}
@@ -141,7 +141,9 @@ jobs:
 
       - name: Run tests
         working-directory: src/adservice
-        run: ./gradlew test
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test
 
   # Summary job for branch protection rules
   test-summary:
