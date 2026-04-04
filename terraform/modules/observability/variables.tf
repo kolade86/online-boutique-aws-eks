@@ -89,3 +89,25 @@ variable "enable_grafana_cloud" {
   type        = bool
   default     = false
 }
+
+# ============================================
+# CloudWatch Alarms — AWS Managed Services
+# ============================================
+
+variable "rds_instance_identifier" {
+  description = "RDS instance identifier for CloudWatch alarms"
+  type        = string
+  default     = ""
+}
+
+variable "redis_replication_group_id" {
+  description = "ElastiCache Redis replication group ID for CloudWatch alarms"
+  type        = string
+  default     = ""
+}
+
+variable "alb_arn_suffix" {
+  description = "ALB ARN suffix for CloudWatch alarms (e.g. app/my-alb/1234567890)"
+  type        = string
+  default     = ""
+}

@@ -107,6 +107,17 @@ output "redis_connection_string" {
   value       = "${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}"
 }
 
+# Identifiers for CloudWatch Alarms
+output "rds_instance_identifier" {
+  description = "RDS instance identifier"
+  value       = aws_db_instance.postgres.identifier
+}
+
+output "redis_replication_group_id" {
+  description = "ElastiCache Redis replication group ID"
+  value       = aws_elasticache_replication_group.redis.replication_group_id
+}
+
 # Database Connection Information
 output "database_connection_info" {
   description = "Database connection information for applications"

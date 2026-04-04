@@ -597,3 +597,258 @@ resource "kubernetes_ingress_v1" "monitoring_ingress" {
   ]
 }
 
+# ============================================
+# CloudWatch Alarms — AWS Managed Services
+# ============================================
+# Monitors RDS, ElastiCache Redis, and ALB metrics
+# that Prometheus cannot see (outside the cluster).
+
+# --- RDS Alarms ---
+
+resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
+  count               = var.rds_instance_identifier != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-rds-high-cpu"
+  alarm_description   = "RDS CPU utilization above 80% for 5 minutes"
+  namespace           = "AWS/RDS"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanThreshold"
+  dimensions = {
+    DBInstanceIdentifier = var.rds_instance_identifier
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-rds-cpu-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_free_storage" {
+  count               = var.rds_instance_identifier != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-rds-low-storage"
+  alarm_description   = "RDS free storage below 2GB"
+  namespace           = "AWS/RDS"
+  metric_name         = "FreeStorageSpace"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 2000000000 # 2GB in bytes
+  comparison_operator = "LessThanThreshold"
+  dimensions = {
+    DBInstanceIdentifier = var.rds_instance_identifier
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-rds-storage-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_connections" {
+  count               = var.rds_instance_identifier != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-rds-high-connections"
+  alarm_description   = "RDS database connections above 80"
+  namespace           = "AWS/RDS"
+  metric_name         = "DatabaseConnections"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanThreshold"
+  dimensions = {
+    DBInstanceIdentifier = var.rds_instance_identifier
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-rds-connections-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_free_memory" {
+  count               = var.rds_instance_identifier != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-rds-low-memory"
+  alarm_description   = "RDS freeable memory below 128MB"
+  namespace           = "AWS/RDS"
+  metric_name         = "FreeableMemory"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 134217728 # 128MB in bytes
+  comparison_operator = "LessThanThreshold"
+  dimensions = {
+    DBInstanceIdentifier = var.rds_instance_identifier
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-rds-memory-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+# --- ElastiCache Redis Alarms ---
+
+resource "aws_cloudwatch_metric_alarm" "redis_cpu" {
+  count               = var.redis_replication_group_id != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-redis-high-cpu"
+  alarm_description   = "Redis CPU utilization above 70% for 5 minutes"
+  namespace           = "AWS/ElastiCache"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 70
+  comparison_operator = "GreaterThanThreshold"
+  dimensions = {
+    ReplicationGroupId = var.redis_replication_group_id
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-redis-cpu-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "redis_memory" {
+  count               = var.redis_replication_group_id != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-redis-high-memory"
+  alarm_description   = "Redis memory usage above 80%"
+  namespace           = "AWS/ElastiCache"
+  metric_name         = "DatabaseMemoryUsagePercentage"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanThreshold"
+  dimensions = {
+    ReplicationGroupId = var.redis_replication_group_id
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-redis-memory-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "redis_evictions" {
+  count               = var.redis_replication_group_id != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-redis-evictions"
+  alarm_description   = "Redis is evicting keys — memory pressure detected"
+  namespace           = "AWS/ElastiCache"
+  metric_name         = "Evictions"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 100
+  comparison_operator = "GreaterThanThreshold"
+  dimensions = {
+    ReplicationGroupId = var.redis_replication_group_id
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-redis-evictions-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+# --- ALB Alarms ---
+
+resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  count               = var.alb_arn_suffix != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-alb-5xx-errors"
+  alarm_description   = "ALB returning more than 10 HTTP 5xx errors in 5 minutes"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HTTPCode_ELB_5XX_Count"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 10
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    LoadBalancer = var.alb_arn_suffix
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-alb-5xx-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "alb_target_5xx" {
+  count               = var.alb_arn_suffix != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-alb-target-5xx-errors"
+  alarm_description   = "ALB targets returning more than 10 HTTP 5xx errors in 5 minutes"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 10
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    LoadBalancer = var.alb_arn_suffix
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-alb-target-5xx-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_targets" {
+  count               = var.alb_arn_suffix != "" ? 1 : 0
+  alarm_name          = "${var.project_name}-${var.environment}-alb-unhealthy-targets"
+  alarm_description   = "ALB has unhealthy targets for more than 5 minutes"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "UnHealthyHostCount"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    LoadBalancer = var.alb_arn_suffix
+  }
+  alarm_actions = [aws_sns_topic.alertmanager_notifications.arn]
+  ok_actions    = [aws_sns_topic.alertmanager_notifications.arn]
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-alb-unhealthy-alarm"
+    Environment = var.environment
+    Component   = "alerting"
+  }
+}
+
