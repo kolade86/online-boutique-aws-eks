@@ -47,6 +47,14 @@ dependencies {
                 "com.fasterxml.jackson.core:jackson-databind:${jacksonDatabindVersion}",
                 "io.netty:netty-tcnative-boringssl-static:2.0.73.Final"
     }
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+    testImplementation "io.grpc:grpc-testing:${grpcVersion}"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
 }
 
 protobuf {

@@ -5,10 +5,13 @@
   "repository": "https://github.com/GoogleCloudPlatform/microservices-demo",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
   "author": "Jonathan Lui",
   "license": "ISC",
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
   "dependencies": {
     "@google-cloud/profiler": "6.0.3",
     "@grpc/grpc-js": "1.13.4",
