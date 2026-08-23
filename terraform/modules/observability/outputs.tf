@@ -102,6 +102,7 @@ output "important_notes" {
     log_retention      = "CloudWatch logs are retained for 7 days to minimize costs"
     prometheus_setup   = "Deploy Prometheus using Helm chart and reference the IAM role: ${aws_iam_role.prometheus.arn}"
     alertmanager_setup = "Configure AlertManager to use the secret: ${kubernetes_secret.alertmanager_sns_config.metadata[0].name}"
+    monitoring_access  = "Monitoring is private - there is no ingress or ALB. Reach the UIs with the commands in the port_forward_commands output."
   }
 }
 
@@ -156,39 +157,36 @@ output "enhanced_verification_commands" {
   }
 }
 
-# Grafana access information
+# Grafana access information (private - port-forward only)
 output "grafana_access_info" {
-  description = "Information for accessing Grafana"
+  description = "Information for accessing Grafana via kubectl port-forward"
   value = {
-    url              = "http://monitoring-${var.environment}.${var.project_name}.local/grafana/"
     port_forward_cmd = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/monitoring-grafana 3000:80"
+    local_url        = "http://localhost:3000"
     username         = "admin"
     password_secret  = kubernetes_secret.grafana_admin_credentials.metadata[0].name
+    password_cmd     = "kubectl get secret ${kubernetes_secret.grafana_admin_credentials.metadata[0].name} -n ${kubernetes_namespace.monitoring.metadata[0].name} -o jsonpath='{.data.admin-password}' | base64 -d"
     namespace        = kubernetes_namespace.monitoring.metadata[0].name
   }
 }
 
-# Monitoring Access URLs
-output "monitoring_urls" {
-  description = "URLs to access all monitoring services"
+# Port-forward commands for the whole stack (no ingress - monitoring is private)
+output "port_forward_commands" {
+  description = "kubectl port-forward commands to reach the monitoring UIs locally"
   value = {
-    grafana      = "http://monitoring-${var.environment}.${var.project_name}.local/grafana/"
-    prometheus   = "http://monitoring-${var.environment}.${var.project_name}.local/prometheus/"
-    alertmanager = "http://monitoring-${var.environment}.${var.project_name}.local/alertmanager/"
-    ingress_host = "monitoring-${var.environment}.${var.project_name}.local"
-    alb_name     = "${var.project_name}-${var.environment}-monitoring-alb"
+    grafana      = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/monitoring-grafana 3000:80"
+    prometheus   = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/monitoring-kube-prometheus-prometheus 9090:9090"
+    alertmanager = "kubectl port-forward -n ${kubernetes_namespace.monitoring.metadata[0].name} svc/monitoring-kube-prometheus-alertmanager 9093:9093"
   }
 }
 
-# Ingress information
-output "monitoring_ingress_info" {
-  description = "Information about the monitoring ingress"
+# Local URLs once the matching port-forward is running
+output "monitoring_local_urls" {
+  description = "Local URLs available while the corresponding port-forward is running"
   value = {
-    name          = kubernetes_ingress_v1.monitoring_ingress.metadata[0].name
-    namespace     = kubernetes_namespace.monitoring.metadata[0].name
-    hostname      = "monitoring-${var.environment}.${var.project_name}.local"
-    load_balancer = "${var.project_name}-${var.environment}-monitoring-alb"
-    class         = "alb"
+    grafana      = "http://localhost:3000"
+    prometheus   = "http://localhost:9090"
+    alertmanager = "http://localhost:9093"
   }
 }
 

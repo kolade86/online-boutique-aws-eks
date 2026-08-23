@@ -144,6 +144,24 @@ output "cloudwatch_log_groups" {
   value       = module.observability.cloudwatch_log_groups
 }
 
+# Monitoring is private (no ingress/ALB) - these surface the port-forward
+# commands at the environment root so they show up after `terraform apply`.
+
+output "monitoring_port_forward_commands" {
+  description = "kubectl port-forward commands to reach Grafana, Prometheus, and Alertmanager locally"
+  value       = module.observability.port_forward_commands
+}
+
+output "monitoring_local_urls" {
+  description = "Local URLs available while the corresponding port-forward is running"
+  value       = module.observability.monitoring_local_urls
+}
+
+output "grafana_access_info" {
+  description = "How to reach Grafana: port-forward command, local URL, and admin credential lookup"
+  value       = module.observability.grafana_access_info
+}
+
 # ============================================
 # Quick Start Commands
 # ============================================
@@ -157,6 +175,7 @@ output "quick_start_commands" {
     check_nodes           = "kubectl get nodes"
     check_pods            = "kubectl get pods -A"
     check_external_secret = "kubectl get externalsecret -n ${module.platform_services.app_namespace_name}"
+    grafana_port_forward  = module.observability.port_forward_commands.grafana
   }
 }
 

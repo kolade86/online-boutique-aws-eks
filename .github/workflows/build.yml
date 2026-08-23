@@ -13,17 +13,14 @@ on:
         - staging
         - prod
       project_name:
-        description: 'Project name'
-        required: true
-        default: 'online-boutique'
+        description: 'Project name (leave blank to use the PROJECT_NAME repo variable)'
+        required: false
       aws_region:
-        description: 'AWS Region'
-        required: true
-        default: 'us-east-1'
+        description: 'AWS Region (leave blank to use the AWS_REGION repo variable)'
+        required: false
       aws_account_id:
-        description: 'AWS Account ID'
-        required: true
-        default: '136132056902'
+        description: 'AWS Account ID (leave blank to use the AWS_ACCOUNT_ID repo variable)'
+        required: false
       services:
         description: 'Services to build (comma-separated or "all")'
         required: false
@@ -37,13 +34,23 @@ on:
     paths:
     - 'src/**'
 
+# Required repo variables (Settings -> Secrets and variables -> Actions -> Variables).
+# These MUST be configured before running this workflow -- there are no hardcoded
+# account/project fallbacks, so the repo can be pointed at any AWS sandbox account:
+#   AWS_ACCOUNT_ID  the 12-digit ID of the target AWS account
+#   AWS_REGION      e.g. us-east-1
+#   PROJECT_NAME    e.g. online-boutique
+# A workflow_dispatch input, when supplied, takes priority over the repo variable.
+# NOTE: GitHub does not expose the `env` context to other workflow-level `env`
+# keys, so ECR_REGISTRY and AWS_ROLE_ARN repeat the same input-or-variable
+# expression rather than referencing AWS_ACCOUNT_ID / AWS_REGION / PROJECT_NAME.
 env:
-  PROJECT_NAME: ${{ github.event.inputs.project_name || 'online-boutique' }}
-  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || '136132056902' }}
+  PROJECT_NAME: ${{ github.event.inputs.project_name || vars.PROJECT_NAME }}
+  AWS_REGION: ${{ github.event.inputs.aws_region || vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ github.event.inputs.aws_account_id || vars.AWS_ACCOUNT_ID }}
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
-  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || '136132056902' }}.dkr.ecr.${{ github.event.inputs.aws_region || 'us-east-1' }}.amazonaws.com
-  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || '136132056902' }}:role/${{ github.event.inputs.project_name || 'online-boutique' }}-github-actions-role
+  ECR_REGISTRY: ${{ github.event.inputs.aws_account_id || vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ github.event.inputs.aws_region || vars.AWS_REGION }}.amazonaws.com
+  AWS_ROLE_ARN: arn:aws:iam::${{ github.event.inputs.aws_account_id || vars.AWS_ACCOUNT_ID }}:role/${{ github.event.inputs.project_name || vars.PROJECT_NAME }}-github-actions-role
 
 permissions:
   id-token: write
@@ -65,6 +72,28 @@ jobs:
       environment: ${{ steps.env.outputs.environment }}
     
     steps:
+      - name: Check required repo variables
+        env:
+          ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          REGION: ${{ env.AWS_REGION }}
+          PROJECT: ${{ env.PROJECT_NAME }}
+        run: |
+          MISSING=""
+          if [ -z "${ACCOUNT_ID}" ]; then MISSING="${MISSING} AWS_ACCOUNT_ID"; fi
+          if [ -z "${REGION}" ];     then MISSING="${MISSING} AWS_REGION"; fi
+          if [ -z "${PROJECT}" ];    then MISSING="${MISSING} PROJECT_NAME"; fi
+
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing required configuration:${MISSING}"
+            echo "Set these as repo variables under Settings > Secrets and variables > Actions > Variables,"
+            echo "or supply the matching workflow_dispatch inputs when running manually."
+            exit 1
+          fi
+
+          echo "Project: ${PROJECT}"
+          echo "Region:  ${REGION}"
+          echo "Account: ****${ACCOUNT_ID#"${ACCOUNT_ID%????}"}"
+
       - name: Set environment
         id: env
         run: |
