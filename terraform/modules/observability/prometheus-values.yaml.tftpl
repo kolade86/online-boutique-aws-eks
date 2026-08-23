@@ -10,27 +10,6 @@ prometheus:
     # Use your existing IRSA role
     serviceAccountName: monitoring-kube-prometheus-prometheus
 
-    # Grafana Cloud Remote Write (AIOps ML features)
-%{ if enable_grafana_cloud }
-    remoteWrite:
-      - url: "${grafana_cloud_remote_write_url}"
-        basicAuth:
-          username:
-            name: grafana-cloud-credentials
-            key: username
-          password:
-            name: grafana-cloud-credentials
-            key: password
-        writeRelabeling:
-          - sourceLabels: [__name__]
-            regex: "(up|container_cpu_usage_seconds_total|container_memory_working_set_bytes|kube_pod_status_phase|kube_deployment_status_replicas|kube_deployment_spec_replicas|node_cpu_seconds_total|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_filesystem_avail_bytes|node_filesystem_size_bytes|http_request_duration_seconds.*|http_requests_total|grpc_server_handled_total|grpc_server_handling_seconds.*|kube_pod_container_resource_requests|kube_pod_container_resource_limits|container_network_receive_bytes_total|container_network_transmit_bytes_total|kube_node_status_condition|kube_pod_status_ready)"
-            action: keep
-%{ endif }
-
-    # Configure external URL for subpath - using relative path for ALB compatibility
-    externalUrl: "/prometheus/"
-    routePrefix: "/prometheus/"
-
     # Retention settings
     retention: 30d
     retentionSize: 50GB
@@ -88,7 +67,7 @@ prometheus:
     annotations:
       eks.amazonaws.com/role-arn: "${prometheus_role_arn}"
 
-  # Disable individual Prometheus ingress
+  # Private: no ingress is created for the monitoring stack
   ingress:
     enabled: false
 
@@ -178,13 +157,8 @@ grafana:
       cpu: 250m
       memory: 512Mi
 
-  # Configure Grafana to work behind a reverse proxy with subpath
-  grafana.ini:
-    server:
-      root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
-      serve_from_sub_path: true
-
-  # Disable individual Grafana ingress - we'll create a shared one
+  # Served at the root path - accessed via kubectl port-forward, not an ingress
+  # Private: no ingress is created for the monitoring stack
   ingress:
     enabled: false
 

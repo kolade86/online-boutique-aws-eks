@@ -81,11 +81,5 @@ github_repo = "kolade86/online-boutique-aws-eks"
 
 alert_email_address = "koladeodu20@gmail.com"
 
-# ============================================
-# Grafana Cloud AIOps Configuration
-# ============================================
-
-enable_grafana_cloud                = true
-grafana_cloud_remote_write_url      = "https://prometheus-prod-66-prod-us-east-3.grafana.net/api/prom/push"
-grafana_cloud_remote_write_username = "2978598"
-grafana_cloud_remote_write_password = "glc_eyJvIjoiMTY3MDQ0MSIsIm4iOiJzdGFjay0xNTI3MTg1LWFsbG95LW9ubGluZS1ib3V0aXF1ZS1yZW1vdGUtd3JpdGUiLCJrIjoiMFM4MXBGOHVONHI4VU1tR1pXZTE4NjhiIiwibSI6eyJyIjoicHJvZC11cy1lYXN0LTMifX0="
+# NOTE: External metrics remote-write (SaaS Prometheus/Grafana) is not configured
+# in this environment. Observability runs entirely in-cluster via kube-prometheus-stack.
