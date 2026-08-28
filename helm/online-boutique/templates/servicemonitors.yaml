@@ -1,5 +1,5 @@
 {{- range $name, $svc := .Values.services }}
-{{- if and $svc.serviceMonitor (not $svc.noServiceMonitor) }}
+{{- if and (ne $svc.enabled false) $svc.serviceMonitor (not $svc.noServiceMonitor) }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
