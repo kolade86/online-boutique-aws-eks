@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'helm/**'
   pull_request:
     branches: [main]
     paths:
       - 'src/**'
+      - 'helm/**'
   workflow_dispatch:
 
 concurrency:
