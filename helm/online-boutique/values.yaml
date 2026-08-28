@@ -15,10 +15,6 @@ ingress:
   healthCheckPath: /_healthz
 
 # Service definitions
-# Every entry renders a Deployment (plus Service/HPA/PDB/ServiceMonitor unless
-# opted out with noService/noHpa/noPdb/noServiceMonitor). Set `enabled: false`
-# on a service to skip it entirely - no manifests of any kind are generated.
-# Omitting `enabled` means enabled.
 services:
   frontend:
     port: 8080
@@ -43,12 +39,8 @@ services:
         value: "checkoutservice:5050"
       - name: AD_SERVICE_ADDR
         value: "adservice:9555"
-      # Shopping assistant is disabled in this deployment - the real backend
-      # needs Gemini + a vector DB that are not configured on AWS yet.
-      # SHOPPING_ASSISTANT_SERVICE_ADDR is intentionally omitted: the frontend
-      # only requires it when ENABLE_ASSISTANT is "true".
-      - name: ENABLE_ASSISTANT
-        value: "false"
+      - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+        value: "shoppingassistantservice:80"
       - name: ENABLE_PROFILER
         value: "0"
       - name: DISABLE_PROFILER
@@ -428,16 +420,12 @@ services:
         cpu: 500m
         memory: 512Mi
 
-  # Disabled: the real assistant (src/shoppingassistantservice) needs Gemini
-  # and an AlloyDB vector store that this AWS deployment does not provide.
-  # It previously ran an nginx:alpine placeholder, which made the storefront
-  # advertise an assistant that could not answer anything. Nothing is deployed
-  # for this service while `enabled: false`; see src/shoppingassistantservice.
   shoppingassistantservice:
-    enabled: false
     port: 80
     protocol: http
     replicas: 1
+    containerName: dummy
+    staticImage: nginx:alpine
     env: []
     resources:
       requests:

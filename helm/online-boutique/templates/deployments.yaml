@@ -1,5 +1,4 @@
 {{- range $name, $svc := .Values.services }}
-{{- if ne $svc.enabled false }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -52,5 +51,4 @@ spec:
         livenessProbe:
           {{- toYaml $svc.livenessProbe | nindent 10 }}
         {{- end }}
-{{- end }}
 {{- end }}

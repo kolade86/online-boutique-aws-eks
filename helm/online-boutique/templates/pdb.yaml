@@ -1,5 +1,5 @@
 {{- range $name, $svc := .Values.services }}
-{{- if and (ne $svc.enabled false) $svc.pdb (not $svc.noPdb) }}
+{{- if and $svc.pdb (not $svc.noPdb) }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

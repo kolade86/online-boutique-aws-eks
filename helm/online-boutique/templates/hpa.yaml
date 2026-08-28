@@ -1,5 +1,5 @@
 {{- range $name, $svc := .Values.services }}
-{{- if and (ne $svc.enabled false) $svc.hpa (not $svc.noHpa) }}
+{{- if and $svc.hpa (not $svc.noHpa) }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
