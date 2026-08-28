@@ -25,10 +25,11 @@ on:
         description: 'Services to build (comma-separated or "all")'
         required: false
         default: 'all'
-  workflow_run:
-    workflows: ["Unit Tests"]
-    types: [completed]
+  push:
     branches: [ main ]
+    paths:
+    - 'src/**'
+    - 'helm/**'
 
 # Required repo variables (Settings -> Secrets and variables -> Actions -> Variables).
 # These MUST be configured before running this workflow -- there are no hardcoded
@@ -37,7 +38,7 @@ on:
 #   AWS_REGION      e.g. us-east-1
 #   PROJECT_NAME    e.g. online-boutique
 # A workflow_dispatch input, when supplied, takes priority over the repo variable.
-# Automatic image builds run only after the Unit Tests workflow succeeds on main.
+# Automatic image builds run on main after PR checks have passed and been merged.
 # NOTE: GitHub does not expose the `env` context to other workflow-level `env`
 # keys, so ECR_REGISTRY and AWS_ROLE_ARN repeat the same input-or-variable
 # expression rather than referencing AWS_ACCOUNT_ID / AWS_REGION / PROJECT_NAME.
@@ -56,12 +57,11 @@ permissions:
 
 # Safe concurrency to auto-cancel overlapping runs
 concurrency:
-  group: build-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   prepare:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -122,11 +122,9 @@ jobs:
       
       - name: Generate image metadata
         id: meta
-        env:
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          SHORT_SHA=${SOURCE_SHA::8}
+          SHORT_SHA=${GITHUB_SHA::8}
           IMAGE_TAG="v${TIMESTAMP}-${SHORT_SHA}"
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "Generated image tag: ${IMAGE_TAG}"
@@ -144,8 +142,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       
       - name: Determine build paths
         id: paths
