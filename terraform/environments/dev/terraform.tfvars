@@ -20,7 +20,7 @@ vpc_cidr = "10.0.0.0/16"
 # ============================================
 
 #cluster_name    = "ola-cluster-dev"
-cluster_version = "1.33"
+cluster_version = "1.35"
 
 # Node Group Configuration
 desired_size         = 4
@@ -61,7 +61,7 @@ app_name      = "online-boutique"
 # Platform Services
 # ============================================
 
-cluster_autoscaler_version = "v1.33.0"
+cluster_autoscaler_version = "v1.35.0"
 
 # ============================================
 # Infrastructure Instance Types
