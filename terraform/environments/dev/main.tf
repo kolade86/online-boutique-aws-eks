@@ -210,6 +210,49 @@ module "observability" {
 }
 
 # ============================================
+# 8. Argo CD Module (GitOps)
+# ============================================
+# Runs alongside the GitHub Actions Helm deployment for now. Automated sync is
+# OFF, so Argo CD only reports drift until it is synced by hand - the workflow
+# stays the sole writer to the cluster. See the module README for the handover
+# plan before turning automation on.
+
+module "argocd" {
+  source = "../../modules/argocd"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  namespace     = var.argocd_namespace
+  chart_version = var.argocd_chart_version
+
+  # Ingress / access
+  ingress_enabled = var.argocd_ingress_enabled
+  ingress_scheme  = var.argocd_ingress_scheme
+
+  # Application source
+  repo_url        = var.argocd_repo_url
+  target_revision = var.argocd_target_revision
+  app_chart_path  = var.argocd_app_chart_path
+
+  # Application destination
+  app_namespace = module.platform_services.app_namespace_name
+
+  # Helm values the chart cannot supply itself
+  app_image_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+  app_image_prefix   = "${var.project_name}-${var.environment}"
+  app_image_tag      = var.argocd_app_image_tag
+  app_redis_addr     = "${module.data_persistence.redis_endpoint}:${module.data_persistence.redis_port}"
+
+  # Sync policy - prune stays off until Argo CD is trusted with deletions
+  enable_automated_sync = var.argocd_enable_automated_sync
+  enable_self_heal      = var.argocd_enable_self_heal
+  enable_prune          = var.argocd_enable_prune
+
+  depends_on = [module.eks_core, module.platform_services, module.data_persistence]
+}
+
+# ============================================
 # Data Sources
 # ============================================
 

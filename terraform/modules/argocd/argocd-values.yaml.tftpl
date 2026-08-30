@@ -1,0 +1,77 @@
+# modules/argocd/argocd-values.yaml.tftpl
+# Values for the argo-cd Helm chart
+
+global:
+  domain: "${server_domain}"
+
+configs:
+  params:
+    # Terminate TLS at the ALB and serve plain HTTP from argocd-server.
+    # Without this the ALB speaks HTTP to an HTTPS backend and every request
+    # fails with a redirect loop.
+    server.insecure: true
+
+  cm:
+    # Keep the app in sync when only the tracked revision moves.
+    timeout.reconciliation: 180s
+
+server:
+  # The ingress is managed by Terraform (kubernetes_ingress_v1) so the ALB
+  # hostname is available as a module output.
+  ingress:
+    enabled: false
+
+  service:
+    type: ClusterIP
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controller:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+applicationSet:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+notifications:
+  enabled: false
+
+dex:
+  # No SSO configured; local admin account only.
+  enabled: false
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

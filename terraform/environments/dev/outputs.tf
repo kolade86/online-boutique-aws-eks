@@ -194,3 +194,42 @@ output "post_deployment_notes" {
     check_ecr_repos      = "List all ECR repos: aws ecr describe-repositories --region ${var.aws_region}"
   }
 }
+
+# ============================================
+# Argo CD Outputs
+# ============================================
+
+output "argocd_namespace" {
+  description = "Namespace Argo CD is installed in"
+  value       = module.argocd.namespace
+}
+
+output "argocd_url" {
+  description = "URL for the Argo CD UI. Empty until the ALB is provisioned - re-run terraform output after a few minutes."
+  value       = module.argocd.ingress_url
+}
+
+output "argocd_ingress_hostname" {
+  description = "ALB hostname fronting the Argo CD UI"
+  value       = module.argocd.ingress_hostname
+}
+
+output "argocd_initial_admin_password_command" {
+  description = "Command to read the auto-generated Argo CD admin password"
+  value       = module.argocd.initial_admin_password_command
+}
+
+output "argocd_login_info" {
+  description = "How to reach and sign in to Argo CD (username, URL, password lookup, port-forward fallback)"
+  value       = module.argocd.login_info
+}
+
+output "argocd_application" {
+  description = "What the Argo CD Application tracks and where it deploys"
+  value       = module.argocd.application_source
+}
+
+output "argocd_sync_policy" {
+  description = "Effective Argo CD sync policy (automated / self-heal / prune)"
+  value       = module.argocd.sync_policy
+}
