@@ -20,9 +20,13 @@ locals {
     "recommendationservice",
     "adservice",
     "loadgenerator",
-    "shoppingassistantservice"
   ]
 }
+
+# NOTE: shoppingassistantservice is intentionally absent. It is not in the
+# build.yml matrix and is not deployed (enabled: false in the Helm chart), so
+# a repository for it would be created and never receive an image. See
+# src/shoppingassistantservice/README.md.
 
 resource "aws_ecr_repository" "microservices" {
   for_each = toset(local.microservices)

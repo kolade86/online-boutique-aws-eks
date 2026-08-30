@@ -52,7 +52,7 @@ env:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write         # Required to commit the deployed image tag back to main
   security-events: write  # Required for SARIF uploads
 
 # Safe concurrency to auto-cancel overlapping runs
@@ -296,6 +296,70 @@ jobs:
             trivy-image-${{ matrix.service }}.txt
           retention-days: 30
           if-no-files-found: warn  # Don't fail if files are missing
+
+  # Argo CD deploys whatever tag is committed in values-dev.yaml. This is the
+  # handoff from CI to GitOps: CI builds and publishes, then records what to
+  # deploy; Argo CD notices the commit and rolls it out.
+  update-manifest:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only when every service was rebuilt. A partial build would publish a tag
+    # that only some repositories have, and committing it would leave the rest
+    # in ImagePullBackOff.
+    if: |
+      needs.build.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event.inputs.services == 'all')
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          # Default GITHUB_TOKEN; pushes made with it do not trigger further
+          # workflow runs, which is what stops this job re-triggering the build.
+          persist-credentials: true
+
+      - name: Record deployed image tag
+        env:
+          IMAGE_TAG: ${{ needs.prepare.outputs.image-tag }}
+          VALUES_FILE: helm/online-boutique/values-dev.yaml
+        run: |
+          echo "Recording image tag: ${IMAGE_TAG}"
+
+          # Must match exactly one line, or sed would rewrite unrelated keys.
+          MATCHES=$(grep -cE '^  tag: ' "${VALUES_FILE}" || true)
+          if [ "${MATCHES}" != "1" ]; then
+            echo "::error::Expected exactly one '  tag:' line in ${VALUES_FILE}, found ${MATCHES}"
+            exit 1
+          fi
+
+          sed -i -E "s|^  tag: .*|  tag: \"${IMAGE_TAG}\"|" "${VALUES_FILE}"
+
+          if git diff --quiet -- "${VALUES_FILE}"; then
+            echo "Tag already up to date; nothing to commit."
+            exit 0
+          fi
+
+          echo "=== diff ==="
+          git --no-pager diff -- "${VALUES_FILE}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${VALUES_FILE}"
+
+          # [skip ci] is belt and braces: GITHUB_TOKEN pushes already do not
+          # trigger workflows, so this cannot loop.
+          git commit -m "chore(deploy): ${IMAGE_TAG} [skip ci]"
+
+          git push origin HEAD:main
+
+          {
+            echo "### Handed off to Argo CD"
+            echo "Committed \`${IMAGE_TAG}\` to \`${VALUES_FILE}\`."
+            echo "Argo CD will sync the change and roll it out."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   summary:
     needs: [prepare, build]

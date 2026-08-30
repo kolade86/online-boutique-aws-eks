@@ -22,19 +22,64 @@ TLS terminates at the ALB. Without this the ALB speaks HTTP to an HTTPS backend
 and every request ends in a redirect loop. The chart's own ingress is disabled
 so Terraform owns the Ingress and can export the ALB hostname as an output.
 
-## Accessing the UI
+## Accessing the UI and the CLI
 
 ```bash
-terraform output argocd_url            # http://<alb-hostname>
-terraform output argocd_login_info     # username, URL, password command
+terraform output argocd_url                 # UI
+terraform output argocd_cli_login_command   # ready-made CLI command
+terraform output argocd_login_info          # username, URL, password lookup
 ```
 
-The ALB takes a few minutes to provision. Until then the output is empty and
-you can reach Argo CD directly:
+The ALB takes a few minutes to provision; until then the URL output is empty.
+
+### The CLI must use `--grpc-web`
+
+The Argo CD CLI speaks **gRPC, which requires HTTP/2**. An ALB only negotiates
+HTTP/2 over TLS via ALPN on an HTTPS listener, and never supports h2c
+(cleartext HTTP/2) on an HTTP listener. So this can never work against an
+HTTP:80 ALB:
 
 ```bash
-kubectl port-forward -n argocd svc/argocd-server 8080:80   # http://localhost:8080
+argocd login <alb-dns> --plaintext          # hangs, then:
+                                            # gRPC connection not ready: context deadline exceeded
 ```
+
+`--grpc-web` tunnels the same API over HTTP/1.1, which the ALB carries fine:
+
+```bash
+argocd login <alb-dns> --username admin --plaintext --grpc-web
+argocd app list --grpc-web
+```
+
+`--grpc-web` is required on **every** subsequent command, not just login.
+
+That the browser works while the CLI does not is expected: the UI is plain
+REST over HTTP/1.1, the CLI is gRPC over HTTP/2.
+
+## TLS and hostnames
+
+`domain_name` and `acm_certificate_arn` are both empty by default, which keeps
+the ALB on HTTP:80 using its raw `*.elb.amazonaws.com` name.
+
+**HTTPS requires a domain you control.** ACM will not issue a certificate for
+an ALB's `*.elb.amazonaws.com` hostname, because AWS owns that zone. There is
+no way around this short of owning a domain or accepting a self-signed
+certificate (browser warnings plus `--insecure` on every CLI call, which
+defeats the purpose).
+
+Once you have a domain, set both variables and the module switches over with
+no other changes:
+
+```hcl
+argocd_domain_name         = "argocd.example.com"
+argocd_acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+```
+
+That adds an HTTPS:443 listener with the certificate, an HTTP:80 -> HTTPS
+redirect (`ssl-redirect`), a host rule and TLS block on the Ingress, and sets
+`global.domain` / `configs.cm.url` so Argo CD stops emitting links to a
+non-resolving address. You then point a DNS record for that hostname at the
+ALB. The CLI still uses `--grpc-web`; it just drops `--plaintext`.
 
 ## Initial admin password
 
@@ -71,37 +116,52 @@ The module therefore passes `image.registry`, `image.prefix`, `image.tag` and
 region, project/environment, and the ElastiCache endpoint). Without them
 Argo CD would deploy a broken application.
 
-## Relationship to the GitHub Actions deployment
+## How a release reaches the cluster
 
-**Argo CD does not deploy anything on its own yet.** In dev,
-`argocd_enable_automated_sync = false`, so the `automated` block is omitted
-from the Application's sync policy entirely. Argo CD installs, connects to the
-repo, renders the chart, and compares it against the cluster — but it only
-writes when told to.
+Argo CD is the **only** deployer. `helm-deploy.yml` has been retired to
+`.disabled`; nothing else writes to the application namespace.
 
-`helm-deploy.yml` therefore remains the sole writer to the cluster. Nothing
-fights. Helm has not gone away either: Argo CD renders the same chart. What
-will eventually change is *who* runs it.
-
-Expect the Application to sit at **OutOfSync**. That is the intended state, and
-it is useful — it is Argo CD showing you the drift between git and the cluster
-before it is trusted to act on it. Deploy manually with:
-
-```bash
-argocd app sync online-boutique      # or press Sync in the UI
+```
+push to main -> Unit Tests -> Build Images -> push to ECR
+                                                  |
+                                    commits image tag to
+                                    helm/online-boutique/values-dev.yaml
+                                                  |
+                                          Argo CD sees the commit
+                                                  |
+                                              syncs -> rollout
 ```
 
-**Recommended handover, when ready:**
+The `update-manifest` job in `build.yml` rewrites the `tag:` line in
+`values-dev.yaml` and pushes it to `main`. Argo CD is watching `main`, so the
+commit is the deploy. That makes every release a git commit: `git log` on that
+file is your deployment history, and `git revert` is your rollback.
 
-1. Sync manually a few times and confirm Argo CD reports `Synced` / `Healthy`
-   and that the diff matches what you expect.
-2. Set `argocd_enable_automated_sync = true`.
-3. Stop *running* the Helm Deploy workflow — leave the file in place. From that
-   point the two would otherwise fight, and Argo CD wins because it reconciles
-   continuously: the workflow deploys a specific tag
-   (`v20260829-171752-abc12345`) and Argo CD heals it back to `app_image_tag`
-   (default `latest`).
-4. Once Argo CD has owned a few releases, consider `enable_prune = true`.
+Two details that make this safe:
+
+- The push uses the default `GITHUB_TOKEN`. Pushes made with it do not trigger
+  workflow runs, so the commit cannot re-trigger the build. The commit message
+  also carries `[skip ci]` as a second guard.
+- The job only runs when **every** service was rebuilt. A partial build
+  (`services: frontend`) publishes a tag that only some ECR repositories have,
+  and committing it would leave the rest in `ImagePullBackOff`.
+
+### Why image.tag is not a Terraform parameter
+
+`image.registry`, `image.prefix` and `redis.addr` are injected by Terraform as
+Argo CD Helm parameters, because they carry the AWS account ID and the
+ElastiCache endpoint and should not be committed.
+
+`image.tag` is deliberately **not** among them. Argo CD Helm `parameters`
+override `valueFiles`, so setting the tag in Terraform would silently pin it
+and no future release would ever roll out - the pipeline would look healthy
+and ship nothing.
+
+### Sync policy
+
+Automated sync, self-heal, and **prune** are all on. Argo CD adds, updates,
+and deletes so the namespace matches git. Removing a service from
+`values.yaml` now removes it from the cluster.
 
 ## Deliberately not included
 

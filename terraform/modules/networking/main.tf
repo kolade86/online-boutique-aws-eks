@@ -193,20 +193,12 @@ resource "aws_security_group" "bastion" {
   description = "Security group for bastion host"
   vpc_id      = aws_vpc.main.id
 
-  # Dynamic egress rules for HTTP/HTTPS
-  dynamic "egress" {
-    for_each = [
-      { port = 443, description = "HTTPS outbound" },
-      { port = 80, description = "HTTP outbound" }
-    ]
-    content {
-      from_port   = egress.value.port
-      to_port     = egress.value.port
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-      description = egress.value.description
-    }
-  }
+  # Egress is defined entirely by aws_security_group_rule resources below.
+  # Terraform does not allow mixing inline egress/ingress blocks with separate
+  # aws_security_group_rule resources on the same security group: the inline
+  # blocks are authoritative, so every plan deletes any rule declared
+  # separately. That made bastion_to_eks_cluster flap on every apply, taking
+  # the bastion's access to the Kubernetes API with it.
 
   tags = {
     Name        = "${var.project_name}-bastion-sg"
@@ -294,6 +286,26 @@ resource "aws_security_group" "efs" {
 }
 
 # Security Group Rules to handle cross-references without cycles
+resource "aws_security_group_rule" "bastion_https_outbound" {
+  type              = "egress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.bastion.id
+  description       = "HTTPS outbound"
+}
+
+resource "aws_security_group_rule" "bastion_http_outbound" {
+  type              = "egress"
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.bastion.id
+  description       = "HTTP outbound"
+}
+
 resource "aws_security_group_rule" "bastion_to_eks_cluster" {
   type                     = "egress"
   from_port                = 443

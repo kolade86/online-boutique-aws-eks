@@ -233,3 +233,13 @@ output "argocd_sync_policy" {
   description = "Effective Argo CD sync policy (automated / self-heal / prune)"
   value       = module.argocd.sync_policy
 }
+
+output "argocd_cli_login_command" {
+  description = "argocd CLI login command. gRPC-Web is mandatory through an ALB - native gRPC needs HTTP/2, which an ALB only speaks over TLS."
+  value       = module.argocd.cli_login_command
+}
+
+output "argocd_tls_enabled" {
+  description = "Whether the Argo CD ALB terminates TLS. False means HTTP:80 only (no domain configured)."
+  value       = module.argocd.tls_enabled
+}

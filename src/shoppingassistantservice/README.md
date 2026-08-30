@@ -46,10 +46,25 @@ The source is kept as future work. Turning it on means:
    `pgvector` extension is the natural fit, replacing AlloyDB.
 3. Moving the AlloyDB secret lookup to AWS Secrets Manager, which the cluster
    already reaches through External Secrets Operator.
-4. Setting `enabled: true` for `shoppingassistantservice` and
+4. Re-adding `shoppingassistantservice` to `local.microservices` in
+   `terraform/modules/cicd/main.tf` so an ECR repository is created for it,
+   and to `ALL_SERVICES` in `.github/workflows/build.yml` so an image is
+   actually built and pushed.
+5. Setting `enabled: true` for `shoppingassistantservice` and
    `ENABLE_ASSISTANT=true` plus `SHOPPING_ASSISTANT_SERVICE_ADDR` on the
-   frontend in `values.yaml`, then adding the service to the build and deploy
-   matrices in `.github/workflows/`.
+   frontend in `helm/online-boutique/values.yaml`.
 
-Until then, treat this directory as reference code. It is intentionally not in
-the CI build matrix, so no image is published for it.
+Steps 4 and 5 must land together with a frontend image built from the same
+commit: the frontend only requires `SHOPPING_ASSISTANT_SERVICE_ADDR` when
+`ENABLE_ASSISTANT` is true, so the two sides have to agree.
+
+Until then, treat this directory as reference code. Nothing builds it, no ECR
+repository exists for it, and Argo CD renders no manifests for it.
+
+## Why nothing is deployed rather than a placeholder
+
+The chart previously deployed `nginx:alpine` under this service's name. That
+made the storefront advertise an assistant that could not answer: the
+`/assistant` page rendered, and `/bot` POSTed to nginx, which replied with its
+HTML welcome page. The frontend then tried to `json.Unmarshal` that HTML and
+returned a 500. Shipping nothing is more honest than shipping a fake backend.
