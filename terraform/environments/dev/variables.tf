@@ -199,3 +199,73 @@ variable "alert_email_address" {
   description = "Email address for AlertManager notifications"
   type        = string
 }
+
+# ============================================
+# Argo CD Configuration
+# ============================================
+
+variable "argocd_namespace" {
+  description = "Namespace to install Argo CD into"
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_chart_version" {
+  description = "Version of the argo-cd Helm chart"
+  type        = string
+  default     = "10.4.2"
+}
+
+variable "argocd_ingress_enabled" {
+  description = "Create an ALB Ingress for the Argo CD UI"
+  type        = bool
+  default     = true
+}
+
+variable "argocd_ingress_scheme" {
+  description = "ALB scheme for the Argo CD ingress (internet-facing or internal)"
+  type        = string
+  default     = "internet-facing"
+}
+
+variable "argocd_repo_url" {
+  description = "Git repository Argo CD syncs the application from"
+  type        = string
+  default     = "https://github.com/kolade86/online-boutique-aws-eks.git"
+}
+
+variable "argocd_target_revision" {
+  description = "Git revision Argo CD tracks"
+  type        = string
+  default     = "main"
+}
+
+variable "argocd_app_chart_path" {
+  description = "Path to the application Helm chart within the repository"
+  type        = string
+  default     = "helm/online-boutique"
+}
+
+variable "argocd_app_image_tag" {
+  description = "Image tag Argo CD deploys. 'latest' is pushed by the build workflow alongside the timestamped tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "argocd_enable_automated_sync" {
+  description = "Enable Argo CD automated sync. Off for now: Argo CD observes drift and reports OutOfSync, but only deploys when synced manually."
+  type        = bool
+  default     = false
+}
+
+variable "argocd_enable_self_heal" {
+  description = "Let Argo CD revert out-of-band changes back to the git state"
+  type        = bool
+  default     = true
+}
+
+variable "argocd_enable_prune" {
+  description = "Let Argo CD delete resources removed from git. Off for now."
+  type        = bool
+  default     = false
+}

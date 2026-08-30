@@ -83,3 +83,14 @@ alert_email_address = "koladeodu20@gmail.com"
 
 # NOTE: External metrics remote-write (SaaS Prometheus/Grafana) is not configured
 # in this environment. Observability runs entirely in-cluster via kube-prometheus-stack.
+
+# ============================================
+# Argo CD Configuration
+# ============================================
+
+# Argo CD is installed and tracks the chart, but does NOT deploy on its own
+# yet. It will show the app as OutOfSync; press Sync in the UI (or run
+# `argocd app sync online-boutique`) to deploy. This keeps the GitHub Actions
+# Helm deployment as the only thing that writes to the cluster, so the two
+# deployers cannot fight.
+argocd_enable_automated_sync = false
