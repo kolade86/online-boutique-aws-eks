@@ -1,19 +1,29 @@
 # modules/argocd/argocd-values.yaml.tftpl
 # Values for the argo-cd Helm chart
 
+%{ if server_domain != "" ~}
 global:
   domain: "${server_domain}"
+%{ endif ~}
 
 configs:
   params:
     # Terminate TLS at the ALB and serve plain HTTP from argocd-server.
     # Without this the ALB speaks HTTP to an HTTPS backend and every request
     # fails with a redirect loop.
+    #
+    # This also lets argocd-server multiplex gRPC-Web (HTTP/1.1) on the same
+    # port as the UI, which is how the CLI reaches the API through an ALB.
     server.insecure: true
+%{ if server_domain != "" ~}
 
   cm:
-    # Keep the app in sync when only the tracked revision moves.
-    timeout.reconciliation: 180s
+    # Canonical external URL. Must be a real hostname - the chart derives this
+    # from global.domain, and a bogus value makes argocd-server emit links and
+    # redirects to an address that does not resolve, which breaks the CLI.
+    url: "${server_url}"
+%{ endif ~}
+
 
 server:
   # The ingress is managed by Terraform (kubernetes_ingress_v1) so the ALB

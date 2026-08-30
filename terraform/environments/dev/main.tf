@@ -230,6 +230,10 @@ module "argocd" {
   ingress_enabled = var.argocd_ingress_enabled
   ingress_scheme  = var.argocd_ingress_scheme
 
+  # TLS. Both must be set to move the ALB to HTTPS; empty keeps HTTP:80.
+  domain_name         = var.argocd_domain_name
+  acm_certificate_arn = var.argocd_acm_certificate_arn
+
   # Application source
   repo_url        = var.argocd_repo_url
   target_revision = var.argocd_target_revision
@@ -238,10 +242,10 @@ module "argocd" {
   # Application destination
   app_namespace = module.platform_services.app_namespace_name
 
-  # Helm values the chart cannot supply itself
+  # Helm values the chart cannot supply itself. image.tag is NOT here - it is
+  # committed to values-dev.yaml by CI so Argo CD deploys it from git.
   app_image_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
   app_image_prefix   = "${var.project_name}-${var.environment}"
-  app_image_tag      = var.argocd_app_image_tag
   app_redis_addr     = "${module.data_persistence.redis_endpoint}:${module.data_persistence.redis_port}"
 
   # Sync policy - prune stays off until Argo CD is trusted with deletions

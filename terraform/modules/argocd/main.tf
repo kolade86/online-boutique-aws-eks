@@ -4,12 +4,33 @@
 locals {
   alb_name = var.load_balancer_name != "" ? var.load_balancer_name : "${var.project_name}-${var.environment}-argocd-alb"
 
+  # HTTPS needs both a hostname and a certificate for it. Without a domain,
+  # ACM cannot issue (it will not sign an ALB's *.elb.amazonaws.com name), so
+  # the ALB stays on HTTP:80 and the CLI must use gRPC-Web.
+  tls_enabled = var.domain_name != "" && var.acm_certificate_arn != ""
+
+  listen_ports = local.tls_enabled ? "[{\"HTTP\": 80}, {\"HTTPS\": 443}]" : "[{\"HTTP\": 80}]"
+
+  # Argo CD serves the UI (HTTP/1.1) and gRPC-Web (also HTTP/1.1) on the same
+  # port. Native gRPC needs HTTP/2, which an ALB only offers over TLS via ALPN,
+  # so HTTP1 is correct here in both modes and the CLI uses --grpc-web.
+  tls_annotations = local.tls_enabled ? {
+    "alb.ingress.kubernetes.io/certificate-arn" = var.acm_certificate_arn
+    "alb.ingress.kubernetes.io/ssl-redirect"    = "443"
+  } : {}
+
+  argocd_url = local.tls_enabled ? "https://${var.domain_name}" : ""
+
   # Helm parameters passed to the application chart. See the note in
   # variables.tf: the chart cannot render valid manifests without these.
+  #
+  # image.tag is deliberately NOT here. It lives in values-dev.yaml so CI can
+  # commit it and Argo CD can deploy the commit. Argo CD parameters override
+  # valueFiles, so setting it here would silently pin the tag and stop every
+  # future release from rolling out.
   app_helm_parameters = [
     { name = "image.registry", value = var.app_image_registry },
     { name = "image.prefix", value = var.app_image_prefix },
-    { name = "image.tag", value = var.app_image_tag },
     { name = "redis.addr", value = var.app_redis_addr },
   ]
 }
@@ -48,7 +69,8 @@ resource "helm_release" "argocd" {
 
   values = [
     templatefile("${path.module}/argocd-values.yaml.tftpl", {
-      server_domain = local.alb_name
+      server_domain = var.domain_name
+      server_url    = local.argocd_url
     })
   ]
 
@@ -75,25 +97,36 @@ resource "kubernetes_ingress_v1" "argocd_server" {
     name      = "argocd-server-ingress"
     namespace = kubernetes_namespace.argocd.metadata[0].name
 
-    annotations = {
-      "alb.ingress.kubernetes.io/scheme"             = var.ingress_scheme
-      "alb.ingress.kubernetes.io/target-type"        = "ip"
-      "alb.ingress.kubernetes.io/load-balancer-name" = local.alb_name
-      "alb.ingress.kubernetes.io/listen-ports"       = "[{\"HTTP\": 80}]"
-      "alb.ingress.kubernetes.io/backend-protocol"   = "HTTP"
-      "alb.ingress.kubernetes.io/healthcheck-path"   = "/healthz"
-      "alb.ingress.kubernetes.io/success-codes"      = "200"
-      "alb.ingress.kubernetes.io/group.name"         = "${var.project_name}-${var.environment}-argocd"
+    annotations = merge({
+      "alb.ingress.kubernetes.io/scheme"                   = var.ingress_scheme
+      "alb.ingress.kubernetes.io/target-type"              = "ip"
+      "alb.ingress.kubernetes.io/load-balancer-name"       = local.alb_name
+      "alb.ingress.kubernetes.io/listen-ports"             = local.listen_ports
+      "alb.ingress.kubernetes.io/backend-protocol"         = "HTTP"
+      "alb.ingress.kubernetes.io/backend-protocol-version" = "HTTP1"
+      "alb.ingress.kubernetes.io/healthcheck-path"         = "/healthz"
+      "alb.ingress.kubernetes.io/success-codes"            = "200"
+      "alb.ingress.kubernetes.io/group.name"               = "${var.project_name}-${var.environment}-argocd"
 
-      # TLS is not configured yet. Add a certificate-arn and an HTTPS listener
-      # before this is used for anything beyond a sandbox environment.
-    }
+      # The 60s default cuts off long-lived CLI streams (argocd app logs, and
+      # any --watch command).
+      "alb.ingress.kubernetes.io/load-balancer-attributes" = "idle_timeout.timeout_seconds=${var.alb_idle_timeout_seconds}"
+    }, local.tls_annotations)
   }
 
   spec {
     ingress_class_name = "alb"
 
+    dynamic "tls" {
+      for_each = local.tls_enabled ? [1] : []
+      content {
+        hosts = [var.domain_name]
+      }
+    }
+
     rule {
+      host = var.domain_name != "" ? var.domain_name : null
+
       http {
         path {
           path      = "/"
@@ -160,7 +193,7 @@ resource "kubectl_manifest" "online_boutique" {
         } : {},
         {
           syncOptions = [
-            "CreateNamespace=true",
+            # Namespace is created by modules/platform-services.
             "ApplyOutOfSyncOnly=true",
           ]
           retry = {

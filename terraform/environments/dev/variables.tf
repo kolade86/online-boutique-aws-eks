@@ -246,12 +246,6 @@ variable "argocd_app_chart_path" {
   default     = "helm/online-boutique"
 }
 
-variable "argocd_app_image_tag" {
-  description = "Image tag Argo CD deploys. 'latest' is pushed by the build workflow alongside the timestamped tag."
-  type        = string
-  default     = "latest"
-}
-
 variable "argocd_enable_automated_sync" {
   description = "Enable Argo CD automated sync. Off for now: Argo CD observes drift and reports OutOfSync, but only deploys when synced manually."
   type        = bool
@@ -268,4 +262,16 @@ variable "argocd_enable_prune" {
   description = "Let Argo CD delete resources removed from git. Off for now."
   type        = bool
   default     = false
+}
+
+variable "argocd_domain_name" {
+  description = "Hostname for Argo CD (e.g. argocd.example.com). Empty keeps the ALB on HTTP:80 using its raw DNS name."
+  type        = string
+  default     = ""
+}
+
+variable "argocd_acm_certificate_arn" {
+  description = "ACM certificate ARN covering argocd_domain_name. Set together with argocd_domain_name to enable HTTPS:443 and an HTTP->HTTPS redirect."
+  type        = string
+  default     = ""
 }

@@ -88,9 +88,11 @@ alert_email_address = "koladeodu20@gmail.com"
 # Argo CD Configuration
 # ============================================
 
-# Argo CD is installed and tracks the chart, but does NOT deploy on its own
-# yet. It will show the app as OutOfSync; press Sync in the UI (or run
-# `argocd app sync online-boutique`) to deploy. This keeps the GitHub Actions
-# Helm deployment as the only thing that writes to the cluster, so the two
-# deployers cannot fight.
-argocd_enable_automated_sync = false
+# Argo CD is the deployer. The GitHub Actions Helm deploy has been retired
+# (.github/workflows/helm-deploy.yml.disabled), so Argo CD is the only thing
+# writing to the application namespace and nothing fights it.
+#
+# The deployed image tag lives in helm/online-boutique/values-dev.yaml and is
+# committed there by the Build Images workflow. Argo CD syncs the commit.
+argocd_enable_automated_sync = true
+argocd_enable_prune          = true

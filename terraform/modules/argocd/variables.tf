@@ -54,6 +54,35 @@ variable "load_balancer_name" {
   default     = ""
 }
 
+# ----- TLS / hostname -------------------------------------------------------
+# HTTPS requires a domain you control: ACM will not issue a certificate for an
+# ALB's *.elb.amazonaws.com name. Leave both empty to stay on HTTP:80, which is
+# the current behaviour. Set both to switch the ALB to HTTPS:443 with an
+# HTTP -> HTTPS redirect.
+
+variable "domain_name" {
+  description = "Hostname for Argo CD, e.g. argocd.example.com. Empty means HTTP-only on the raw ALB DNS name."
+  type        = string
+  default     = ""
+}
+
+variable "acm_certificate_arn" {
+  description = "ARN of an ACM certificate covering domain_name. Required to enable HTTPS; empty keeps the HTTP:80 listener."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.acm_certificate_arn == "" || can(regex("^arn:aws[a-zA-Z-]*:acm:", var.acm_certificate_arn))
+    error_message = "acm_certificate_arn must be an ACM certificate ARN, or empty"
+  }
+}
+
+variable "alb_idle_timeout_seconds" {
+  description = "ALB idle timeout. Raised above the 60s default so long-lived CLI streams (argocd app logs / watch) are not cut off."
+  type        = number
+  default     = 300
+}
+
 # ============================================
 # Argo CD Application - source
 # ============================================
@@ -120,12 +149,6 @@ variable "app_image_registry" {
 variable "app_image_prefix" {
   description = "ECR repository name prefix, e.g. online-boutique-dev"
   type        = string
-}
-
-variable "app_image_tag" {
-  description = "Image tag Argo CD deploys. Defaults to latest, which the build workflow pushes alongside the timestamped tag."
-  type        = string
-  default     = "latest"
 }
 
 variable "app_redis_addr" {

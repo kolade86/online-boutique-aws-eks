@@ -1,5 +1,5 @@
 {{- range $name, $svc := .Values.services }}
-{{- if not $svc.noService }}
+{{- if and (ne $svc.enabled false) (not $svc.noService) }}
 ---
 apiVersion: v1
 kind: Service

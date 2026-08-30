@@ -1,4 +1,11 @@
 # Dev environment overrides
+
+# Image tag deployed to dev. MANAGED BY CI - the "Build Images" workflow
+# rewrites this line after pushing to ECR, and Argo CD deploys the commit.
+# Change it by merging to main, not by editing the cluster.
+image:
+  tag: "latest"
+
 services:
   loadgenerator:
     replicas: 0

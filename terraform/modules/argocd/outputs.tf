@@ -24,9 +24,23 @@ output "ingress_hostname" {
   )
 }
 
+output "tls_enabled" {
+  description = "Whether the ALB terminates TLS. False means HTTP:80 only, which requires the CLI to use --grpc-web --plaintext."
+  value       = local.tls_enabled
+}
+
+output "cli_login_command" {
+  description = "argocd CLI login command for this endpoint. gRPC-Web is required: an ALB cannot carry native gRPC, which needs HTTP/2."
+  value = local.tls_enabled ? (
+    "argocd login ${var.domain_name} --username admin --grpc-web"
+    ) : (
+    "argocd login <alb-dns-name> --username admin --plaintext --grpc-web    # host from the argocd_ingress_hostname output"
+  )
+}
+
 output "ingress_url" {
   description = "URL for the Argo CD UI. Empty until the ALB has been provisioned - re-run terraform output after a few minutes."
-  value = try(
+  value = local.tls_enabled ? local.argocd_url : try(
     "http://${kubernetes_ingress_v1.argocd_server[0].status[0].load_balancer[0].ingress[0].hostname}",
     ""
   )
