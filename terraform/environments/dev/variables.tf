@@ -105,12 +105,6 @@ variable "public_access_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
-variable "use_private_subnets_for_nodes" {
-  description = "Use private subnets for worker nodes (true for production, false for dev/testing)"
-  type        = bool
-  default     = true
-}
-
 # ============================================
 # RDS Configuration
 # ============================================
@@ -156,11 +150,6 @@ variable "db_multi_az" {
 
 variable "app_namespace" {
   description = "Kubernetes namespace for the application"
-  type        = string
-}
-
-variable "app_name" {
-  description = "Base application name (used in HPA, PDB, etc.)"
   type        = string
 }
 

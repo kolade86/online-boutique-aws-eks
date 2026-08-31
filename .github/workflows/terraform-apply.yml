@@ -1,0 +1,108 @@
+name: Terraform Apply
+
+# Manual only. Merging a Terraform PR does not apply anything - you come here
+# and run this deliberately, after reviewing the plan on the pull request.
+#
+# It always checks out main, plans fresh against live state, and applies that
+# exact plan file. Applying a saved plan (rather than `terraform apply` alone)
+# means what runs is precisely what was just printed above it in the log.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to confirm you intend to change AWS infrastructure'
+        required: true
+        default: ''
+
+env:
+  TF_VERSION: '1.16.0'
+  WORKING_DIR: terraform/environments/dev
+
+permissions:
+  contents: read
+  id-token: write   # GitHub OIDC -> AWS. No stored access keys.
+
+# Never let two applies race for the state lock.
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Plan & Apply (dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check the confirmation input
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "apply" ]; then
+            echo "::error::Type 'apply' in the confirm field to run this workflow."
+            exit 1
+          fi
+
+      # Always main, never the branch the run was triggered from.
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Check required repo variables
+        env:
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          REGION: ${{ vars.AWS_REGION }}
+          PROJECT: ${{ vars.PROJECT_NAME }}
+        run: |
+          MISSING=""
+          if [ -z "${ACCOUNT_ID}" ]; then MISSING="${MISSING} AWS_ACCOUNT_ID"; fi
+          if [ -z "${REGION}" ];     then MISSING="${MISSING} AWS_REGION"; fi
+          if [ -z "${PROJECT}" ];    then MISSING="${MISSING} PROJECT_NAME"; fi
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing required repo variables:${MISSING}"
+            exit 1
+          fi
+          echo "Project: ${PROJECT}  Region: ${REGION}  Account: ****${ACCOUNT_ID#"${ACCOUNT_ID%????}"}"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Assume the Terraform role via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-terraform-role
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: TerraformApply-${{ github.run_id }}
+
+      - name: terraform init
+        working-directory: ${{ env.WORKING_DIR }}
+        run: terraform init -input=false -no-color
+
+      - name: terraform plan
+        working-directory: ${{ env.WORKING_DIR }}
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      - name: terraform apply
+        working-directory: ${{ env.WORKING_DIR }}
+        run: terraform apply -input=false -no-color -auto-approve tfplan
+
+      - name: Summary
+        if: always()
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          {
+            echo "## Terraform apply — dev"
+            echo ""
+            echo "- Ref: \`main\` @ \`${{ github.sha }}\`"
+            echo "- Result: ${{ job.status }}"
+            echo ""
+            echo "Full plan and apply output is in the job log above."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # tfplan can contain sensitive attribute values; never keep it around.
+      - name: Remove the plan file
+        if: always()
+        working-directory: ${{ env.WORKING_DIR }}
+        run: rm -f tfplan

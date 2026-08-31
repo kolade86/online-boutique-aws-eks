@@ -84,3 +84,12 @@ output "verification_commands" {
     test_github_assume = "# From GitHub Actions, test: aws sts get-caller-identity"
   }
 }
+output "terraform_ci_role_arn" {
+  description = "ARN of the plan-only role GitHub Actions assumes for Terraform CI"
+  value       = aws_iam_role.terraform_ci.arn
+}
+
+output "terraform_ci_role_name" {
+  description = "Name of the Terraform CI (plan-only) role"
+  value       = aws_iam_role.terraform_ci.name
+}

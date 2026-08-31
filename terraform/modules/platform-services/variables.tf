@@ -26,11 +26,6 @@ variable "app_namespace" {
   type        = string
 }
 
-variable "app_name" {
-  description = "Base application name (used in HPA, PDB, etc.)"
-  type        = string
-}
-
 # From Networking Module
 variable "vpc_id" {
   description = "VPC ID where resources will be created"
@@ -43,11 +38,6 @@ variable "cluster_name" {
   type        = string
 }
 
-variable "cluster_version" {
-  description = "Kubernetes version"
-  type        = string
-}
-
 variable "oidc_provider_arn" {
   description = "ARN of the OIDC provider for EKS"
   type        = string
@@ -55,11 +45,6 @@ variable "oidc_provider_arn" {
 
 variable "cluster_oidc_issuer_url" {
   description = "OIDC issuer URL for EKS cluster (for IRSA assume role policies)"
-  type        = string
-}
-
-variable "eks_nodes_role_arn" {
-  description = "ARN of the EKS nodes IAM role (for cluster autoscaler policy attachment)"
   type        = string
 }
 

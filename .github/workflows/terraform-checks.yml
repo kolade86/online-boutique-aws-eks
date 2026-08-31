@@ -1,0 +1,98 @@
+name: Terraform Checks
+
+# Static analysis only. This workflow never authenticates to AWS and never
+# touches remote state, so it is safe to run against pull request code.
+#
+# On success it triggers "Terraform Plan" via workflow_run.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-checks.yml'
+
+env:
+  TF_VERSION: '1.16.0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt-validate:
+    name: Format & Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check -recursive
+        run: |
+          if ! terraform fmt -check -recursive -diff terraform/; then
+            echo "::error::Terraform files are not formatted. Run: terraform fmt -recursive terraform/"
+            exit 1
+          fi
+          echo "All Terraform files are correctly formatted."
+
+      # -backend=false is what keeps this credential-free: it checks syntax,
+      # types and module wiring without reaching the S3 backend.
+      - name: terraform init -backend=false && validate
+        run: |
+          FAILED=0
+          for dir in terraform/environments/*/ terraform/modules/*/; do
+            [ -f "${dir}main.tf" ] || continue
+            echo "::group::validate ${dir}"
+            if terraform -chdir="${dir}" init -backend=false -input=false -no-color >/dev/null; then
+              terraform -chdir="${dir}" validate -no-color || FAILED=1
+            else
+              echo "::error::init failed for ${dir}"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $FAILED
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up tflint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.64.0
+
+      - name: Init plugins
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # avoids plugin download rate limits
+          TFLINT_PLUGIN_DIR: ${{ github.workspace }}/.tflint.d/plugins
+        run: tflint --init --config "${GITHUB_WORKSPACE}/.tflint.hcl"
+
+      # --minimum-failure-severity=warning: fail on warnings and errors, but not
+      # on notices. Notices are still reported in the log and as annotations -
+      # nothing is hidden. tflint otherwise exits 2 on *any* finding, which
+      # would make purely informational output block every merge.
+      # This is not `--force`, which zeroes the exit status even for real errors.
+      - name: Run tflint
+        env:
+          TFLINT_PLUGIN_DIR: ${{ github.workspace }}/.tflint.d/plugins
+        run: |
+          cd terraform
+          tflint --recursive --format compact \
+            --minimum-failure-severity=warning \
+            --config "${GITHUB_WORKSPACE}/.tflint.hcl"

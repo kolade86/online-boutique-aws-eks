@@ -3,7 +3,6 @@
 
 # Data sources
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 data "tls_certificate" "eks" {
   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
@@ -470,6 +469,17 @@ resource "kubernetes_config_map_v1_data" "aws_auth" {
       {
         rolearn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/online-boutique-github-actions-role"
         username = "github-actions"
+        groups   = ["system:masters"]
+      },
+      {
+        # Terraform CI runs plan and apply from GitHub Actions, and this
+        # configuration manages ~24 kubernetes/helm/kubectl resources, so the
+        # role needs cluster access as well as AWS access. The ARN is built
+        # from the account ID rather than referenced from modules/cicd, which
+        # would create a module dependency cycle (cicd already consumes
+        # cluster_name from here).
+        rolearn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-terraform-role"
+        username = "terraform-ci"
         groups   = ["system:masters"]
       }
     ])

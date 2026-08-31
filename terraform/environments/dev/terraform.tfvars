@@ -35,8 +35,6 @@ endpoint_private_access = true
 endpoint_public_access  = true
 public_access_cidrs     = ["0.0.0.0/0"]
 
-# Node Placement (Dev - can use public subnets for easier access)
-use_private_subnets_for_nodes = false
 
 # ============================================
 # RDS Configuration
@@ -55,7 +53,6 @@ db_multi_az              = false # Set to true for production
 # ============================================
 
 app_namespace = "online-boutique-dev"
-app_name      = "online-boutique"
 
 # ============================================
 # Platform Services

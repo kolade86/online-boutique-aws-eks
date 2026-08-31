@@ -243,3 +243,8 @@ output "argocd_tls_enabled" {
   description = "Whether the Argo CD ALB terminates TLS. False means HTTP:80 only (no domain configured)."
   value       = module.argocd.tls_enabled
 }
+
+output "terraform_ci_role_arn" {
+  description = "Plan-only role assumed by the Terraform CI workflow. Read-only: it cannot apply."
+  value       = module.cicd.terraform_ci_role_arn
+}
