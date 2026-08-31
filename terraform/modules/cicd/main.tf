@@ -269,3 +269,56 @@ resource "aws_iam_role_policy" "github_actions_elasticache" {
     ]
   })
 }
+# ============================================
+# Terraform CI Role (plan + apply)
+# ============================================
+# Separate from the application CI role above: that one pushes images and talks
+# to the EKS API, this one runs Terraform.
+#
+# It carries AdministratorAccess because the Terraform here manages IAM roles,
+# KMS keys, EKS, RDS and VPC resources. Narrowing that to least privilege is a
+# real exercise and is deliberately deferred - see the security note in
+# README.md. Access is constrained instead at the trust-policy level: only a
+# pull request or the main branch of this repository can assume it.
+
+resource "aws_iam_role" "terraform_ci" {
+  name        = "${var.project_name}-terraform-role"
+  description = "Role assumed by GitHub Actions to run Terraform plan (PRs) and apply (manual dispatch)"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+        # Two entry points only:
+        #   pull_request        -> the plan workflow
+        #   ref:refs/heads/main -> the manual apply workflow
+        # A push to any other branch, or a tag, cannot assume this role.
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_repo}:pull_request",
+            "repo:${var.github_repo}:ref:refs/heads/main",
+          ]
+        }
+      }
+    }]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-terraform-role"
+    Environment = var.environment
+    Purpose     = "terraform-plan-apply"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "terraform_ci_admin" {
+  role       = aws_iam_role.terraform_ci.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}

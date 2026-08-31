@@ -1,0 +1,143 @@
+name: Terraform Plan
+
+# Runs only after "Terraform Checks" completes. The gate is the `if:` on the
+# job below: workflow_run fires on *completion*, success or failure, so the
+# conclusion must be tested explicitly - there is no "on success only" trigger.
+#
+# NOTE: workflow_run only fires for workflow files present on the DEFAULT
+# branch. This file has no effect until it is merged to main.
+on:
+  workflow_run:
+    workflows: ["Terraform Checks"]
+    types: [completed]
+
+env:
+  TF_VERSION: '1.16.0'
+  WORKING_DIR: terraform/environments/dev
+
+permissions:
+  contents: read
+  id-token: write   # GitHub OIDC -> AWS
+
+concurrency:
+  group: terraform-plan-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan (dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Two conditions, both required:
+    #
+    # 1. conclusion == 'success'
+    #    Checks must have passed. A failed or cancelled Checks run reaches this
+    #    workflow too, and is skipped here.
+    #
+    # 2. head_repository == repository
+    #    SECURITY: workflow_run executes in the BASE repository's context, with
+    #    access to secrets and OIDC - unlike pull_request, which gives fork PRs
+    #    no credentials. Since this job checks out PR code and `terraform plan`
+    #    executes provider binaries (and can run external data sources), a fork
+    #    PR would otherwise be able to assume the AWS role. Fork PRs are refused
+    #    here; plan them locally instead.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+
+    steps:
+      # workflow_run defaults to the DEFAULT BRANCH, not the commit that was
+      # tested. Checking out head_sha explicitly is what makes this plan the
+      # PR's code rather than main's.
+      - name: Checkout the exact commit that passed Checks
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Confirm the checked-out commit
+        run: |
+          echo "Checks ran on : ${{ github.event.workflow_run.head_sha }}"
+          echo "Checked out   : $(git rev-parse HEAD)"
+          echo "Branch        : ${{ github.event.workflow_run.head_branch }}"
+          if [ "$(git rev-parse HEAD)" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "::error::Checked-out commit does not match the one that passed Checks."
+            exit 1
+          fi
+
+      - name: Check required repo variables
+        env:
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          REGION: ${{ vars.AWS_REGION }}
+          PROJECT: ${{ vars.PROJECT_NAME }}
+        run: |
+          MISSING=""
+          if [ -z "${ACCOUNT_ID}" ]; then MISSING="${MISSING} AWS_ACCOUNT_ID"; fi
+          if [ -z "${REGION}" ];     then MISSING="${MISSING} AWS_REGION"; fi
+          if [ -z "${PROJECT}" ];    then MISSING="${MISSING} PROJECT_NAME"; fi
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing required repo variables:${MISSING}"
+            exit 1
+          fi
+          echo "Project: ${PROJECT}  Region: ${REGION}  Account: ****${ACCOUNT_ID#"${ACCOUNT_ID%????}"}"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Assume the Terraform role via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.PROJECT_NAME }}-terraform-role
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: TerraformPlan-${{ github.run_id }}
+
+      - name: terraform init
+        working-directory: ${{ env.WORKING_DIR }}
+        run: terraform init -input=false -no-color
+
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          set +e
+          terraform plan -input=false -no-color > plan.txt 2>&1
+          echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat plan.txt
+
+      - name: Publish the plan to the job summary
+        if: always()
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          PR="${{ github.event.workflow_run.pull_requests[0].number }}"
+          {
+            echo "## Terraform plan — dev"
+            echo ""
+            echo "- Commit: \`${{ github.event.workflow_run.head_sha }}\`"
+            echo "- Branch: \`${{ github.event.workflow_run.head_branch }}\`"
+            if [ -n "${PR}" ]; then echo "- Pull request: #${PR}"; fi
+            echo ""
+            if [ "${{ steps.plan.outputs.exitcode }}" = "0" ]; then
+              echo "Planned successfully. Review the diff, merge, then run **Terraform Apply**."
+            else
+              echo "> **Plan failed** (exit ${{ steps.plan.outputs.exitcode }})."
+            fi
+            echo ""
+            echo "<details><summary>Show plan</summary>"
+            echo ""
+            echo '```terraform'
+            head -c 800000 plan.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "_Merging does not apply. Trigger **Terraform Apply** manually afterwards._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Never persisted as an artifact: plan output can contain sensitive values.
+      - name: Fail if the plan failed
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1

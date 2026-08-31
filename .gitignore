@@ -1,10 +1,19 @@
 # Terraform
+# NOTE: the environment .terraform.lock.hcl is deliberately NOT ignored. It
+# pins provider versions so local runs and CI resolve identically.
+# Module-level lock files are ignored: they are only produced by the
+# standalone `terraform init -backend=false` used for validation, and the root
+# module is what actually pins versions.
+terraform/modules/*/.terraform.lock.hcl
 **/.terraform/*
 *.tfstate
 *.tfstate.*
+*.tfstate.backup
 *.tfvars.backup
-.terraform.lock.hcl
+tfplan
+*.tfplan
 crash.log
+crash.*.log
 override.tf
 override.tf.json
 *_override.tf
