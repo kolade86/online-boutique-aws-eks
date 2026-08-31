@@ -41,11 +41,6 @@ variable "cluster_oidc_issuer_url" {
   type        = string
 }
 
-variable "eks_nodes_role_arn" {
-  description = "ARN of the EKS nodes IAM role"
-  type        = string
-}
-
 # Alerting Configuration
 variable "alert_email_address" {
   description = "Email address for AlertManager notifications"

@@ -27,7 +27,6 @@ module "eks_core" {
   cluster_version = var.cluster_version
 
   # Networking inputs from networking module
-  vpc_id                        = module.networking.vpc_id
   private_subnet_ids            = module.networking.private_subnet_ids
   public_subnet_ids             = module.networking.public_subnet_ids
   eks_cluster_security_group_id = module.networking.eks_cluster_security_group_id
@@ -67,7 +66,6 @@ module "data_persistence" {
   environment  = var.environment
 
   # Networking inputs
-  vpc_id                  = module.networking.vpc_id
   private_subnet_ids      = module.networking.private_subnet_ids
   rds_security_group_id   = module.networking.rds_security_group_id
   efs_security_group_id   = module.networking.efs_security_group_id
@@ -98,17 +96,14 @@ module "platform_services" {
 
   # Application Configuration
   app_namespace = var.app_namespace
-  app_name      = var.app_name
 
   # From Networking
   vpc_id = module.networking.vpc_id
 
   # From EKS Core
   cluster_name            = module.eks_core.cluster_name
-  cluster_version         = var.cluster_version
   oidc_provider_arn       = module.eks_core.oidc_provider_arn
   cluster_oidc_issuer_url = module.eks_core.cluster_oidc_issuer_url
-  eks_nodes_role_arn      = module.eks_core.eks_nodes_role_arn
   eks_nodes_role_name     = module.eks_core.eks_nodes_role_name
 
   # From Data Persistence
@@ -196,7 +191,6 @@ module "observability" {
   cluster_name            = module.eks_core.cluster_name
   oidc_provider_arn       = module.eks_core.oidc_provider_arn
   cluster_oidc_issuer_url = module.eks_core.cluster_oidc_issuer_url
-  eks_nodes_role_arn      = module.eks_core.eks_nodes_role_arn
   eks_nodes_role_name     = module.eks_core.eks_nodes_role_name
 
   # Alerting Configuration

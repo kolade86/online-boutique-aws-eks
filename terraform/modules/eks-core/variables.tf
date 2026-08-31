@@ -27,10 +27,6 @@ variable "cluster_version" {
 }
 
 # Network Configuration (from networking module)
-variable "vpc_id" {
-  description = "VPC ID where EKS cluster will be created"
-  type        = string
-}
 
 variable "private_subnet_ids" {
   description = "List of private subnet IDs for EKS cluster"

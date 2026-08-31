@@ -16,10 +16,6 @@ variable "environment" {
 }
 
 # Network Configuration (from networking module)
-variable "vpc_id" {
-  description = "VPC ID where resources will be created"
-  type        = string
-}
 
 variable "private_subnet_ids" {
   description = "List of private subnet IDs"
