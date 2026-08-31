@@ -83,9 +83,16 @@ jobs:
           TFLINT_PLUGIN_DIR: ${{ github.workspace }}/.tflint.d/plugins
         run: tflint --init --config "${GITHUB_WORKSPACE}/.tflint.hcl"
 
+      # --minimum-failure-severity=warning: fail on warnings and errors, but not
+      # on notices. Notices are still reported in the log and as annotations -
+      # nothing is hidden. tflint otherwise exits 2 on *any* finding, which
+      # would make purely informational output block every merge.
+      # This is not `--force`, which zeroes the exit status even for real errors.
       - name: Run tflint
         env:
           TFLINT_PLUGIN_DIR: ${{ github.workspace }}/.tflint.d/plugins
         run: |
           cd terraform
-          tflint --recursive --format compact --config "${GITHUB_WORKSPACE}/.tflint.hcl"
+          tflint --recursive --format compact \
+            --minimum-failure-severity=warning \
+            --config "${GITHUB_WORKSPACE}/.tflint.hcl"
