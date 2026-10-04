@@ -278,12 +278,14 @@ resource "aws_elasticache_replication_group" "redis" {
 # ============================================
 
 resource "aws_efs_file_system" "shared_storage" {
-  creation_token                  = "${var.project_name}-${var.environment}-efs"
-  performance_mode                = "generalPurpose"
-  throughput_mode                 = "provisioned"
-  provisioned_throughput_in_mibps = 100
-  encrypted                       = true
-  kms_key_id                      = aws_kms_key.efs.arn
+  creation_token   = "${var.project_name}-${var.environment}-efs"
+  performance_mode = "generalPurpose"
+  # Elastic: throughput scales with demand and is billed per GB transferred.
+  # Provisioned 100 MiB/s was billed around the clock for capacity a dev
+  # environment never uses.
+  throughput_mode = "elastic"
+  encrypted       = true
+  kms_key_id      = aws_kms_key.efs.arn
 
   tags = {
     Name        = "${var.project_name}-${var.environment}-efs"
