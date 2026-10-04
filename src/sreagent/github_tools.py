@@ -1,7 +1,8 @@
-"""Read-only GitHub tools: deploy history of values-dev.yaml and repo file reads."""
+"""Read-only GitHub tools: recent chart commits (deploys and template changes) and repo file reads."""
 
 import base64
 import json
+import posixpath
 import re
 import urllib.error
 import urllib.parse
@@ -14,6 +15,7 @@ REF = re.compile(r"[A-Za-z0-9_.\-/]{1,100}")
 DEFAULT_FILE_LINES = 120
 MAX_FILE_LINES = 250
 MAX_SEARCH_HITS = 50
+MAX_PATCH_CHARS = 1500   # per file per commit; template diffs can be long
 
 
 class GitHubReader:
@@ -24,6 +26,8 @@ class GitHubReader:
         self.repo = repo
         self.branch = branch
         self.values_file = values_file
+        # The chart directory: values-dev.yaml's folder (helm/online-boutique)
+        self.chart_path = posixpath.dirname(values_file)
         self._token = token
         self._timeout = timeout
         self._open = opener
@@ -55,19 +59,25 @@ def safe_path(path: str) -> str:
 
 
 def make_tools(gh: GitHubReader) -> list[Tool]:
-    def recent_values_commits(args):
+    def recent_chart_commits(args):
         limit = bounded_int(args, "limit", 5, 1, 10)
-        commits = gh.get("/commits", {"path": gh.values_file, "sha": gh.branch,
+        commits = gh.get("/commits", {"path": gh.chart_path, "sha": gh.branch,
                                       "per_page": limit})
         out = []
         for c in commits:
             detail = gh.get(f"/commits/{c['sha']}")
-            patch = next((f.get("patch", "") for f in detail.get("files", [])
-                          if f["filename"] == gh.values_file), "")
             info = c["commit"]
-            out.append(f"{c['sha'][:8]} {info['author']['date']} {info['author']['name']}: "
-                       f"{info['message'].splitlines()[0]}\n{patch}")
-        return "\n\n".join(out) or f"No commits touch {gh.values_file}."
+            lines = [f"{c['sha'][:8]} {info['author']['date']} {info['author']['name']}: "
+                     f"{info['message'].splitlines()[0]}"]
+            for f in detail.get("files", []):
+                if not f["filename"].startswith(gh.chart_path + "/"):
+                    continue
+                patch = f.get("patch", "")
+                if len(patch) > MAX_PATCH_CHARS:
+                    patch = patch[:MAX_PATCH_CHARS] + f"\n... [patch cut, {len(patch)} characters]"
+                lines.append(f"--- {f['filename']} ({f.get('status', 'modified')})\n{patch}")
+            out.append("\n".join(lines))
+        return "\n\n".join(out) or f"No commits touch {gh.chart_path}."
 
     def read_repo_file(args):
         path = safe_path(require_str(args, "path"))
@@ -97,13 +107,14 @@ def make_tools(gh: GitHubReader) -> list[Tool]:
                 + "\n".join(f"{n}: {line}" for n, line in enumerate(window, start)))
 
     return [
-        Tool("recent_values_commits",
-             f"List the most recent commits on {gh.branch} that changed {gh.values_file} "
-             "(each deploy is one of these), with the diff of that file. Use it to see "
-             "which image tag was deployed when, and what changed just before a problem.",
+        Tool("recent_chart_commits",
+             f"List the most recent commits on {gh.branch} that changed the Helm chart "
+             f"({gh.chart_path}/), newest first, with the diff of each chart file. Deploys "
+             f"(image tag changes in {gh.values_file}) and template changes both show up "
+             "here. Use it to see what changed, and when, before or after a problem.",
              {"type": "object", "properties": {
                  "limit": {"type": "integer", "description": "Number of commits (1-10, default 5)"}}},
-             recent_values_commits),
+             recent_chart_commits),
         Tool("read_repo_file",
              "Read a file (or list a directory) from the application's Git repository, "
              "e.g. helm/online-boutique/values.yaml for the chart defaults. Returns "

@@ -39,7 +39,7 @@ Every tool call is recorded as evidence.
 | `redact.py` | Secret redaction and truncation |
 | `prometheus_tools.py` | `prometheus_query`, `prometheus_query_range` |
 | `k8s_tools.py` | `list_pods`, `list_deployments`, `list_hpas`, `list_events`, `get_pod_logs` |
-| `github_tools.py` | `recent_values_commits`, `read_repo_file` |
+| `github_tools.py` | `recent_chart_commits`, `read_repo_file` |
 | `prompts.py` | System prompts; turns an AlertManager payload into a task |
 | `config.py` | Environment variables |
 | `cli.py` | Local runner |
@@ -105,7 +105,7 @@ python cli.py tool prometheus_query_range "query=sum(rate(container_cpu_usage_se
 python cli.py tool get_pod_logs pod=<a pod name from list_pods> tail_lines=20
 python cli.py tool read_repo_file path=helm/online-boutique/values.yaml "search=  emailservice:"
 python cli.py tool read_repo_file path=helm/online-boutique/values.yaml start_line=261 max_lines=40
-python cli.py tool recent_values_commits limit=3
+python cli.py tool recent_chart_commits limit=3
 ```
 
 The `tool` command takes `key=value` arguments, not JSON, because Windows

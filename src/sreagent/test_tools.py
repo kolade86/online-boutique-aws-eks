@@ -252,7 +252,7 @@ class ReadRepoFileTest(unittest.TestCase):
         with open(values, "rb") as f:
             self.text = f.read().decode("utf-8")
         content = base64.b64encode(self.text.encode()).decode()
-        gh = NS(branch="main", values_file="v.yaml",
+        gh = NS(branch="main", values_file="v.yaml", chart_path="helm/online-boutique",
                 get=lambda path, params=None: {"encoding": "base64", "content": content})
         self.read = {t.name: t for t in github_tools.make_tools(gh)}["read_repo_file"].handler
 
@@ -282,6 +282,48 @@ class ReadRepoFileTest(unittest.TestCase):
 
     def test_search_miss(self):
         self.assertIn("not found", self.read({"path": "x.yaml", "search": "nope-not-here"}))
+
+
+class RecentChartCommitsTest(unittest.TestCase):
+    def test_template_changes_and_deploys_both_show(self):
+        def commit(sha, message):
+            return {"sha": sha, "commit": {"message": message,
+                                           "author": {"date": "2026-10-04T15:49:00Z", "name": "dev"}}}
+
+        commits = [commit("20b4232a" + "0" * 32, "chore(deploy): v20261004-154933-68ac8238 [skip ci]"),
+                   commit("96cf4f5a" + "0" * 32, "fix(chart): let the HPA own replicas")]
+        details = {
+            commits[0]["sha"]: {"files": [{"filename": "helm/online-boutique/values-dev.yaml",
+                                           "status": "modified", "patch": '-  tag: "a"\n+  tag: "b"'}]},
+            commits[1]["sha"]: {"files": [
+                {"filename": "helm/online-boutique/templates/deployments.yaml", "status": "modified",
+                 "patch": "-  replicas: {{ $svc.replicas }}\n" + "+x\n" * 2000},
+                {"filename": "README.md", "status": "modified", "patch": "+docs"}]},
+        }
+        seen = []
+
+        def get(path, params=None):
+            seen.append((path, params))
+            return commits if path == "/commits" else details[path.rsplit("/", 1)[-1]]
+
+        gh = NS(branch="main", values_file="helm/online-boutique/values-dev.yaml",
+                chart_path="helm/online-boutique", get=get)
+        tool = {t.name: t for t in github_tools.make_tools(gh)}["recent_chart_commits"]
+
+        out = tool.handler({"limit": 2})
+
+        self.assertEqual(seen[0], ("/commits", {"path": "helm/online-boutique", "sha": "main",
+                                                "per_page": 2}))
+        self.assertIn("--- helm/online-boutique/values-dev.yaml (modified)", out)
+        self.assertIn("--- helm/online-boutique/templates/deployments.yaml (modified)", out)
+        self.assertIn("-  replicas: {{ $svc.replicas }}", out)
+        self.assertIn("[patch cut,", out)
+        self.assertNotIn("README.md", out)
+        self.assertLess(out.index("chore(deploy)"), out.index("fix(chart)"))
+
+    def test_chart_path_is_the_values_file_folder(self):
+        gh = github_tools.GitHubReader("o/r", None, "main", "helm/online-boutique/values-dev.yaml")
+        self.assertEqual(gh.chart_path, "helm/online-boutique")
 
 
 class GitHubPathTest(unittest.TestCase):
