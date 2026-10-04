@@ -104,6 +104,9 @@ class AllowListTest(unittest.TestCase):
                             reason="disabled in the chart")
 
     def test_agent_cannot_change_itself(self):
+        self.assertIn("sreagent", self.base["services"])  # a real chart service now
+        self.assertRejected(("services.sreagent.imageTag", RECENT_TAGS[0]),
+                            reason="may not change its own settings")
         self.assertRejected(("services.sreagent.image.tag", RECENT_TAGS[0]),
                             reason="may not change its own settings")
         self.assertRejected(("services.sreagent.resources.limits.memory", "1Gi"),

@@ -90,6 +90,7 @@ INVESTIGATE_ALERTS = (
     "HpaMaxedOut",
 )
 INVESTIGATE_SEVERITIES = ("warning", "critical")
+SELF = "sreagent"   # its own Deployment in the chart; a human looks at those
 
 
 def route_matchers(app_namespace: str) -> list[str]:
@@ -105,6 +106,8 @@ def worth_investigating(alert: dict, app_namespace: str):
     name = labels.get("alertname", "")
     if labels.get("namespace") != app_namespace:
         return False, f"not in the app namespace {app_namespace}"
+    if service_of(labels) == SELF:
+        return False, "the agent does not investigate alerts about itself"
     if name not in INVESTIGATE_ALERTS:
         return False, f"{name or 'unnamed alert'} is not on the agent's alert list"
     if labels.get("severity") not in INVESTIGATE_SEVERITIES:

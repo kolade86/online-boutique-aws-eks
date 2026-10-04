@@ -90,6 +90,8 @@ class WorthInvestigatingTest(unittest.TestCase):
             ({"alertname": "PodCrashLooping", "namespace": APP_NS, "severity": "info"},
              "below warning"),
             ({"alertname": "Watchdog", "severity": "none"}, "not in the app namespace"),
+            ({"alertname": "PodCrashLooping", "namespace": APP_NS, "severity": "critical",
+              "pod": "sreagent-6b9f7c8d4-x2k4p"}, "does not investigate alerts about itself"),
         ]
         for labels, reason in cases:
             with self.subTest(labels=labels):
