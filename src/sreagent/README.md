@@ -3,13 +3,15 @@
 An SRE assistant for Online Boutique. Given an alert or a question, it
 investigates the live system with read-only tools and writes a diagnosis.
 
-**Status: stage 3 of 4.** Done so far:
+**Status: all four stages built.** That covers:
 
 - the agent loop, the model provider and the read-only tools
 - the HTTP server (`/alert`, `/ask`) with deduplication and limits
 - the pull-request tool, with an allow-list enforced in code
+- the in-cluster deployment: image, chart entry, RBAC, CI, ECR and the
+  Alertmanager route
 
-All of it runs from your laptop. The in-cluster deployment comes in stage 4.
+See [Deploying to the cluster](#deploying-to-the-cluster).
 
 ## How it works
 
@@ -159,7 +161,7 @@ python cli.py ask "Are all deployments healthy?"
 **Local runs use your own kubeconfig credentials.** These are probably
 cluster-admin. The agent only ever makes get/list/log calls in
 `APP_NAMESPACE`, but locally that is enforced by this code alone. In the
-cluster, a namespaced read-only Role will enforce it too (stage 4).
+cluster, the namespaced read-only Role in the chart enforces it too.
 
 ## The HTTP server
 
@@ -327,10 +329,9 @@ Contents write is also enough to push to `main`, so the code refuses any
 branch except `sre-agent/<8 hex chars>`. The backstop is a ruleset on `main`
 that this token cannot bypass.
 
-> **Until stage 4 changes build.yml**, merging an agent PR still triggers
-> `Build Images`, because the workflow runs on pushes to `helm/**`. Its
-> `update-manifest` job then writes a new tag over any image rollback. Don't
-> merge a rollback PR before stage 4.
+`build.yml` builds only on changes to `src/**`. So merging an agent PR,
+which touches only `values-dev.yaml`, starts no image build, and nothing
+writes a new tag over a rollback. Argo CD deploys the merge directly.
 
 ### Testing it live (no cluster needed)
 
@@ -369,6 +370,119 @@ Close the PR and delete the branch without merging.
 With a cluster, `python cli.py investigate my-alert.json` runs the full flow.
 It ends with the proposal, if the agent made one, as a dry run. Add
 `--open-pr` to open the PR.
+
+## Deploying to the cluster
+
+The agent ships like the other services:
+
+- **Build:** a Dockerfile, with `sreagent` in build.yml's matrix.
+- **ECR:** a repository created by Terraform (`modules/cicd`).
+- **Chart:** an entry in `values.yaml`, deployed by Argo CD.
+
+It differs in four ways:
+
+- **Read-only access to its namespace.** It runs as its own ServiceAccount,
+  with a namespaced Role giving get/list/watch on pods, pods/log, events,
+  deployments, replicasets and HPAs. It cannot read Secrets.
+- **Secrets created by hand.** The API keys come from two Secrets you
+  create yourself, and are never in Git.
+- **Its own image tag.** `services.sreagent.imageTag` in `values-dev.yaml`
+  is updated by CI together with `image.tag`, but kept separate. An agent
+  PR that rolls `image.tag` back therefore never rolls the agent back to a
+  tag older than its first image. The allow-list forbids the agent from
+  changing it.
+- **Two switches, both off at first:**
+  - The Alertmanager route (Terraform: `sreagent_alerts_enabled`).
+  - Opening pull requests (chart: `SREAGENT_OPEN_PRS`).
+
+Do the steps in this order (PowerShell).
+
+**1. Create the ECR repository** before the first build that includes the
+agent. Otherwise build.yml creates the repository itself, without KMS
+encryption or the lifecycle policy, and the next `terraform apply` fails
+because it already exists.
+
+```powershell
+cd terraform\environments\dev
+terraform apply '-target=module.cicd.aws_ecr_repository.microservices[\"sreagent\"]' `
+                '-target=module.cicd.aws_ecr_lifecycle_policy.microservices[\"sreagent\"]'
+```
+
+The `\"` escaping is for Windows PowerShell 5.1, which drops bare double
+quotes inside arguments to native programs.
+
+**2. Create the two Secrets.** `sreagent` holds the API keys and the bearer
+token for the app namespace. `sreagent-webhook` holds the same token for
+Alertmanager in `monitoring`. Never commit the values.
+
+```powershell
+$ns = "online-boutique-dev"
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+$apiToken = [Convert]::ToBase64String($b)
+kubectl create secret generic sreagent -n $ns `
+  --from-literal=anthropic-api-key=(Read-Host "Anthropic API key") `
+  --from-literal=github-token=(Read-Host "GitHub fine-grained token (Contents + Pull requests: read/write)") `
+  --from-literal=api-token=$apiToken
+kubectl create secret generic sreagent-webhook -n monitoring --from-literal=token=$apiToken
+```
+
+Argo CD does not prune these, because they are not in Git.
+
+**3. Merge the branch.**
+
+- The merge changes `src/**`, so **Build Images** builds all 12 images.
+  `update-manifest` then commits the new tag to both `image.tag` and
+  `services.sreagent.imageTag`, and Argo CD rolls everything out.
+- Until that commit lands, the sreagent pod sits in ImagePullBackOff,
+  because the tag it starts with has no agent image. That is expected and
+  lasts one build.
+
+**4. Check the deployment.**
+
+```powershell
+kubectl get pods -n $ns -l app=sreagent                        # 1/1 Running
+kubectl logs -n $ns deploy/sreagent | Select-Object -First 5    # Uvicorn running on :8080
+# RBAC: may read pods, may not read Secrets or touch other namespaces
+kubectl auth can-i list pods    -n $ns --as=system:serviceaccount:${ns}:sreagent    # yes
+kubectl auth can-i get secrets  -n $ns --as=system:serviceaccount:${ns}:sreagent    # no
+kubectl auth can-i delete pods  -n $ns --as=system:serviceaccount:${ns}:sreagent    # no
+kubectl auth can-i list pods -n kube-system --as=system:serviceaccount:${ns}:sreagent # no
+# Ask it something, through a port-forward
+kubectl port-forward -n $ns svc/sreagent 8080:8080
+$h = @{ Authorization = "Bearer $apiToken" }
+Invoke-RestMethod -Method Post http://localhost:8080/ask -Headers $h -ContentType application/json `
+  -Body (@{ question = "Are all deployments healthy?" } | ConvertTo-Json)
+```
+
+**5. Turn on the alert route.** Set `sreagent_alerts_enabled = true` in
+`terraform/environments/dev/terraform.tfvars`, then apply:
+
+```powershell
+terraform apply -target=module.observability
+kubectl get alertmanager -n monitoring    # RECONCILED True (it would be False if sreagent-webhook were missing)
+```
+
+Then send a synthetic alert through Alertmanager to check the route, the
+token and the agent end to end:
+
+```powershell
+kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-alertmanager 9093:9093
+$alert = @(@{ labels = @{ alertname = "PodCrashLooping"; namespace = $ns; severity = "critical";
+                          pod = "cartservice-test-route" }
+              annotations = @{ summary = "Synthetic alert: checking the sre-agent route" } })
+Invoke-RestMethod -Method Post http://localhost:9093/api/v2/alerts -ContentType application/json `
+  -Body (ConvertTo-Json $alert -Depth 4)
+# About 10-30s later (group_wait), on the agent's port-forward:
+Invoke-RestMethod http://localhost:8080/investigations -Headers $h | Select-Object -First 1
+```
+
+It also sends one email, because the route has `continue`. The synthetic
+alert resolves on its own after Alertmanager's `resolve_timeout` (5 minutes).
+
+**6. Let it open pull requests,** once its dry runs look right. Set
+`SREAGENT_OPEN_PRS` to `"true"` in the `sreagent` entry of
+`helm/online-boutique/values.yaml`, and merge. Until then, each proposal
+appears in `/investigations` as `dry_run`, with its diff.
 
 ## Model choice
 
