@@ -27,9 +27,12 @@ on:
         default: 'all'
   push:
     branches: [ main ]
+    # Only source changes build images. Chart changes (helm/**) deploy through
+    # Argo CD without a rebuild. Triggering on helm/** also meant that merging
+    # an image-tag rollback in values-dev.yaml started a build whose
+    # update-manifest job immediately wrote a new tag over the rollback.
     paths:
     - 'src/**'
-    - 'helm/**'
 
 # Required repo variables (Settings -> Secrets and variables -> Actions -> Variables).
 # These MUST be configured before running this workflow -- there are no hardcoded
@@ -104,7 +107,7 @@ jobs:
       - name: Prepare services matrix
         id: services
         run: |
-          ALL_SERVICES='["adservice","cartservice","checkoutservice","currencyservice","emailservice","frontend","loadgenerator","paymentservice","productcatalogservice","recommendationservice","shippingservice"]'
+          ALL_SERVICES='["adservice","cartservice","checkoutservice","currencyservice","emailservice","frontend","loadgenerator","paymentservice","productcatalogservice","recommendationservice","shippingservice","sreagent"]'
           
           if [ "${{ github.event.inputs.services }}" = "all" ] || [ -z "${{ github.event.inputs.services }}" ]; then
             echo "matrix=${ALL_SERVICES}" >> $GITHUB_OUTPUT
@@ -328,14 +331,22 @@ jobs:
         run: |
           echo "Recording image tag: ${IMAGE_TAG}"
 
-          # Must match exactly one line, or sed would rewrite unrelated keys.
-          MATCHES=$(grep -cE '^  tag: ' "${VALUES_FILE}" || true)
-          if [ "${MATCHES}" != "1" ]; then
-            echo "::error::Expected exactly one '  tag:' line in ${VALUES_FILE}, found ${MATCHES}"
-            exit 1
-          fi
+          # Each pattern must match exactly one line, or sed would rewrite
+          # unrelated keys:
+          #   "  tag:"      image.tag, every service
+          #   "    imageTag:" services.sreagent.imageTag, the agent's own tag,
+          #                 kept separate so a rollback of image.tag never
+          #                 rolls the agent back (see values-dev.yaml)
+          for PATTERN in '^  tag: ' '^    imageTag: '; do
+            MATCHES=$(grep -cE "${PATTERN}" "${VALUES_FILE}" || true)
+            if [ "${MATCHES}" != "1" ]; then
+              echo "::error::Expected exactly one '${PATTERN}' line in ${VALUES_FILE}, found ${MATCHES}"
+              exit 1
+            fi
+          done
 
           sed -i -E "s|^  tag: .*|  tag: \"${IMAGE_TAG}\"|" "${VALUES_FILE}"
+          sed -i -E "s|^    imageTag: .*|    imageTag: \"${IMAGE_TAG}\"|" "${VALUES_FILE}"
 
           if git diff --quiet -- "${VALUES_FILE}"; then
             echo "Tag already up to date; nothing to commit."
