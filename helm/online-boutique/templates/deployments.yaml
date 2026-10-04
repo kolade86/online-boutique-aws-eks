@@ -9,7 +9,11 @@ metadata:
     app: {{ $name }}
     {{- include "online-boutique.labels" $ | nindent 4 }}
 spec:
+  {{- /* With an HPA, the HPA owns the replica count. Rendering replicas here
+       would make Argo CD self-heal reset it on every HPA scale event. */}}
+  {{- if not (and $svc.hpa (not $svc.noHpa)) }}
   replicas: {{ $svc.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ $name }}
