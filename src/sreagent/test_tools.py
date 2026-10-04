@@ -12,7 +12,7 @@ import k8s_tools
 import prometheus_tools
 import prompts
 from redact import redact, truncate
-from tools import ToolError
+from tools import ToolError, ToolRegistry
 
 
 class RedactTest(unittest.TestCase):
@@ -50,12 +50,17 @@ class RedactTest(unittest.TestCase):
         text = 'max_tokens=100 grpc_code="Unavailable" memory=512Mi cpu: 100m'
         self.assertEqual(redact(text), text)
 
-    def test_truncate_keeps_head_and_tail(self):
-        out = truncate("H" * 50 + "M" * 1000 + "T" * 50, 120)
+    def test_truncate_tail_mode_keeps_head_and_tail(self):
+        out = truncate("H" * 50 + "M" * 1000 + "T" * 50, 120, keep="tail")
         self.assertTrue(out.startswith("H"))
         self.assertTrue(out.endswith("T" * 50))
         self.assertIn("truncated 980 characters", out)
         self.assertEqual(truncate("short", 100), "short")
+
+    def test_truncate_head_mode_keeps_the_start(self):
+        out = truncate("H" * 100 + "T" * 100, 120, keep="head")
+        self.assertTrue(out.startswith("H" * 100 + "T" * 20))
+        self.assertTrue(out.endswith("[truncated 80 characters]"))
 
 
 class PrometheusFormatTest(unittest.TestCase):
@@ -121,42 +126,116 @@ class KubeFormatTest(unittest.TestCase):
         self.assertIn("last exit: OOMKilled (code 137, 3m ago)", out)
 
     @staticmethod
-    def _event(kind, name, reason, component, minutes_ago, type_="Normal"):
-        ts = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
-        return NS(type=type_, reason=reason, message=f"{reason} message", count=1,
-                  last_timestamp=ts, event_time=None, metadata=NS(creation_timestamp=ts),
+    def _event(kind, name, reason, component, minutes_ago, type_="Normal",
+               count=1, first_minutes_ago=None):
+        now = datetime.now(timezone.utc)
+        ts = now - timedelta(minutes=minutes_ago)
+        first = now - timedelta(minutes=first_minutes_ago) if first_minutes_ago else ts
+        return NS(type=type_, reason=reason, message=f"{reason} message", count=count,
+                  first_timestamp=first, last_timestamp=ts, event_time=None,
+                  metadata=NS(creation_timestamp=ts),
                   involved_object=NS(kind=kind, name=name),
                   source=NS(component=component), reporting_component=None)
 
-    def test_events_by_app_cover_the_ownership_chain(self):
-        events = [
-            self._event("Pod", "emailservice-6b9f7c-x2k4p", "Killing", "kubelet", 5),
-            self._event("ReplicaSet", "emailservice-6b9f7c", "SuccessfulDelete", "replicaset-controller", 5),
-            self._event("Deployment", "emailservice", "ScalingReplicaSet", "deployment-controller", 5),
-            self._event("HorizontalPodAutoscaler", "emailservice", "SuccessfulRescale",
-                        "horizontal-pod-autoscaler", 6),
-            self._event("Pod", "emailservicex-1", "Started", "kubelet", 1),  # different app
-            self._event("Pod", "cartservice-abc", "Killing", "kubelet", 1),
-        ]
+    def _list_events(self, events, **args):
         core = NS(list_namespaced_event=lambda ns, field_selector=None: NS(items=list(events)))
         kube = k8s_tools.KubeReader("ns", core=core, apps=None, autoscaling=None)
         tools = {t.name: t for t in k8s_tools.make_tools(kube)}
+        return tools["list_events"].handler(args).splitlines()
 
-        lines = tools["list_events"].handler({"app": "emailservice"}).splitlines()
+    def test_events_by_app_cover_the_ownership_chain_controllers_first(self):
+        # Shaped like the live emailservice cycle (regressions/emailservice-events-raw.txt)
+        events = [
+            self._event("Pod", "emailservice-6b9f7c-new01", "Unhealthy", "kubelet", 4, "Warning", count=2),
+            self._event("Pod", "emailservice-6b9f7c-new01", "Started", "kubelet", 4),
+            self._event("Pod", "emailservice-6b9f7c-x2k4p", "Killing", "kubelet", 5),
+            self._event("ReplicaSet", "emailservice-6b9f7c", "SuccessfulDelete", "replicaset-controller", 5),
+            self._event("Deployment", "emailservice", "ScalingReplicaSet", "deployment-controller", 4,
+                        count=19, first_minutes_ago=95),
+            self._event("HorizontalPodAutoscaler", "emailservice", "SuccessfulRescale",
+                        "horizontal-pod-autoscaler", 6, count=18, first_minutes_ago=96),
+            self._event("Pod", "emailservicex-1", "Started", "kubelet", 1),  # different app
+            self._event("Pod", "cartservice-abc", "Killing", "kubelet", 1),
+        ]
 
-        self.assertEqual(len(lines), 4)
-        self.assertTrue(lines[-1].startswith("6m ago Normal SuccessfulRescale "
-                                             "HorizontalPodAutoscaler/emailservice "
-                                             "[horizontal-pod-autoscaler]"))
-        self.assertIn("Killing Pod/emailservice-6b9f7c-x2k4p [kubelet]", "\n".join(lines))
-        self.assertNotIn("cartservice", "\n".join(lines))
-        self.assertNotIn("emailservicex", "\n".join(lines))
+        lines = self._list_events(events, app="emailservice")
+
+        self.assertEqual(lines[0], "Controller events (HPA, Deployment, ReplicaSet, ...), newest first:")
+        self.assertEqual([l.split()[4].split("/")[0] for l in lines[1:4]],
+                         ["Deployment", "ReplicaSet", "HorizontalPodAutoscaler"])
+        self.assertIn("ScalingReplicaSet Deployment/emailservice [deployment-controller] "
+                      "(x19 since 1h35m ago)", lines[1])
+        self.assertIn("[horizontal-pod-autoscaler] (x18 since 1h36m ago)", lines[3])
+        self.assertEqual(lines[4], "Pod events, newest first:")
+        self.assertEqual(len(lines), 8)
+        text = "\n".join(lines)
+        self.assertIn("Unhealthy Pod/emailservice-6b9f7c-new01 [kubelet] (x2 since 4m ago)", text)
+        self.assertNotIn("cartservice", text)
+        self.assertNotIn("emailservicex", text)
+
+    def test_controller_events_survive_truncation(self):
+        events = [self._event("Pod", f"emailservice-6b9f7c-p{i:04d}", "Pulled", "kubelet", 1)
+                  for i in range(40)]
+        events.append(self._event("Deployment", "emailservice", "ScalingReplicaSet",
+                                  "deployment-controller", 30, count=19, first_minutes_ago=95))
+        core = NS(list_namespaced_event=lambda ns, field_selector=None: NS(items=events))
+        kube = k8s_tools.KubeReader("ns", core=core, apps=None, autoscaling=None)
+        registry = ToolRegistry(k8s_tools.make_tools(kube), max_output_chars=600)
+
+        output, is_error = registry.run("list_events", {"app": "emailservice"})
+
+        self.assertFalse(is_error)
+        self.assertIn("ScalingReplicaSet Deployment/emailservice", output)
+        self.assertIn("truncated", output)
 
     def test_rejects_invalid_names(self):
         tools = {t.name: t for t in k8s_tools.make_tools(NS(namespace="ns"))}
         for bad in ("../etc", "Pod_Name", "a b", ""):
             with self.subTest(name=bad), self.assertRaises(ToolError):
                 tools["get_pod_logs"].handler({"pod": bad})
+
+
+class ReadRepoFileTest(unittest.TestCase):
+    """Uses the real chart values.yaml, which is longer than the output limit."""
+
+    def setUp(self):
+        import base64
+        import os
+        values = os.path.join(os.path.dirname(__file__), "..", "..", "helm",
+                              "online-boutique", "values.yaml")
+        with open(values, "rb") as f:
+            self.text = f.read().decode("utf-8")
+        content = base64.b64encode(self.text.encode()).decode()
+        gh = NS(branch="main", values_file="v.yaml",
+                get=lambda path, params=None: {"encoding": "base64", "content": content})
+        self.read = {t.name: t for t in github_tools.make_tools(gh)}["read_repo_file"].handler
+
+    def test_search_then_read_finds_a_block_past_the_truncation_point(self):
+        line_no = self.text.splitlines().index("  emailservice:") + 1
+        # The block's HPA settings lie past the 6000-character output limit
+        hpa_offset = self.text.index("minReplicas", self.text.index("  emailservice:"))
+        self.assertGreater(hpa_offset, 6000)
+
+        hits = self.read({"path": "helm/online-boutique/values.yaml", "search": "  emailservice:"})
+        self.assertIn(f"{line_no}:   emailservice:", hits)
+
+        block = self.read({"path": "helm/online-boutique/values.yaml",
+                           "start_line": line_no, "max_lines": 40})
+        self.assertTrue(block.startswith(f"helm/online-boutique/values.yaml lines {line_no}-"))
+        self.assertIn("replicas:", block)
+        self.assertIn("minReplicas:", block)
+        self.assertLess(len(block), 6000)
+
+    def test_default_window_and_paging_hint(self):
+        out = self.read({"path": "helm/online-boutique/values.yaml"})
+        total = len(self.text.splitlines())
+        first = out.splitlines()[0]
+        self.assertEqual(first, f"helm/online-boutique/values.yaml lines 1-"
+                                f"{github_tools.DEFAULT_FILE_LINES} of {total}; "
+                                f"read on with start_line={github_tools.DEFAULT_FILE_LINES + 1}")
+
+    def test_search_miss(self):
+        self.assertIn("not found", self.read({"path": "x.yaml", "search": "nope-not-here"}))
 
 
 class GitHubPathTest(unittest.TestCase):
@@ -175,6 +254,9 @@ class PromptTest(unittest.TestCase):
             self.assertIn('namespace="online-boutique-dev"', text)
             self.assertIn("at most 12 tool calls", text)
             self.assertIn("readiness probe only removes the pod", text)
+            self.assertIn("automated sync, self-heal and", text)
+            self.assertIn("explain both halves", text)
+            self.assertIn("first seconds after a container starts", text)
             self.assertNotIn("{", text.replace('{namespace="', ""))  # nothing left unformatted
 
 
@@ -186,6 +268,18 @@ class RefreshStartsAtTest(unittest.TestCase):
         cli.refresh_starts_at(payload, 10, now=now)
         self.assertEqual([a["startsAt"] for a in payload["alerts"]],
                          ["2026-10-05T09:20:00Z"] * 2)
+
+
+class ReportTest(unittest.TestCase):
+    def test_report_keeps_non_ascii_and_lists_calls(self):
+        import cli
+        from agent import Evidence, Investigation
+        result = Investigation("answered", "HPA → 1, then Argo CD → 2 — a cycle",
+                               [Evidence("list_events", {"app": "emailservice"}, "...", False)], 3.2)
+        report = cli.format_report(result, 15, header="ask: why?")
+        self.assertTrue(report.startswith("ask: why?\n\nHPA → 1, then Argo CD → 2 — a cycle"))
+        self.assertIn("Tool calls: 1 of 15 allowed", report)
+        self.assertIn('[ok] list_events {"app": "emailservice"}', report)
 
 
 class AlertTaskTest(unittest.TestCase):

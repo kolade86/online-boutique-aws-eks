@@ -103,6 +103,8 @@ python cli.py tool list_events app=emailservice      # Deployment, ReplicaSets, 
 python cli.py tool prometheus_query "query=sum by (pod) (kube_pod_container_status_restarts_total{namespace='online-boutique-dev'})"
 python cli.py tool prometheus_query_range "query=sum(rate(container_cpu_usage_seconds_total{namespace='online-boutique-dev',container!=''}[5m]))" minutes=60
 python cli.py tool get_pod_logs pod=<a pod name from list_pods> tail_lines=20
+python cli.py tool read_repo_file path=helm/online-boutique/values.yaml "search=  emailservice:"
+python cli.py tool read_repo_file path=helm/online-boutique/values.yaml start_line=261 max_lines=40
 python cli.py tool recent_values_commits limit=3
 ```
 
@@ -124,6 +126,12 @@ name. Files named `my-*` are git-ignored. Then:
 ```powershell
 python cli.py -v investigate my-alert.json
 ```
+
+To save a run, use `-o FILE` (for example
+`python cli.py -o regressions\my-run.txt ask "..."`), not `>`. Windows
+PowerShell 5.1 redirection re-encodes the output and garbles characters such
+as `→` and `—`. `-o` writes UTF-8 with the question, the model and the time
+at the top.
 
 The CLI rewrites each alert's `startsAt` to 10 minutes ago. Otherwise a saved
 file's fixed start time would soon predate every pod. To change that, use
@@ -238,13 +246,22 @@ file, update its time first.
 [regressions/](regressions/) records questions the agent once got wrong:
 
 - the question
-- the wrong answer
-- the expected diagnosis
-- pass criteria
+- the expected diagnosis and the pass criteria
+- every run so far, with what was wrong in each
+- the recorded tool output, for replaying the case once the cluster no
+  longer shows the problem
 
 [emailservice-pod-replaced.json](regressions/emailservice-pod-replaced.json)
-is the first. The agent blamed a readiness probe when the HPA and Argo CD
-self-heal were fighting over the replica count.
+is the first: the HPA and Argo CD self-heal were fighting over the replica
+count.
+
+- The first run blamed a readiness probe.
+- The second blamed startup readiness timeouts, and never explained what
+  scaled the Deployment back up.
+
+A correct answer explains both halves of the cycle: the HPA scale-down to 1,
+and the scale-up back to 2 that restores the chart's value. It must not name
+readiness probes as the root cause.
 
 These cases are checked by hand for now. A replay harness that feeds recorded
 tool outputs to the model is possible later.

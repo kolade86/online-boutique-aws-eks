@@ -53,9 +53,13 @@ def _age(ts) -> str:
     if ts is None:
         return "?"
     seconds = int((datetime.now(timezone.utc) - ts).total_seconds())
-    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
-        if seconds >= size:
-            return f"{seconds // size}{unit}"
+    if seconds >= 86400:
+        return f"{seconds // 86400}d"
+    if seconds >= 3600:  # keep minutes: cycle lengths matter
+        hours, rest = divmod(seconds, 3600)
+        return f"{hours}h{rest // 60}m" if rest >= 60 else f"{hours}h"
+    if seconds >= 60:
+        return f"{seconds // 60}m"
     return f"{seconds}s"
 
 
@@ -119,8 +123,13 @@ def format_event(e) -> str:
     # separates a probe failure from a controller scaling down.
     source = (e.source.component if e.source and e.source.component
               else e.reporting_component) or "?"
+    # Kubernetes merges repeats into one event with a count. Without the first
+    # time, "x19, 4m ago" reads as one recent event rather than a cycle.
+    count = e.count or 1
+    first = getattr(e, "first_timestamp", None)
+    repeats = f"x{count} since {_age(first)} ago" if count > 1 and first else f"x{count}"
     return (f"{_age(when)} ago {e.type} {e.reason} {obj.kind}/{obj.name} "
-            f"[{source}] (x{e.count or 1}): {e.message}")
+            f"[{source}] ({repeats}): {e.message}")
 
 
 def _event_time(e):
@@ -163,7 +172,18 @@ def make_tools(kube: KubeReader) -> list[Tool]:
         if args.get("warnings_only"):
             events = [e for e in events if e.type == "Warning"]
         events.sort(key=_event_time, reverse=True)
-        return _cap([format_event(e) for e in events])
+        # Controller events first: there are few of them and they explain why
+        # pods come and go, so they must not be buried under (or truncated
+        # behind) the per-pod Scheduled/Pulled/Created/Started lifecycle noise.
+        controllers = [e for e in events if e.involved_object.kind != "Pod"]
+        pods = [e for e in events if e.involved_object.kind == "Pod"]
+        lines = []
+        if controllers:
+            lines += ["Controller events (HPA, Deployment, ReplicaSet, ...), newest first:"]
+            lines += [format_event(e) for e in controllers]
+        if pods:
+            lines += ["Pod events, newest first:"] + [format_event(e) for e in pods]
+        return _cap(lines)
 
     def get_pod_logs(args):
         pod = require_str(args, "pod", NAME)
@@ -216,5 +236,5 @@ def make_tools(kube: KubeReader) -> list[Tool]:
                  "tail_lines": {"type": "integer", "description": "Lines from the end (1-500, default 100)"},
                  "previous": {"type": "boolean", "description": "Logs of the previous (crashed) container"}},
               "required": ["pod"]},
-             get_pod_logs),
+             get_pod_logs, keep="tail"),
     ]

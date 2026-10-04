@@ -21,6 +21,9 @@ class Tool:
     description: str
     input_schema: dict
     handler: Callable[[dict], str]
+    # Which end survives truncation: "head" for newest-first lists and query
+    # results, "tail" for logs, whose latest lines are at the end.
+    keep: str = "head"
 
 
 class ToolRegistry:
@@ -50,7 +53,7 @@ class ToolRegistry:
         log.info("tool call", extra={
             "tool": name, "is_error": is_error,
             "duration_ms": int((time.monotonic() - started) * 1000)})
-        return sanitize(output, self._max_output_chars), is_error
+        return sanitize(output, self._max_output_chars, tool.keep), is_error
 
 
 # Small input-validation helpers shared by the tool modules. The model's input

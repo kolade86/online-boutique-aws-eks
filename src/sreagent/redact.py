@@ -39,16 +39,22 @@ def redact(text: str) -> str:
     return text
 
 
-def truncate(text: str, max_chars: int) -> str:
-    """Keep the head and the tail; the tail usually holds the latest log lines."""
+def truncate(text: str, max_chars: int, keep: str = "tail") -> str:
+    """Shorten text to about max_chars.
+
+    keep="head": keep the start (newest-first lists, query results).
+    keep="tail": keep a little of the start and mostly the end (logs).
+    """
     if len(text) <= max_chars:
         return text
+    if keep == "head":
+        return f"{text[:max_chars]}\n... [truncated {len(text) - max_chars} characters]"
     head = max_chars // 3
     tail = max_chars - head
     omitted = len(text) - head - tail
     return f"{text[:head]}\n... [truncated {omitted} characters] ...\n{text[-tail:]}"
 
 
-def sanitize(text: str, max_chars: int) -> str:
+def sanitize(text: str, max_chars: int, keep: str = "tail") -> str:
     # Redact before truncating so a cut can never leave half a secret behind.
-    return truncate(redact(text), max_chars)
+    return truncate(redact(text), max_chars, keep)

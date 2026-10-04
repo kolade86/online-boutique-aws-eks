@@ -11,6 +11,9 @@ from tools import Tool, ToolError, bounded_int, optional_str, require_str
 
 PATH = re.compile(r"[A-Za-z0-9_.\-]+(/[A-Za-z0-9_.\-]+)*")
 REF = re.compile(r"[A-Za-z0-9_.\-/]{1,100}")
+DEFAULT_FILE_LINES = 120
+MAX_FILE_LINES = 250
+MAX_SEARCH_HITS = 50
 
 
 class GitHubReader:
@@ -74,7 +77,24 @@ def make_tools(gh: GitHubReader) -> list[Tool]:
             return "\n".join(f"{i['type']}: {i['path']}" for i in item)
         if item.get("encoding") != "base64":
             raise ToolError(f"{path} is too large or not a regular file")
-        return base64.b64decode(item["content"]).decode("utf-8", errors="replace")
+        lines = base64.b64decode(item["content"]).decode("utf-8", errors="replace").splitlines()
+
+        # Large files (values.yaml is ~450 lines) would be cut by output
+        # truncation, so return numbered lines a window at a time, or search.
+        search = args.get("search")
+        if isinstance(search, str) and search.strip():
+            hits = [n for n, line in enumerate(lines, 1) if search.lower() in line.lower()]
+            if not hits:
+                return f"{search!r} not found in {path} ({len(lines)} lines)."
+            return (f"{len(hits)} line(s) matching {search!r} in {path} ({len(lines)} lines):\n"
+                    + "\n".join(f"{n}: {lines[n - 1]}" for n in hits[:MAX_SEARCH_HITS]))
+        start = bounded_int(args, "start_line", 1, 1, max(1, len(lines)))
+        count = bounded_int(args, "max_lines", DEFAULT_FILE_LINES, 1, MAX_FILE_LINES)
+        window = lines[start - 1:start - 1 + count]
+        end = start - 1 + len(window)
+        more = f"; read on with start_line={end + 1}" if end < len(lines) else ""
+        return (f"{path} lines {start}-{end} of {len(lines)}{more}\n"
+                + "\n".join(f"{n}: {line}" for n, line in enumerate(window, start)))
 
     return [
         Tool("recent_values_commits",
@@ -86,10 +106,16 @@ def make_tools(gh: GitHubReader) -> list[Tool]:
              recent_values_commits),
         Tool("read_repo_file",
              "Read a file (or list a directory) from the application's Git repository, "
-             "e.g. helm/online-boutique/values.yaml for the chart defaults.",
+             "e.g. helm/online-boutique/values.yaml for the chart defaults. Returns "
+             f"numbered lines, {DEFAULT_FILE_LINES} at a time. For a large file, first "
+             "use search to find the line you need (e.g. search='  emailservice:'), "
+             "then read from there with start_line.",
              {"type": "object", "properties": {
                  "path": {"type": "string", "description": "Repository-relative path"},
-                 "ref": {"type": "string", "description": f"Branch, tag or commit (default {gh.branch})"}},
+                 "ref": {"type": "string", "description": f"Branch, tag or commit (default {gh.branch})"},
+                 "search": {"type": "string", "description": "Return only the lines containing this text (case-insensitive), with line numbers"},
+                 "start_line": {"type": "integer", "description": "First line to return (default 1)"},
+                 "max_lines": {"type": "integer", "description": f"Lines to return (default {DEFAULT_FILE_LINES}, max {MAX_FILE_LINES})"}},
               "required": ["path"]},
              read_repo_file),
     ]
