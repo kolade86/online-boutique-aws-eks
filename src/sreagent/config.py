@@ -1,7 +1,8 @@
 """Configuration, read once from environment variables.
 
-Secrets (ANTHROPIC_API_KEY, GITHUB_TOKEN) are read from the environment only;
-in the cluster they come from a Kubernetes Secret created by hand.
+Secrets (ANTHROPIC_API_KEY, GITHUB_TOKEN, SREAGENT_API_TOKEN) are read from
+the environment only; in the cluster they come from a Kubernetes Secret
+created by hand.
 """
 
 import os
@@ -30,6 +31,9 @@ class Config:
     github_token: str | None
     github_branch: str
     values_file: str
+    api_token: str | None
+    dedup_minutes: int
+    port: int
 
     @classmethod
     def from_env(cls, env=os.environ) -> "Config":
@@ -61,6 +65,9 @@ class Config:
             github_token=env.get("GITHUB_TOKEN") or None,
             github_branch=env.get("GITHUB_BRANCH", "main"),
             values_file=env.get("VALUES_FILE", "helm/online-boutique/values-dev.yaml"),
+            api_token=env.get("SREAGENT_API_TOKEN") or None,
+            dedup_minutes=integer("SREAGENT_DEDUP_MINUTES", 30),
+            port=integer("PORT", 8080),
         )
 
 

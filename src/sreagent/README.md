@@ -3,10 +3,13 @@
 An SRE assistant for Online Boutique. Given an alert or a question, it
 investigates the live system with read-only tools and writes a diagnosis.
 
-**Status: stage 1 of 4.** The agent loop, the model provider and the read-only
-tools are done and run from your laptop. The HTTP endpoints (`/alert`,
-`/ask`), the pull-request tool, and the in-cluster deployment come in later
-stages.
+**Status: stage 2 of 4.** Done so far:
+
+- the agent loop, the model provider and the read-only tools
+- the HTTP server (`/alert`, `/ask`) with deduplication and limits
+
+Both run from your laptop. The pull-request tool and the in-cluster
+deployment come in stages 3 and 4.
 
 ## How it works
 
@@ -40,6 +43,8 @@ Every tool call is recorded as evidence.
 | `prompts.py` | System prompts; turns an AlertManager payload into a task |
 | `config.py` | Environment variables |
 | `cli.py` | Local runner |
+| `server.py` | FastAPI app: `/alert`, `/ask`, `/investigations`, `/healthz` |
+| `alerts.py` | Alert identity (alertname + namespace + service) and deduplication |
 
 To add a Bedrock provider later, write a class with the same `complete()`
 method as `AnthropicProvider` and choose it in `wiring.py`. The loop does not
@@ -145,6 +150,67 @@ cluster-admin. The agent only ever makes get/list/log calls in
 `APP_NAMESPACE`, but locally that is enforced by this code alone. In the
 cluster, a namespaced read-only Role will enforce it too (stage 4).
 
+## The HTTP server
+
+```powershell
+# Same environment as above, plus a shared token for callers:
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+$env:SREAGENT_API_TOKEN = [Convert]::ToBase64String($b)
+python server.py                                   # listens on :8080 (PORT)
+```
+
+| Endpoint | Auth | Behaviour |
+|---|---|---|
+| `GET /healthz` | none | Liveness/readiness probe |
+| `POST /alert` | bearer | AlertManager webhook payload. Replies at once with one decision per alert key; the investigation runs in the background |
+| `POST /ask` | bearer | `{"question": "..."}`. Runs synchronously and returns the answer. Never opens a PR |
+| `GET /investigations` | bearer | The last 20 results (answer, outcome, tools called), newest first |
+
+Every endpoint except `/healthz` needs `Authorization: Bearer <SREAGENT_API_TOKEN>`.
+The server refuses to start without a token.
+
+From a second terminal:
+
+```powershell
+$h = @{ Authorization = "Bearer $env:SREAGENT_API_TOKEN" }
+Invoke-RestMethod -Method Post http://localhost:8080/ask -Headers $h -ContentType application/json `
+  -Body (@{ question = "Are all deployments healthy?" } | ConvertTo-Json)
+Invoke-RestMethod -Method Post http://localhost:8080/alert -Headers $h -ContentType application/json `
+  -InFile my-alert.json
+Invoke-RestMethod http://localhost:8080/investigations -Headers $h | ConvertTo-Json -Depth 5
+```
+
+`/alert` does not rewrite `startsAt` the way the CLI does. To post a saved
+file, update its time first.
+
+### Limits and deduplication
+
+- **One investigation at a time**, shared by `/alert` and `/ask`. While one is
+  running:
+  - an alert is skipped with reason `another investigation is running`
+  - `/ask` returns 409
+- **Deduplication.** An alert's identity is alertname + namespace + service.
+  The service is worked out from the `deployment`, `horizontalpodautoscaler`,
+  `app` or `pod` label, then `grpc_service`, then `service`.
+  - A replaced pod therefore counts as the same alert. The raw AlertManager
+    fingerprint would not, because it includes the pod name.
+  - A key investigated in the last `SREAGENT_DEDUP_MINUTES` (default 30) is
+    skipped.
+  - An alert skipped because the agent was busy is not marked, so it can be
+    investigated later.
+- **One key per payload.** AlertManager groups alerts by alertname. When a
+  group covers several services, the first new one is investigated and the
+  rest are skipped as busy.
+- **Skips return 200, not an error.** Otherwise AlertManager would retry. Its
+  `repeat_interval` (1h) re-sends alerts that are still firing.
+- **Per-investigation limits:** `SREAGENT_MAX_TOOL_CALLS` and
+  `SREAGENT_TIMEOUT_SECONDS`, as for the CLI.
+- **State is in memory.** A restart forgets the dedup history and the recent
+  results. That is acceptable with one replica; at worst an alert is
+  investigated twice.
+- **Never more than one open agent PR per alert** is enforced in stage 3. It
+  checks open PRs on GitHub, so it survives restarts.
+
 ## Configuration
 
 | Variable | Default | |
@@ -161,6 +227,9 @@ cluster, a namespaced read-only Role will enforce it too (stage 4).
 | `SREAGENT_MODEL_TIMEOUT_SECONDS` | `120` | Per model request |
 | `SREAGENT_MAX_TOKENS` | `8000` | Max output tokens per model turn |
 | `SREAGENT_TOOL_OUTPUT_MAX_CHARS` | `6000` | Each tool result is cut to this length |
+| `SREAGENT_API_TOKEN` | (none) | Required by the server: bearer token for `/alert`, `/ask`, `/investigations` |
+| `SREAGENT_DEDUP_MINUTES` | `30` | Skip an alert key investigated this recently |
+| `PORT` | `8080` | Server port |
 | `GITHUB_BRANCH` | `main` | |
 | `VALUES_FILE` | `helm/online-boutique/values-dev.yaml` | |
 
@@ -187,5 +256,11 @@ python -m unittest discover -s . -p "test_*.py" -v
 ```
 
 The loop tests in `test_agent.py` use a scripted fake model provider, so they
-make no network calls and need no packages installed. `test_anthropic_provider.py`
-is skipped when the `anthropic` package is not installed.
+make no network calls and need no packages installed. Two test files are
+skipped when their packages are missing:
+
+- `test_anthropic_provider.py` needs `anthropic`
+- `test_server.py` needs `fastapi` and `httpx`
+
+`httpx` is used only by FastAPI's test client, so it is not in
+`requirements.txt`. Run `pip install httpx` to run the server tests.
