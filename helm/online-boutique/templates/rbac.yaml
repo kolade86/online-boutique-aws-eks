@@ -1,0 +1,46 @@
+{{- /*
+A ServiceAccount, and optionally a namespaced Role bound to it, for services
+that set `serviceAccount: true` (and `rbac.rules`). Only sreagent does; every
+other service keeps running as the namespace's default ServiceAccount.
+A Role, never a ClusterRole: permissions stop at this namespace.
+*/}}
+{{- range $name, $svc := .Values.services }}
+{{- if and (ne $svc.enabled false) $svc.serviceAccount }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+{{- if and $svc.rbac $svc.rbac.rules }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+rules:
+  {{- toYaml $svc.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

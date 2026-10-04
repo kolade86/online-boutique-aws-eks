@@ -27,6 +27,9 @@ spec:
         {{- toYaml $svc.podAnnotations | nindent 8 }}
       {{- end }}
     spec:
+      {{- if $svc.serviceAccount }}
+      serviceAccountName: {{ $name }}
+      {{- end }}
       containers:
       - name: {{ $svc.containerName | default "server" }}
         image: {{ include "online-boutique.image" (dict "svc" $svc "global" $.Values "name" $name) }}
@@ -45,6 +48,14 @@ spec:
         {{- range $svc.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}
+        {{- end }}
+        {{- /* Values from a Secret that is created by hand, never from Git */}}
+        {{- range $svc.secretEnv }}
+        - name: {{ .name }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .secret }}
+              key: {{ .key }}
         {{- end }}
         resources:
           {{- toYaml $svc.resources | nindent 10 }}
