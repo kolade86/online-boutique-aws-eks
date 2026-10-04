@@ -47,3 +47,7 @@ HELM-GUIDE.md
 # Git
 .git/
 argocd.exe
+
+# Python
+__pycache__/
+.venv/

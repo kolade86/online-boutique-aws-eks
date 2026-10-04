@@ -1,0 +1,35 @@
+{
+  "version": "4",
+  "groupKey": "{}/{}:{alertname=\"PodCrashLooping\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "sre-agent",
+  "groupLabels": { "alertname": "PodCrashLooping" },
+  "commonLabels": {
+    "alertname": "PodCrashLooping",
+    "namespace": "online-boutique-dev",
+    "severity": "critical"
+  },
+  "commonAnnotations": {},
+  "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "PodCrashLooping",
+        "namespace": "online-boutique-dev",
+        "pod": "cartservice-REPLACE-ME",
+        "container": "server",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "Pod cartservice-REPLACE-ME is crash looping",
+        "description": "Pod cartservice-REPLACE-ME in namespace online-boutique-dev has been restarting for more than 5 minutes."
+      },
+      "startsAt": "2026-10-04T12:00:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "",
+      "fingerprint": "0000000000000000"
+    }
+  ]
+}
