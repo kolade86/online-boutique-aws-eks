@@ -1,0 +1,11 @@
+# Only requirements.txt and the *.py sources go into the image.
+.venv/
+__pycache__/
+*.pyc
+test_*.py
+regressions/
+fixtures/
+examples/
+my-*
+*.local.json
+README.md
