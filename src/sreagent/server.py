@@ -145,12 +145,16 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
             key = alerts.key_of(a)
             if any(d["key"] == str(key) for d in decisions):
                 continue  # several pods of one service: one decision per key
-            if runner.dedup.is_recent(key):
+            worth, why = alerts.worth_investigating(a, config.app_namespace)
+            if not worth:
+                decisions.append({"key": str(key), "status": "skipped", "reason": why})
+            elif runner.dedup.is_recent(key):
                 decisions.append({"key": str(key), "status": "skipped",
                                   "reason": f"investigated in the last {config.dedup_minutes} minutes"})
             elif started is not None or not runner.try_start_alert(
-                    key, {**payload, "alerts": [x for x in alerts.firing(payload)
-                                                if alerts.key_of(x) == key]}):
+                    key, {**payload, "alerts": [
+                        x for x in alerts.firing(payload) if alerts.key_of(x) == key
+                        and alerts.worth_investigating(x, config.app_namespace)[0]]}):
                 decisions.append({"key": str(key), "status": "skipped",
                                   "reason": "another investigation is running"})
             else:

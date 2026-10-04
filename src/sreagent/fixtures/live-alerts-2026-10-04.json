@@ -1,0 +1,456 @@
+{
+  "description": "Every alert firing in online-boutique-dev on 2026-10-04 after Alertmanager first started, as AlertManager webhook payloads grouped by alertname (the live route's group_by). Converted from GET /api/v2/alerts; the API-only fields (receivers, status object, updatedAt) are dropped. Contains no account IDs, IPs or credentials - only in-cluster service names and public runbook URLs.",
+  "expected": "None of these is worth an investigation: all are monitoring set-up noise (EKS control plane not scrapable, no Redis exporter, services expose no metrics) or Watchdog/InfoInhibitor.",
+  "payloads": [
+    {
+      "version": "4",
+      "groupKey": "{}:{alertname=\"InfoInhibitor\"}",
+      "truncatedAlerts": 0,
+      "status": "firing",
+      "receiver": "web.hook",
+      "groupLabels": {
+        "alertname": "InfoInhibitor"
+      },
+      "commonLabels": {
+        "alertname": "InfoInhibitor",
+        "alertstate": "pending",
+        "container": "kube-prometheus-stack",
+        "namespace": "monitoring",
+        "pod": "monitoring-kube-prometheus-operator-6d5c687fcf-dw9kp",
+        "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+        "severity": "none"
+      },
+      "commonAnnotations": {
+        "description": "This is an alert that is used to inhibit info alerts.\nBy themselves, the info-level alerts are sometimes very noisy, but they are relevant when combined with\nother alerts.\nThis alert fires whenever there's a severity=\"info\" alert, and stops firing when another alert with a\nseverity of 'warning' or 'critical' starts firing on the same namespace.\nThis alert should be routed to a null receiver and configured to inhibit alerts with severity=\"info\".\n",
+        "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/infoinhibitor",
+        "summary": "Info-level alert inhibition."
+      },
+      "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+      "alerts": [
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "InfoInhibitor",
+            "alertstate": "pending",
+            "container": "kube-prometheus-stack",
+            "namespace": "monitoring",
+            "pod": "monitoring-kube-prometheus-operator-6d5c687fcf-dw9kp",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "severity": "none"
+          },
+          "annotations": {
+            "description": "This is an alert that is used to inhibit info alerts.\nBy themselves, the info-level alerts are sometimes very noisy, but they are relevant when combined with\nother alerts.\nThis alert fires whenever there's a severity=\"info\" alert, and stops firing when another alert with a\nseverity of 'warning' or 'critical' starts firing on the same namespace.\nThis alert should be routed to a null receiver and configured to inhibit alerts with severity=\"info\".\n",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/infoinhibitor",
+            "summary": "Info-level alert inhibition."
+          },
+          "startsAt": "2026-10-04T16:38:09.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=ALERTS%7Bseverity%3D%22info%22%7D+%3D%3D+1+unless+on+%28namespace%29+ALERTS%7Balertname%21%3D%22InfoInhibitor%22%2Calertstate%3D%22firing%22%2Cseverity%3D~%22warning%7Ccritical%22%7D+%3D%3D+1&g0.tab=1",
+          "fingerprint": "4edd09c0dbc9e617"
+        }
+      ]
+    },
+    {
+      "version": "4",
+      "groupKey": "{}:{alertname=\"KubeControllerManagerDown\"}",
+      "truncatedAlerts": 0,
+      "status": "firing",
+      "receiver": "web.hook",
+      "groupLabels": {
+        "alertname": "KubeControllerManagerDown"
+      },
+      "commonLabels": {
+        "alertname": "KubeControllerManagerDown",
+        "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+        "severity": "critical"
+      },
+      "commonAnnotations": {
+        "description": "KubeControllerManager has disappeared from Prometheus target discovery.",
+        "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubecontrollermanagerdown",
+        "summary": "Target disappeared from Prometheus target discovery."
+      },
+      "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+      "alerts": [
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "KubeControllerManagerDown",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "severity": "critical"
+          },
+          "annotations": {
+            "description": "KubeControllerManager has disappeared from Prometheus target discovery.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubecontrollermanagerdown",
+            "summary": "Target disappeared from Prometheus target discovery."
+          },
+          "startsAt": "2026-10-04T13:50:23.547Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=absent%28up%7Bjob%3D%22kube-controller-manager%22%7D+%3D%3D+1%29&g0.tab=1",
+          "fingerprint": "99beeeb88ac09d37"
+        }
+      ]
+    },
+    {
+      "version": "4",
+      "groupKey": "{}:{alertname=\"KubeSchedulerDown\"}",
+      "truncatedAlerts": 0,
+      "status": "firing",
+      "receiver": "web.hook",
+      "groupLabels": {
+        "alertname": "KubeSchedulerDown"
+      },
+      "commonLabels": {
+        "alertname": "KubeSchedulerDown",
+        "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+        "severity": "critical"
+      },
+      "commonAnnotations": {
+        "description": "KubeScheduler has disappeared from Prometheus target discovery.",
+        "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubeschedulerdown",
+        "summary": "Target disappeared from Prometheus target discovery."
+      },
+      "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+      "alerts": [
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "KubeSchedulerDown",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "severity": "critical"
+          },
+          "annotations": {
+            "description": "KubeScheduler has disappeared from Prometheus target discovery.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubeschedulerdown",
+            "summary": "Target disappeared from Prometheus target discovery."
+          },
+          "startsAt": "2026-10-04T13:50:31.940Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=absent%28up%7Bjob%3D%22kube-scheduler%22%7D+%3D%3D+1%29&g0.tab=1",
+          "fingerprint": "1875b8db6d322e29"
+        }
+      ]
+    },
+    {
+      "version": "4",
+      "groupKey": "{}:{alertname=\"RedisDown\"}",
+      "truncatedAlerts": 0,
+      "status": "firing",
+      "receiver": "web.hook",
+      "groupLabels": {
+        "alertname": "RedisDown"
+      },
+      "commonLabels": {
+        "alertname": "RedisDown",
+        "instance": "redis-exporter:9121",
+        "job": "redis-exporter",
+        "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+        "severity": "critical"
+      },
+      "commonAnnotations": {
+        "description": "Redis exporter has been unreachable for 2 minutes. Cart service may be impacted.",
+        "summary": "Redis exporter is down"
+      },
+      "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+      "alerts": [
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "RedisDown",
+            "instance": "redis-exporter:9121",
+            "job": "redis-exporter",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "severity": "critical"
+          },
+          "annotations": {
+            "description": "Redis exporter has been unreachable for 2 minutes. Cart service may be impacted.",
+            "summary": "Redis exporter is down"
+          },
+          "startsAt": "2026-10-04T13:48:20.771Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=up%7Bjob%3D%22redis-exporter%22%7D+%3D%3D+0&g0.tab=1",
+          "fingerprint": "4a1dc28dd1b09fad"
+        }
+      ]
+    },
+    {
+      "version": "4",
+      "groupKey": "{}:{alertname=\"TargetDown\"}",
+      "truncatedAlerts": 0,
+      "status": "firing",
+      "receiver": "web.hook",
+      "groupLabels": {
+        "alertname": "TargetDown"
+      },
+      "commonLabels": {
+        "alertname": "TargetDown",
+        "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+        "severity": "warning"
+      },
+      "commonAnnotations": {
+        "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+        "summary": "One or more targets are unreachable."
+      },
+      "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+      "alerts": [
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "adservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "adservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the adservice/adservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "ca28c8df7bcd5ad8"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "cartservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "cartservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the cartservice/cartservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "d3e36ed568551b54"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "checkoutservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "checkoutservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the checkoutservice/checkoutservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "6186d4f68c607bbc"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "currencyservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "currencyservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the currencyservice/currencyservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:09.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "997898f703ab7444"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "emailservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "emailservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the emailservice/emailservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:09.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "492d5426f3a9cf20"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "frontend",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "frontend",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the frontend/frontend targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:09.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "ddb126cf8ce462f2"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "paymentservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "paymentservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the paymentservice/paymentservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "f16b6630a0a4e2e4"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "productcatalogservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "productcatalogservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the productcatalogservice/productcatalogservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "ab68efbeca97f33c"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "recommendationservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "recommendationservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the recommendationservice/recommendationservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "eb4feb4c5bfac6f8"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "redis-exporter",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the redis-exporter/ targets in  namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:45:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "3cce166ab536c703"
+        },
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "TargetDown",
+            "job": "shippingservice",
+            "namespace": "online-boutique-dev",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "service": "shippingservice",
+            "severity": "warning"
+          },
+          "annotations": {
+            "description": "100% of the shippingservice/shippingservice targets in online-boutique-dev namespace are down.",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/targetdown",
+            "summary": "One or more targets are unreachable."
+          },
+          "startsAt": "2026-10-04T13:56:39.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=100+%2A+%28count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up+%3D%3D+0%29+%2F+count+by+%28cluster%2C+job%2C+namespace%2C+service%29+%28up%29%29+%3E+10&g0.tab=1",
+          "fingerprint": "84a1b3a997404fc0"
+        }
+      ]
+    },
+    {
+      "version": "4",
+      "groupKey": "{}:{alertname=\"Watchdog\"}",
+      "truncatedAlerts": 0,
+      "status": "firing",
+      "receiver": "web.hook",
+      "groupLabels": {
+        "alertname": "Watchdog"
+      },
+      "commonLabels": {
+        "alertname": "Watchdog",
+        "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+        "severity": "none"
+      },
+      "commonAnnotations": {
+        "description": "This is an alert meant to ensure that the entire alerting pipeline is functional.\nThis alert is always firing, therefore it should always be firing in Alertmanager\nand always fire against a receiver. There are integrations with various notification\nmechanisms that send a notification when this alert is not firing. For example the\n\"DeadMansSnitch\" integration in PagerDuty.\n",
+        "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/watchdog",
+        "summary": "An alert that should always be firing to certify that Alertmanager is working properly."
+      },
+      "externalURL": "http://monitoring-kube-prometheus-alertmanager.monitoring:9093",
+      "alerts": [
+        {
+          "status": "firing",
+          "labels": {
+            "alertname": "Watchdog",
+            "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+            "severity": "none"
+          },
+          "annotations": {
+            "description": "This is an alert meant to ensure that the entire alerting pipeline is functional.\nThis alert is always firing, therefore it should always be firing in Alertmanager\nand always fire against a receiver. There are integrations with various notification\nmechanisms that send a notification when this alert is not firing. For example the\n\"DeadMansSnitch\" integration in PagerDuty.\n",
+            "runbook_url": "https://runbooks.prometheus-operator.dev/runbooks/general/watchdog",
+            "summary": "An alert that should always be firing to certify that Alertmanager is working properly."
+          },
+          "startsAt": "2026-10-04T13:35:09.814Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "generatorURL": "http://monitoring-kube-prometheus-prometheus.monitoring:9090/graph?g0.expr=vector%281%29&g0.tab=1",
+          "fingerprint": "d200352fd868ba95"
+        }
+      ]
+    }
+  ]
+}

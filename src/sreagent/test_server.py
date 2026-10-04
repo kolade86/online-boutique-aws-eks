@@ -160,6 +160,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(decisions[0]["reason"], "no firing alerts")
         self.assertEqual(self.spawn.pending, [])
 
+    def test_live_alerts_from_2026_10_04_are_all_skipped(self):
+        import json
+        import os
+        path = os.path.join(os.path.dirname(__file__), "fixtures", "live-alerts-2026-10-04.json")
+        with open(path, encoding="utf-8") as f:
+            payloads = json.load(f)["payloads"]
+        client = TestClient(server.create_app(config(APP_NAMESPACE="online-boutique-dev"),
+                                              self.agent, spawn=self.spawn))
+        decisions = []
+        for p in payloads:
+            resp = client.post("/alert", json=p, headers=AUTH)
+            self.assertEqual(resp.status_code, 200)
+            decisions += resp.json()["decisions"]
+        self.assertTrue(decisions)
+        self.assertEqual({d["status"] for d in decisions}, {"skipped"})
+        self.assertEqual(self.spawn.pending, [])
+        self.assertEqual(self.agent.tasks, [])
+
     def test_ask(self):
         resp = self.client.post("/ask", json={"question": "Is cartservice healthy?"}, headers=AUTH)
         self.assertEqual(resp.status_code, 200)
@@ -195,13 +213,14 @@ class ServerPullRequestTest(unittest.TestCase):
         self.spawn = DeferredSpawn()
         self.gh = FakeGitHub()
         opener = pr_tool.PullRequestOpener(self.gh, VALUES_DEV, VALUES)
-        return TestClient(server.create_app(config(**env), self.agent, spawn=self.spawn,
+        return TestClient(server.create_app(config(APP_NAMESPACE="online-boutique-dev", **env),
+                                            self.agent, spawn=self.spawn,
                                             pr_opener=opener))
 
     def emailservice_alert(self):
         return payload({**alert(pod="emailservice-6b9f7c8d4-aaaaa"),
                         "labels": {"alertname": "PodCrashLooping", "namespace": "online-boutique-dev",
-                                   "pod": "emailservice-6b9f7c8d4-aaaaa"}})
+                                   "pod": "emailservice-6b9f7c8d4-aaaaa", "severity": "critical"}})
 
     def test_only_alerts_get_the_proposal_tool(self):
         client = self.make_client()

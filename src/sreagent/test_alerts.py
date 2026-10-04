@@ -1,5 +1,8 @@
-"""Tests for alert identity (alertname + namespace + service) and deduplication."""
+"""Tests for alert identity, which alerts are worth investigating, and deduplication."""
 
+import json
+import os
+import re
 import unittest
 
 import alerts
@@ -40,6 +43,72 @@ class ServiceOfTest(unittest.TestCase):
     def test_firing_ignores_resolved(self):
         payload = {"alerts": [{"status": "firing"}, {"status": "resolved"}, {}]}
         self.assertEqual(len(alerts.firing(payload)), 2)
+
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+CHART_RULES = os.path.join(os.path.dirname(__file__), "..", "..", "helm", "online-boutique",
+                           "templates", "prometheusrules.yaml")
+APP_NS = "online-boutique-dev"
+
+
+class WorthInvestigatingTest(unittest.TestCase):
+    def test_no_live_alert_from_2026_10_04_is_worth_an_investigation(self):
+        with open(os.path.join(FIXTURES, "live-alerts-2026-10-04.json"), encoding="utf-8") as f:
+            payloads = json.load(f)["payloads"]
+        seen = []
+        for payload in payloads:
+            for a in alerts.firing(payload):
+                worth, why = alerts.worth_investigating(a, APP_NS)
+                seen.append(a["labels"]["alertname"])
+                with self.subTest(alert=a["labels"]["alertname"], labels=a["labels"]):
+                    self.assertFalse(worth)
+                    self.assertTrue(why)
+        self.assertEqual(len(seen), 16)
+        # The 10 shop-service TargetDown alerts are in the app namespace with
+        # severity warning: a namespace+severity matcher alone would send them.
+        shop_target_down = [p for p in payloads if p["groupLabels"]["alertname"] == "TargetDown"][0]
+        in_app_ns = [a for a in shop_target_down["alerts"] if a["labels"].get("namespace") == APP_NS]
+        self.assertEqual(len(in_app_ns), 10)
+
+    def test_listed_alerts_in_the_app_namespace_are_investigated(self):
+        for name in alerts.INVESTIGATE_ALERTS:
+            for severity in ("warning", "critical"):
+                with self.subTest(alert=name, severity=severity):
+                    a = {"labels": {"alertname": name, "namespace": APP_NS, "severity": severity}}
+                    self.assertEqual(alerts.worth_investigating(a, APP_NS), (True, ""))
+
+    def test_rejections(self):
+        cases = [
+            ({"alertname": "PodCrashLooping", "namespace": "kube-system", "severity": "critical"},
+             "not in the app namespace"),
+            ({"alertname": "TargetDown", "namespace": APP_NS, "severity": "warning"},
+             "not on the agent's alert list"),
+            ({"alertname": "KubePodCrashLooping", "namespace": APP_NS, "severity": "warning"},
+             "not on the agent's alert list"),
+            ({"alertname": "HighGrpcErrorRate", "namespace": APP_NS, "severity": "critical"},
+             "not on the agent's alert list"),
+            ({"alertname": "PodCrashLooping", "namespace": APP_NS, "severity": "info"},
+             "below warning"),
+            ({"alertname": "Watchdog", "severity": "none"}, "not in the app namespace"),
+        ]
+        for labels, reason in cases:
+            with self.subTest(labels=labels):
+                worth, why = alerts.worth_investigating({"labels": labels}, APP_NS)
+                self.assertFalse(worth)
+                self.assertIn(reason, why)
+
+    def test_every_listed_alert_is_a_rule_in_the_chart(self):
+        # Renaming or removing a chart rule must not silently stop investigations.
+        with open(CHART_RULES, encoding="utf-8") as f:
+            chart_alerts = set(re.findall(r"^\s*- alert: (\w+)", f.read(), re.MULTILINE))
+        self.assertEqual(sorted(set(alerts.INVESTIGATE_ALERTS) - chart_alerts), [])
+
+    def test_route_matchers_for_stage_4(self):
+        self.assertEqual(alerts.route_matchers(APP_NS), [
+            'namespace="online-boutique-dev"',
+            'alertname=~"PodCrashLooping|PodNotReady|ContainerOOMKilled|HighCPUUsage|'
+            'HighMemoryUsage|DeploymentReplicasMismatch|HpaMaxedOut"',
+            'severity=~"warning|critical"'])
 
 
 class DeduplicatorTest(unittest.TestCase):

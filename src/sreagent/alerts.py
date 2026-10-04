@@ -65,6 +65,53 @@ def firing(payload: dict) -> list[dict]:
     return [a for a in payload.get("alerts", []) if a.get("status", "firing") == "firing"]
 
 
+# The alerts worth an investigation: the chart's workload-health rules
+# (helm/online-boutique/templates/prometheusrules.yaml). Each is about the
+# shop's own pods and maps to something the agent can diagnose and, within
+# its allow-list, fix (resources, replicas/HPA, image rollback).
+#
+# Deliberately NOT on the list:
+# - TargetDown, KubeSchedulerDown, RedisDown, ...: about the monitoring set-up,
+#   not the shop; no allowed change can fix them.
+# - HighGrpcErrorRate, HighGrpcLatency, HighHttpErrorRate: the services
+#   expose no Prometheus metrics, so these rules can never fire.
+# - kube-prometheus-stack defaults (KubePodCrashLooping, ...): duplicates of
+#   the chart's rules under other names, which would mean two investigations
+#   of one problem.
+# The Stage 4 AlertManager route matches the same names; the server checks
+# again, so a routing mistake cannot make the agent investigate noise.
+INVESTIGATE_ALERTS = (
+    "PodCrashLooping",
+    "PodNotReady",
+    "ContainerOOMKilled",
+    "HighCPUUsage",
+    "HighMemoryUsage",
+    "DeploymentReplicasMismatch",
+    "HpaMaxedOut",
+)
+INVESTIGATE_SEVERITIES = ("warning", "critical")
+
+
+def route_matchers(app_namespace: str) -> list[str]:
+    """The AlertManager route matchers for the agent's receiver (Stage 4)."""
+    return [f'namespace="{app_namespace}"',
+            f'alertname=~"{"|".join(INVESTIGATE_ALERTS)}"',
+            f'severity=~"{"|".join(INVESTIGATE_SEVERITIES)}"']
+
+
+def worth_investigating(alert: dict, app_namespace: str):
+    """(True, "") if the agent should investigate this alert, else (False, why)."""
+    labels = alert.get("labels", {})
+    name = labels.get("alertname", "")
+    if labels.get("namespace") != app_namespace:
+        return False, f"not in the app namespace {app_namespace}"
+    if name not in INVESTIGATE_ALERTS:
+        return False, f"{name or 'unnamed alert'} is not on the agent's alert list"
+    if labels.get("severity") not in INVESTIGATE_SEVERITIES:
+        return False, f"severity {labels.get('severity')!r} is below warning"
+    return True, ""
+
+
 class Deduplicator:
     """Remembers when each AlertKey was last investigated (in memory only)."""
 

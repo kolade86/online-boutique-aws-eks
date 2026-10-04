@@ -194,6 +194,34 @@ Invoke-RestMethod http://localhost:8080/investigations -Headers $h | ConvertTo-J
 `/alert` does not rewrite `startsAt` the way the CLI does. To post a saved
 file, update its time first.
 
+### Which alerts are investigated
+
+Only alerts that are worth an investigation reach the agent. Those are the
+chart's workload-health rules, in the app namespace, at `warning` or
+`critical`: `PodCrashLooping`, `PodNotReady`, `ContainerOOMKilled`,
+`HighCPUUsage`, `HighMemoryUsage`, `DeploymentReplicasMismatch` and
+`HpaMaxedOut`.
+
+The list is `INVESTIGATE_ALERTS` in [alerts.py](alerts.py), and it is
+checked twice:
+
+- The stage 4 AlertManager route uses `alerts.route_matchers()`.
+- `/alert` skips anything else with a reason, so a routing mistake cannot
+  make the agent investigate noise.
+
+Left out on purpose:
+
+- `TargetDown`, `KubeSchedulerDown` and `RedisDown`: they are about the
+  monitoring set-up, and no allowed change can fix them.
+- The gRPC/HTTP error-rate and latency rules: the services expose no
+  metrics, so these rules can never fire.
+- kube-prometheus-stack's duplicates of the chart's rules, such as
+  `KubePodCrashLooping`.
+
+[fixtures/live-alerts-2026-10-04.json](fixtures/live-alerts-2026-10-04.json)
+holds every alert that fired on the first day Alertmanager ran, as webhook
+payloads. The tests check that every one of them is skipped.
+
 ### Limits and deduplication
 
 - **One investigation at a time**, shared by `/alert` and `/ask`. While one is
