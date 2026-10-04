@@ -38,7 +38,7 @@ Every tool call is recorded as evidence.
 | `tools.py` | Tool registry. Every output is redacted, then truncated, before the model sees it |
 | `redact.py` | Secret redaction and truncation |
 | `prometheus_tools.py` | `prometheus_query`, `prometheus_query_range` |
-| `k8s_tools.py` | `list_pods`, `list_deployments`, `list_hpas`, `list_events`, `get_pod_logs` |
+| `k8s_tools.py` | `list_pods`, `list_deployments`, `describe_deployment`, `list_hpas`, `list_events`, `get_pod_logs` |
 | `github_tools.py` | `recent_chart_commits`, `read_repo_file` |
 | `prompts.py` | System prompts; turns an AlertManager payload into a task |
 | `config.py` | Environment variables |
@@ -100,6 +100,7 @@ python cli.py tool list_deployments
 python cli.py tool list_hpas
 python cli.py tool list_events warnings_only=true
 python cli.py tool list_events app=emailservice      # Deployment, ReplicaSets, pods and HPA
+python cli.py tool describe_deployment name=emailservice  # live replicas, applied manifest, ReplicaSets
 python cli.py tool prometheus_query "query=sum by (pod) (kube_pod_container_status_restarts_total{namespace='online-boutique-dev'})"
 python cli.py tool prometheus_query_range "query=sum(rate(container_cpu_usage_seconds_total{namespace='online-boutique-dev',container!=''}[5m]))" minutes=60
 python cli.py tool get_pod_logs pod=<a pod name from list_pods> tail_lines=20
@@ -297,6 +298,20 @@ count.
 A correct answer explains both halves of the cycle: the HPA scale-down to 1,
 and the scale-up back to 2 that restores the chart's value. It must not name
 readiness probes as the root cause.
+
+[emailservice-stable-after-fix.json](regressions/emailservice-stable-after-fix.json)
+is the second: after the chart fix deployed, the agent said the cycle was
+still going and predicted another scale-up.
+
+- It read `replicas: 2` in `values.yaml` and could not see that the template
+  now omits it.
+- It counted the image rollout's new ReplicaSet as another round of the
+  cycle.
+- A correct answer says the cycle appears to have stopped, or that the
+  evidence is not yet enough to tell. It must not say the cycle continues.
+- The case motivated four additions: `describe_deployment`,
+  `recent_chart_commits`, the rollout and no-prediction guidance, and the
+  current time in the task.
 
 These cases are checked by hand for now. A replay harness that feeds recorded
 tool outputs to the model is possible later.
