@@ -1201,19 +1201,22 @@ resource "time_sleep" "wait_for_load_balancer_controller" {
 }
 
 #=======================================================
-# Simple ConfigMap for Redis connection (non-sensitive)
+# redis-config ConfigMap - owned by the Helm chart, not Terraform
 #=======================================================
-resource "kubernetes_config_map" "redis_config" {
-  metadata {
-    name      = "redis-config"
-    namespace = kubernetes_namespace.app.metadata[0].name
-  }
+# The chart renders redis-config (templates/configmap.yaml) from the
+# redis.addr Argo CD parameter, which Terraform still supplies
+# (environments/dev/main.tf, app_redis_addr). Terraform used to create the
+# same ConfigMap here, so the two fought over its labels on every apply and
+# sync. This block makes Terraform forget its copy WITHOUT deleting the live
+# object: cartservice reads it at container start, so it must never be
+# missing. Argo CD keeps managing it from then on. Safe to delete this block
+# once every environment's state has been applied with it.
+removed {
+  from = kubernetes_config_map.redis_config
 
-  data = {
-    REDIS_ADDR = "${var.redis_endpoint}:${var.redis_port}"
+  lifecycle {
+    destroy = false
   }
-
-  depends_on = [kubernetes_namespace.app]
 }
 
 # ============================================

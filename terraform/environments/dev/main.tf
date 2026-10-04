@@ -119,10 +119,6 @@ module "platform_services" {
   # Cluster Autoscaler
   cluster_autoscaler_version = var.cluster_autoscaler_version
 
-  # Redis connection info
-  redis_endpoint = module.data_persistence.redis_endpoint
-  redis_port     = module.data_persistence.redis_port
-
   depends_on = [module.eks_core, module.data_persistence]
 }
 

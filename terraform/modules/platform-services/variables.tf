@@ -70,18 +70,6 @@ variable "eks_nodes_role_name" {
   type        = string
 }
 
-# Redis Variables 
-variable "redis_endpoint" {
-  description = "Redis primary endpoint address from ElastiCache"
-  type        = string
-}
-
-variable "redis_port" {
-  description = "Redis port"
-  type        = string
-  default     = "6379"
-}
-
 # Add these variables to the END of your terraform/modules/platform-services/variables.tf file
 
 # Storage Configuration Variables (from data-persistence module)
