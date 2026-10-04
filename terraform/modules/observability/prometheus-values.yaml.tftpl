@@ -53,12 +53,10 @@ prometheus:
             replacement: $1:$2
             target_label: __address__
 
-      # Redis metrics scraping
-      - job_name: redis-exporter
-        static_configs:
-          - targets: ['redis-exporter:9121']
-        scrape_interval: 30s
-        metrics_path: /metrics
+      # No redis-exporter job: no exporter is deployed, so a static
+      # 'redis-exporter:9121' target was permanently down (TargetDown +
+      # RedisDown). Redis is ElastiCache; its CPU, memory and evictions are
+      # covered by CloudWatch alarms in main.tf.
 
   # Service account configuration
   serviceAccount:
@@ -225,6 +223,17 @@ prometheusOperator:
       cpu: 100m
       memory: 256Mi
 
+# EKS runs the control plane: the scheduler, controller-manager and etcd are
+# not reachable from inside the cluster. Leaving these enabled creates
+# Services and ServiceMonitors with no endpoints, and the absent(up{...})
+# rules then fire forever (KubeSchedulerDown, KubeControllerManagerDown).
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
 # Default rules and alerts
 defaultRules:
   create: true
@@ -246,7 +255,12 @@ defaultRules:
     kubernetesResources: true
     kubernetesStorage: true
     kubernetesSystem: true
-    kubeScheduler: false  # Disable for managed EKS
+    # Not reachable on EKS (see above). The chart's keys are
+    # kubeSchedulerAlerting/kubeSchedulerRecording; a plain "kubeScheduler"
+    # key is ignored, which is why KubeSchedulerDown still fired.
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
     kubeStateMetrics: true
     network: true
     node: true
