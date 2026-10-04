@@ -144,4 +144,21 @@ resource "aws_instance" "bastion" {
     Name        = "${var.project_name}-bastion"
     Environment = var.environment
   }
+
+  # The instance takes its user data from the launch template; this resource
+  # never sets user_data itself. The AWS provider (v5.100.0) still plans an
+  # in-place user_data change on it (hash ffb9280c... -> 8e161070...) when
+  # nothing has changed. Checked on 2026-10-04: the instance, launch template
+  # version 1 (its only version, which the instance was launched from) and
+  # the script rendered from bastion-userdata.sh all hash to ffb9280c..., and
+  # 8e161070... matches no rendering or encoding of the script.
+  #
+  # Ignoring the attribute hides only that phantom diff. A real change to
+  # bastion-userdata.sh still shows up in the plan, on
+  # aws_launch_template.bastion. User data runs only at first boot, so a new
+  # script does nothing on a running instance anyway: to apply one, replace
+  # it (terraform apply -replace=module.bastion.aws_instance.bastion).
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }

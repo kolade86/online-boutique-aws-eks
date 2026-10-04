@@ -53,12 +53,10 @@ prometheus:
             replacement: $1:$2
             target_label: __address__
 
-      # Redis metrics scraping
-      - job_name: redis-exporter
-        static_configs:
-          - targets: ['redis-exporter:9121']
-        scrape_interval: 30s
-        metrics_path: /metrics
+      # No redis-exporter job: no exporter is deployed, so a static
+      # 'redis-exporter:9121' target was permanently down (TargetDown +
+      # RedisDown). Redis is ElastiCache; its CPU, memory and evictions are
+      # covered by CloudWatch alarms in main.tf.
 
   # Service account configuration
   serviceAccount:
@@ -110,25 +108,46 @@ alertmanager:
       smtp_smarthost: localhost:587
       smtp_from: "alertmanager@${project_name}.local"
 
+    # Helm merges maps but replaces lists. The chart's default route.routes
+    # sends Watchdog to a receiver named "null"; overriding `receivers`
+    # below drops the chart's "null" receiver, and Alertmanager then refuses
+    # the whole config ("undefined receiver "null" used in route"), so it
+    # never started. Both the route and the receiver are therefore spelled
+    # out here. Keep the "null" route FIRST in `routes`: it has no
+    # `continue`, so the always-firing Watchdog and InfoInhibitor stop there
+    # and never reach email (or any receiver added after it).
     route:
       group_by: ['alertname']
       group_wait: 10s
       group_interval: 10s
       repeat_interval: 1h
       receiver: web.hook
+      routes:
+        - receiver: "null"
+          matchers:
+            - 'alertname =~ "Watchdog|InfoInhibitor"'
 
     receivers:
+      # Discards what is routed to it (no integrations configured).
+      - name: "null"
       - name: web.hook
         sns_configs:
           - topic_arn: "${sns_topic_arn}"
-            subject: "[${environment_upper}] Alert: {{ .GroupLabels.alertname }}"
+            # Plain text: SNS email does not render Markdown, so the old
+            # "**Alert:**" markers arrived literally. One block per alert,
+            # with the target (service/job/pod) that the old template left out.
+            subject: "[${environment_upper}] {{ .Status | toUpper }}: {{ .GroupLabels.alertname }} ({{ len .Alerts }})"
             message: |
+              {{ .Status | toUpper }}: {{ .GroupLabels.alertname }}, {{ len .Alerts }} alert(s)
               {{ range .Alerts }}
-              **Alert:** {{ .Annotations.summary }}
-              **Description:** {{ .Annotations.description }}
-              **Severity:** {{ .Labels.severity }}
-              **Instance:** {{ .Labels.instance }}
-              **Time:** {{ .StartsAt }}
+              {{ .Annotations.summary }}
+                Status:    {{ .Status }}
+                Severity:  {{ .Labels.severity }}
+                Namespace: {{ or .Labels.namespace "-" }}
+                Target:    {{ with .Labels.service }}service={{ . }} {{ end }}{{ with .Labels.job }}job={{ . }} {{ end }}{{ with .Labels.pod }}pod={{ . }} {{ end }}{{ with .Labels.instance }}instance={{ . }}{{ end }}
+                Details:   {{ .Annotations.description }}
+                Started:   {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+                Runbook:   {{ or .Annotations.runbook_url "-" }}
               {{ end }}
             attributes:
               environment: "${environment}"
@@ -211,6 +230,17 @@ prometheusOperator:
       cpu: 100m
       memory: 256Mi
 
+# EKS runs the control plane: the scheduler, controller-manager and etcd are
+# not reachable from inside the cluster. Leaving these enabled creates
+# Services and ServiceMonitors with no endpoints, and the absent(up{...})
+# rules then fire forever (KubeSchedulerDown, KubeControllerManagerDown).
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
 # Default rules and alerts
 defaultRules:
   create: true
@@ -232,7 +262,12 @@ defaultRules:
     kubernetesResources: true
     kubernetesStorage: true
     kubernetesSystem: true
-    kubeScheduler: false  # Disable for managed EKS
+    # Not reachable on EKS (see above). The chart's keys are
+    # kubeSchedulerAlerting/kubeSchedulerRecording; a plain "kubeScheduler"
+    # key is ignored, which is why KubeSchedulerDown still fired.
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
     kubeStateMetrics: true
     network: true
     node: true
