@@ -1,0 +1,35 @@
+ask: Is emailservice stable now? Are its pods still being replaced every few minutes?
+model: claude-sonnet-5-5   run at: 2026-10-04T15:54:30Z
+
+**Not yet stable. The pod cycle has been running for about 2 hours, and the pods are only 1 minute old.** Two replicas are Ready now, but nothing I found shows the cycle has stopped.
+
+**Current state**
+- Both pods, `emailservice-748b648c5f-4xtfc` and `-qf7b8`, are Running and 1/1 Ready with 0 restarts. Both are 1 minute old.
+- The HPA shows current 2 and desired 2, with CPU at 2% against a 70% target.
+- The Deployment is at generation 48, against generation 4 for every other service. That is a lot of spec churn.
+
+**The cycle (from `list_events app=emailservice`)**
+- **Scale down:** the HPA reports "New size: 1; reason: All metrics below target" (x22 since 1h54m ago). The ReplicaSet then deletes a pod (`SuccessfulDelete` roughly every 5 minutes, from 57m ago to 15m ago, then 31s ago).
+- **Scale up:** the Deployment reports "Scaled up replica set emailservice-7959ddb655 from 1 to 2" (x23 since 1h59m ago). No HPA event asks for this.
+- **Likely cause of the scale-up (inferred):** `values.yaml` sets `emailservice.replicas: 2` and HPA `minReplicas: 1`. I did not see Argo CD act. But the pattern matches Argo CD self-heal resetting replicas to 2 each time the HPA drops it to 1. CPU is about 2%, so the HPA keeps asking for 1.
+- **Why the newest pod is the one removed:** the ReplicaSet deletes the most recently started pod on scale-down. That explains why a fresh pod is replaced each time.
+
+**Other things in the events**
+- A new ReplicaSet, `748b648c5f`, created both current pods about 1 minute ago, and the old ReplicaSet `7959ddb655` is being drained. The tag deployed in commit `20b4232a` is `v20261004-154933-68ac8238`, the same as the new pods' image. I could not see the old ReplicaSet's image or the current time, so I can't tell whether this rollout is that deploy or something else. **Unknown.**
+- `FailedScheduling` (x2) on `-qf7b8`: "0/4 nodes are available: 4 Insufficient cpu". It scheduled about 47s ago, so the cluster is short on CPU.
+- Readiness and liveness probe timeouts ("failed within 1s") appeared on the new pods in their first seconds, and again on `-qf7b8` about 41s ago, after startup. These probe failures only remove a pod from Service endpoints. A liveness failure restarts the container in place, and restarts are 0. They did not cause the replacements.
+
+**Fix to confirm**
+The cause is a conflict between `replicas: 2` and `hpa.minReplicas: 1` in `values.yaml`. Setting the HPA minimum to match, or removing the fixed `replicas` for HPA-managed services, should stop the cycle. Other services use min 2, so they don't show this.
+
+To confirm it has stopped, check `list_events app=emailservice` again in 10 to 15 minutes. You should see no new "Scaled down ... from 2 to 1" or `SuccessfulDelete` events.
+
+------------------------------------------------------------------------
+Outcome: answered   Tool calls: 7 of 15 allowed   Elapsed: 20.6s
+   1. [ok] list_pods {"app": "emailservice"}
+   2. [ok] list_events {"app": "emailservice"}
+   3. [ok] list_hpas {}
+   4. [ok] recent_values_commits {"limit": 4}
+   5. [ok] read_repo_file {"path": "helm/online-boutique/values.yaml", "search": "  emailservice:"}
+   6. [ok] read_repo_file {"path": "helm/online-boutique/values.yaml", "start_line": 264, "max_lines": 30}
+   7. [ok] list_deployments {}
