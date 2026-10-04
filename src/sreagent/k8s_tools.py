@@ -80,9 +80,11 @@ def format_pod(pod) -> str:
         last = s.last_state.terminated if s.last_state else None
         if last is not None:
             notes.append(f"{s.name} last exit: {last.reason} (code {last.exit_code}, {_age(last.finished_at)} ago)")
+    owners = pod.metadata.owner_references or []
+    owner = f", owner {owners[0].kind}/{owners[0].name}" if owners else ""
     line = (f"{pod.metadata.name}: {pod.status.phase}, ready {ready}/{len(statuses)}, "
             f"restarts {restarts}, age {_age(pod.metadata.creation_timestamp)}, "
-            f"node {pod.spec.node_name}")
+            f"node {pod.spec.node_name}{owner}")
     return line + ("".join(f"\n    {n}" for n in notes))
 
 
@@ -113,8 +115,12 @@ def format_hpa(h) -> str:
 def format_event(e) -> str:
     when = e.last_timestamp or e.event_time or e.metadata.creation_timestamp
     obj = e.involved_object
+    # Who reported it (kubelet, deployment-controller, horizontal-pod-autoscaler)
+    # separates a probe failure from a controller scaling down.
+    source = (e.source.component if e.source and e.source.component
+              else e.reporting_component) or "?"
     return (f"{_age(when)} ago {e.type} {e.reason} {obj.kind}/{obj.name} "
-            f"(x{e.count or 1}): {e.message}")
+            f"[{source}] (x{e.count or 1}): {e.message}")
 
 
 def _event_time(e):
@@ -146,8 +152,14 @@ def make_tools(kube: KubeReader) -> list[Tool]:
 
     def list_events(args):
         name = optional_str(args, "object_name", NAME)
+        app = optional_str(args, "app", NAME)
         selector = f"involvedObject.name={name}" if name else None
         events = kube.core.list_namespaced_event(ns, field_selector=selector).items
+        if app:
+            # The Deployment and HPA are named <app>; its ReplicaSets and pods
+            # are <app>-<hash>[-<suffix>]. One call covers the whole chain.
+            events = [e for e in events if e.involved_object.name == app
+                      or e.involved_object.name.startswith(app + "-")]
         if args.get("warnings_only"):
             events = [e for e in events if e.type == "Warning"]
         events.sort(key=_event_time, reverse=True)
@@ -186,9 +198,13 @@ def make_tools(kube: KubeReader) -> list[Tool]:
              no_input, list_hpas),
         Tool("list_events",
              f"List recent Kubernetes events in {ns}, newest first (scheduling failures, "
-             "probe failures, OOM kills, image pull errors).",
+             "probe failures, OOM kills, image pull errors, scaling). Events are kept "
+             "for about an hour, and survive the pod they describe. To explain why a "
+             "pod was killed or replaced, use app=<service> to see the events of its "
+             "Deployment, ReplicaSets, pods and HPA together.",
              {"type": "object", "properties": {
-                 "object_name": {"type": "string", "description": "Only events about this object (pod or deployment name)"},
+                 "app": {"type": "string", "description": "Events for a service's Deployment, ReplicaSets, pods and HPA, e.g. emailservice"},
+                 "object_name": {"type": "string", "description": "Only events about this exact object name"},
                  "warnings_only": {"type": "boolean", "description": "Only Warning events"}}},
              list_events),
         Tool("get_pod_logs",

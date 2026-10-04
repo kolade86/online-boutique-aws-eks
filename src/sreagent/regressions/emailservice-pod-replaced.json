@@ -1,0 +1,23 @@
+{
+  "id": "emailservice-pod-replaced",
+  "date": "2026-10-04",
+  "mode": "ask",
+  "question": "Why was the emailservice pod replaced?",
+  "situation": "emailservice had hpa.minReplicas 1 but replicas 2 in the chart. Every ~5 minutes the HPA scaled the Deployment 2 -> 1 ('All metrics below target'), and about one second later Argo CD self-heal restored 2 replicas from Git, so a pod was deleted and a new one created. Fixed by omitting spec.replicas from Deployments that have an HPA (branch fix/hpa-omit-replicas).",
+  "key_evidence": [
+    "HorizontalPodAutoscaler/emailservice SuccessfulRescale: New size: 1; reason: All metrics below target",
+    "Deployment/emailservice ScalingReplicaSet: scaled down to 1, then about 1 second later scaled up to 2",
+    "Pod/emailservice-<hash>-<suffix> Killing (kubelet), at the same time as the scale-down",
+    "The replaced pod had 0 restarts; no liveness probe failures"
+  ],
+  "wrong_answer": "The pod was killed because its readiness probe failed.",
+  "why_wrong": "A failing readiness probe only removes a pod from Service endpoints; it never kills it. The agent looked only at the pod's own events and did not check the Deployment, ReplicaSet and HPA events.",
+  "expected_diagnosis": "The pod was deleted by a controller, not by a probe. The HPA scaled emailservice from 2 to 1 because CPU was below target (minReplicas is 1), and Argo CD self-heal immediately restored the 2 replicas set in Git, creating a new pod. The HPA and Argo CD are fighting over the replica count; the root cause is the chart rendering spec.replicas for an HPA-managed Deployment.",
+  "pass_criteria": {
+    "must_mention_any": [["HPA", "HorizontalPodAutoscaler", "autoscal"], ["Argo CD", "self-heal", "selfHeal"]],
+    "must_not_claim": ["readiness probe failed", "liveness probe failed", "crash"],
+    "expected_tool_calls": ["list_events with app=emailservice"]
+  },
+  "reproducible_live": false,
+  "note": "key_evidence is paraphrased from the operator's description of the live events, not raw tool output. After the replicas fix is deployed the live cluster no longer shows this pattern, so replaying the case needs the recorded tool outputs (list_events app=emailservice), which have not been captured yet."
+}

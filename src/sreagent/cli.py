@@ -12,8 +12,8 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime, timedelta, timezone
 
-import logger
 import prompts
 from config import Config, ConfigError
 
@@ -33,11 +33,24 @@ def _parse_kv(pairs: list[str]) -> dict:
     return args
 
 
-def _print_investigation(result) -> None:
+def refresh_starts_at(payload: dict, minutes_ago: int, now=None) -> dict:
+    """Set every alert's startsAt to `minutes_ago` before now.
+
+    A saved alert file has a fixed start time that soon predates every pod in
+    the cluster, which misleads the investigation.
+    """
+    now = now or datetime.now(timezone.utc)
+    starts_at = (now - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for alert in payload.get("alerts", []):
+        alert["startsAt"] = starts_at
+    return payload
+
+
+def _print_investigation(result, max_tool_calls: int) -> None:
     print(result.answer)
     print("\n" + "-" * 72)
-    print(f"Outcome: {result.outcome}   Tool calls: {len(result.evidence)}   "
-          f"Elapsed: {result.elapsed_seconds:.1f}s")
+    print(f"Outcome: {result.outcome}   Tool calls: {len(result.evidence)} of "
+          f"{max_tool_calls} allowed   Elapsed: {result.elapsed_seconds:.1f}s")
     for i, e in enumerate(result.evidence, 1):
         status = "ERROR" if e.is_error else "ok"
         print(f"  {i:2}. [{status}] {e.tool} {json.dumps(e.input)}")
@@ -57,10 +70,15 @@ def main(argv=None) -> int:
 
     p_inv = sub.add_parser("investigate", help="Investigate an AlertManager webhook payload")
     p_inv.add_argument("alert_file", help="Path to a JSON file in AlertManager webhook format")
+    p_inv.add_argument("--started-minutes-ago", type=int, default=10, metavar="N",
+                       help="Rewrite each alert's startsAt to N minutes ago (default 10)")
+    p_inv.add_argument("--keep-starts-at", action="store_true",
+                       help="Use the startsAt values in the file unchanged")
 
     opts = parser.parse_args(argv)
     # Log lines can hold characters a Windows console code page cannot print
     sys.stdout.reconfigure(errors="replace")
+    import logger  # needs python-json-logger; keep this module importable in tests
     logger.configure(logging.INFO if opts.verbose else logging.WARNING)
 
     try:
@@ -83,13 +101,17 @@ def main(argv=None) -> int:
 
     agent = wiring.build_agent(config)
     if opts.command == "ask":
-        result = agent.run(prompts.system_prompt("ask", config.app_namespace), opts.question)
+        system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
+        result = agent.run(system, opts.question)
     else:
         with open(opts.alert_file, encoding="utf-8") as f:
-            task = prompts.alert_task(json.load(f))
-        result = agent.run(prompts.system_prompt("investigate", config.app_namespace), task)
+            payload = json.load(f)
+        if not opts.keep_starts_at:
+            refresh_starts_at(payload, opts.started_minutes_ago)
+        system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
+        result = agent.run(system, prompts.alert_task(payload))
 
-    _print_investigation(result)
+    _print_investigation(result, config.max_tool_calls)
     return 0 if result.outcome == "answered" else 1
 
 

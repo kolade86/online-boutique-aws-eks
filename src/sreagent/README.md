@@ -18,9 +18,11 @@ stages.
 
 Two limits stop a runaway investigation:
 
-- **Tool-call limit** (`SREAGENT_MAX_TOOL_CALLS`). When it is reached, further
-  calls are refused and the model gets one more turn to answer. If it asks for
-  tools again, the run stops.
+- **Tool-call limit** (`SREAGENT_MAX_TOOL_CALLS`, default 15). The system
+  prompt tells the model its budget. Once the limit is reached, further calls
+  are refused and the model gets one more turn to answer. Then the outcome is
+  `answered_at_tool_limit`, not `answered`, so you can see it ran out. If it
+  asks for tools again, the run stops with `tool_limit`.
 - **Wall-clock timeout** (`SREAGENT_TIMEOUT_SECONDS`).
 
 Every tool call is recorded as evidence.
@@ -92,6 +94,7 @@ python cli.py tool list_pods app=cartservice
 python cli.py tool list_deployments
 python cli.py tool list_hpas
 python cli.py tool list_events warnings_only=true
+python cli.py tool list_events app=emailservice      # Deployment, ReplicaSets, pods and HPA
 python cli.py tool prometheus_query "query=sum by (pod) (kube_pod_container_status_restarts_total{namespace='online-boutique-dev'})"
 python cli.py tool prometheus_query_range "query=sum(rate(container_cpu_usage_seconds_total{namespace='online-boutique-dev',container!=''}[5m]))" minutes=60
 python cli.py tool get_pod_logs pod=<a pod name from list_pods> tail_lines=20
@@ -110,14 +113,21 @@ python cli.py ask "Are all deployments healthy? Anything restarting?"
 
 **Investigate an alert.** First copy
 [examples/alert-podcrashlooping.json](examples/alert-podcrashlooping.json)
-and replace `cartservice-REPLACE-ME` with a real pod name. Then:
+to `my-alert.json`, and replace `cartservice-REPLACE-ME` with a real pod
+name. Files named `my-*` are git-ignored. Then:
 
 ```powershell
-python cli.py -v investigate examples\alert-podcrashlooping.json
+python cli.py -v investigate my-alert.json
 ```
 
+The CLI rewrites each alert's `startsAt` to 10 minutes ago. Otherwise a saved
+file's fixed start time would soon predate every pod. To change that, use
+`--started-minutes-ago N`, or `--keep-starts-at` to use the file's values
+unchanged.
+
 `-v` logs each tool call as JSON. The output is the diagnosis, followed by the
-outcome, the tool-call count, the elapsed time, and the list of calls made.
+outcome, the number of tool calls used out of the number allowed, the elapsed
+time, and the list of calls made.
 
 Bash equivalents:
 
@@ -153,6 +163,22 @@ cluster, a namespaced read-only Role will enforce it too (stage 4).
 | `SREAGENT_TOOL_OUTPUT_MAX_CHARS` | `6000` | Each tool result is cut to this length |
 | `GITHUB_BRANCH` | `main` | |
 | `VALUES_FILE` | `helm/online-boutique/values-dev.yaml` | |
+
+## Regression cases
+
+[regressions/](regressions/) records questions the agent once got wrong:
+
+- the question
+- the wrong answer
+- the expected diagnosis
+- pass criteria
+
+[emailservice-pod-replaced.json](regressions/emailservice-pod-replaced.json)
+is the first. The agent blamed a readiness probe when the HPA and Argo CD
+self-heal were fighting over the replica count.
+
+These cases are checked by hand for now. A replay harness that feeds recorded
+tool outputs to the model is possible later.
 
 ## Tests
 

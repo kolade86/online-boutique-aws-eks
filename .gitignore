@@ -51,3 +51,7 @@ argocd.exe
 # Python
 __pycache__/
 .venv/
+
+# sreagent: local test inputs (copies of example alerts, scratch questions)
+src/sreagent/my-*
+src/sreagent/*.local.json

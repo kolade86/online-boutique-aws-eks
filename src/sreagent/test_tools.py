@@ -110,13 +110,47 @@ class KubeFormatTest(unittest.TestCase):
                     state=NS(waiting=NS(reason="CrashLoopBackOff")),
                     last_state=NS(terminated=NS(reason="OOMKilled", exit_code=137,
                                                 finished_at=now - timedelta(minutes=3))))
-        pod = NS(metadata=NS(name="cartservice-abc", creation_timestamp=now - timedelta(hours=2)),
+        pod = NS(metadata=NS(name="cartservice-abc", creation_timestamp=now - timedelta(hours=2),
+                             owner_references=[NS(kind="ReplicaSet", name="cartservice-7f9")]),
                  status=NS(phase="Running", container_statuses=[status]),
                  spec=NS(node_name="ip-10-0-1-1"))
         out = k8s_tools.format_pod(pod)
         self.assertIn("cartservice-abc: Running, ready 0/1, restarts 4, age 2h", out)
+        self.assertIn("owner ReplicaSet/cartservice-7f9", out)
         self.assertIn("server waiting: CrashLoopBackOff", out)
         self.assertIn("last exit: OOMKilled (code 137, 3m ago)", out)
+
+    @staticmethod
+    def _event(kind, name, reason, component, minutes_ago, type_="Normal"):
+        ts = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+        return NS(type=type_, reason=reason, message=f"{reason} message", count=1,
+                  last_timestamp=ts, event_time=None, metadata=NS(creation_timestamp=ts),
+                  involved_object=NS(kind=kind, name=name),
+                  source=NS(component=component), reporting_component=None)
+
+    def test_events_by_app_cover_the_ownership_chain(self):
+        events = [
+            self._event("Pod", "emailservice-6b9f7c-x2k4p", "Killing", "kubelet", 5),
+            self._event("ReplicaSet", "emailservice-6b9f7c", "SuccessfulDelete", "replicaset-controller", 5),
+            self._event("Deployment", "emailservice", "ScalingReplicaSet", "deployment-controller", 5),
+            self._event("HorizontalPodAutoscaler", "emailservice", "SuccessfulRescale",
+                        "horizontal-pod-autoscaler", 6),
+            self._event("Pod", "emailservicex-1", "Started", "kubelet", 1),  # different app
+            self._event("Pod", "cartservice-abc", "Killing", "kubelet", 1),
+        ]
+        core = NS(list_namespaced_event=lambda ns, field_selector=None: NS(items=list(events)))
+        kube = k8s_tools.KubeReader("ns", core=core, apps=None, autoscaling=None)
+        tools = {t.name: t for t in k8s_tools.make_tools(kube)}
+
+        lines = tools["list_events"].handler({"app": "emailservice"}).splitlines()
+
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(lines[-1].startswith("6m ago Normal SuccessfulRescale "
+                                             "HorizontalPodAutoscaler/emailservice "
+                                             "[horizontal-pod-autoscaler]"))
+        self.assertIn("Killing Pod/emailservice-6b9f7c-x2k4p [kubelet]", "\n".join(lines))
+        self.assertNotIn("cartservice", "\n".join(lines))
+        self.assertNotIn("emailservicex", "\n".join(lines))
 
     def test_rejects_invalid_names(self):
         tools = {t.name: t for t in k8s_tools.make_tools(NS(namespace="ns"))}
@@ -132,6 +166,26 @@ class GitHubPathTest(unittest.TestCase):
         for bad in ("../secrets", "/etc/passwd", "helm/../../x", "a//b", "a\\b"):
             with self.subTest(path=bad), self.assertRaises(ToolError):
                 github_tools.safe_path(bad)
+
+
+class PromptTest(unittest.TestCase):
+    def test_system_prompts_render(self):
+        for kind in ("investigate", "ask"):
+            text = prompts.system_prompt(kind, "online-boutique-dev", 12)
+            self.assertIn('namespace="online-boutique-dev"', text)
+            self.assertIn("at most 12 tool calls", text)
+            self.assertIn("readiness probe only removes the pod", text)
+            self.assertNotIn("{", text.replace('{namespace="', ""))  # nothing left unformatted
+
+
+class RefreshStartsAtTest(unittest.TestCase):
+    def test_sets_recent_start_time(self):
+        import cli
+        payload = {"alerts": [{"startsAt": "2026-10-04T12:00:00Z"}, {"startsAt": "x"}]}
+        now = datetime(2026, 10, 5, 9, 30, tzinfo=timezone.utc)
+        cli.refresh_starts_at(payload, 10, now=now)
+        self.assertEqual([a["startsAt"] for a in payload["alerts"]],
+                         ["2026-10-05T09:20:00Z"] * 2)
 
 
 class AlertTaskTest(unittest.TestCase):

@@ -119,12 +119,20 @@ class AgentLoopTest(unittest.TestCase):
 
         result = make_agent(provider, tools, max_tool_calls=2).run("sys", "task")
 
-        self.assertEqual(result.outcome, agent.ANSWERED)
+        # Answered, but the outcome shows the budget ran out first
+        self.assertEqual(result.outcome, agent.ANSWERED_AT_LIMIT)
         self.assertEqual(len(ran), 2)
         self.assertEqual(len(result.evidence), 2)
         refused = provider.requests[2][-1].results[0]
         self.assertTrue(refused.is_error)
         self.assertEqual(refused.content, agent.BUDGET_EXHAUSTED)
+
+    def test_using_exactly_the_budget_is_a_normal_answer(self):
+        provider = FakeProvider([tool_turn(call("t", "1"), call("t", "2")), answer("done")])
+        result = make_agent(provider, registry({"t": lambda args: "ok"}),
+                            max_tool_calls=2).run("sys", "task")
+
+        self.assertEqual(result.outcome, agent.ANSWERED)
 
     def test_stops_if_model_keeps_calling_tools_after_budget(self):
         provider = FakeProvider([tool_turn(call("t", "1")),

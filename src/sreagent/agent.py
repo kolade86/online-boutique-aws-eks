@@ -19,6 +19,7 @@ log = logging.getLogger("sreagent.agent")
 
 # Outcomes
 ANSWERED = "answered"            # the model gave a final answer
+ANSWERED_AT_LIMIT = "answered_at_tool_limit"  # answered only after tools were refused
 TOOL_LIMIT = "tool_limit"        # kept asking for tools after the budget ran out
 TIMEOUT = "timeout"              # wall-clock limit reached
 MODEL_STOPPED = "model_stopped"  # refusal or max_tokens instead of a normal answer
@@ -78,7 +79,7 @@ class Agent:
             # No tool calls: the model is done.
             if not turn.tool_calls:
                 if turn.stop_reason in ("end_turn", "stop_sequence"):
-                    return finish(ANSWERED, turn.text)
+                    return finish(ANSWERED_AT_LIMIT if refused_last_round else ANSWERED, turn.text)
                 return finish(MODEL_STOPPED, f"[stop_reason={turn.stop_reason}] {turn.text}")
 
             # It was told the budget is spent and asked for more tools anyway.
