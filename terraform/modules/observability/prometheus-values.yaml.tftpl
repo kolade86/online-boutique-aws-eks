@@ -74,6 +74,14 @@ alertmanager:
   alertmanagerSpec:
     # Use your existing IRSA role
     serviceAccountName: monitoring-kube-prometheus-alertmanager
+%{ if sreagent_alerts_enabled ~}
+
+    # Bearer token for the SRE agent's webhook, mounted at
+    # /etc/alertmanager/secrets/sreagent-webhook/token. The Secret is created
+    # by hand; without it Alertmanager cannot start.
+    secrets:
+      - sreagent-webhook
+%{ endif ~}
 
     # Storage
     storage:
@@ -126,10 +134,34 @@ alertmanager:
         - receiver: "null"
           matchers:
             - 'alertname =~ "Watchdog|InfoInhibitor"'
+%{ if sreagent_alerts_enabled ~}
+        # SRE agent: only the chart's workload-health alerts in the app
+        # namespace. Must match alerts.route_matchers() in src/sreagent
+        # (a test there checks it). `continue` so they are emailed as well.
+        - receiver: sre-agent
+          continue: true
+          matchers:
+            - 'namespace="${app_namespace}"'
+            - 'alertname=~"PodCrashLooping|PodNotReady|ContainerOOMKilled|HighCPUUsage|HighMemoryUsage|DeploymentReplicasMismatch|HpaMaxedOut"'
+            - 'severity=~"warning|critical"'
+        # A route that matched with `continue` stops the fall-back to the
+        # parent's receiver, so email needs an explicit catch-all here.
+        - receiver: web.hook
+%{ endif ~}
 
     receivers:
       # Discards what is routed to it (no integrations configured).
       - name: "null"
+%{ if sreagent_alerts_enabled ~}
+      - name: sre-agent
+        webhook_configs:
+          - url: "http://sreagent.${app_namespace}.svc.cluster.local:8080/alert"
+            send_resolved: false
+            max_alerts: 10
+            http_config:
+              authorization:
+                credentials_file: /etc/alertmanager/secrets/sreagent-webhook/token
+%{ endif ~}
       - name: web.hook
         sns_configs:
           - topic_arn: "${sns_topic_arn}"

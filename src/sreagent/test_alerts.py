@@ -105,6 +105,18 @@ class WorthInvestigatingTest(unittest.TestCase):
             chart_alerts = set(re.findall(r"^\s*- alert: (\w+)", f.read(), re.MULTILINE))
         self.assertEqual(sorted(set(alerts.INVESTIGATE_ALERTS) - chart_alerts), [])
 
+    def test_alertmanager_route_in_terraform_matches_route_matchers(self):
+        # The route lives in a Terraform template; keep it and this module in step.
+        tftpl = os.path.join(os.path.dirname(__file__), "..", "..", "terraform", "modules",
+                             "observability", "prometheus-values.yaml.tftpl")
+        with open(tftpl, encoding="utf-8") as f:
+            text = f.read()
+        block = re.search(r"- receiver: sre-agent\n(?:.*\n)*?\s+matchers:\n((?:\s+- '.*'\n)+)", text)
+        self.assertIsNotNone(block, "sre-agent route not found in the template")
+        matchers = [m.replace("${app_namespace}", APP_NS)
+                    for m in re.findall(r"- '(.*)'", block.group(1))]
+        self.assertEqual(matchers, alerts.route_matchers(APP_NS))
+
     def test_route_matchers_for_stage_4(self):
         self.assertEqual(alerts.route_matchers(APP_NS), [
             'namespace="online-boutique-dev"',

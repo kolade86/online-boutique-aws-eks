@@ -153,6 +153,12 @@ variable "app_namespace" {
   type        = string
 }
 
+variable "sreagent_alerts_enabled" {
+  description = "Route workload-health alerts to the SRE agent. Create the Secret 'sreagent-webhook' in the monitoring namespace before setting this to true (see src/sreagent/README.md)"
+  type        = bool
+  default     = false
+}
+
 # ============================================
 # Platform Services
 # ============================================

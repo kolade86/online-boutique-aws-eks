@@ -196,6 +196,10 @@ module "observability" {
   # Alerting Configuration
   alert_email_address = var.alert_email_address
 
+  # SRE agent webhook - off until its Secret exists (see the variable)
+  app_namespace           = var.app_namespace
+  sreagent_alerts_enabled = var.sreagent_alerts_enabled
+
   # CloudWatch Alarms — AWS Managed Services
   rds_instance_identifier    = module.data_persistence.rds_instance_identifier
   redis_replication_group_id = module.data_persistence.redis_replication_group_id
