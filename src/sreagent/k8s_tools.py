@@ -5,6 +5,7 @@ model cannot choose it. In the cluster, a namespaced Role enforces the same
 limits; running locally with your own kubeconfig, this code is the only limit.
 """
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -137,6 +138,70 @@ def _event_time(e):
             or datetime.min.replace(tzinfo=timezone.utc))
 
 
+REVISION = "deployment.kubernetes.io/revision"
+LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
+
+
+def _revision(obj) -> int:
+    try:
+        return int((obj.metadata.annotations or {}).get(REVISION, "0"))
+    except ValueError:
+        return 0
+
+
+def describe_deployment(d, replica_sets) -> str:
+    """What is actually deployed, as opposed to what the chart's values say.
+
+    - live spec.replicas, and whether the applied manifest sets it at all
+      (a template can omit a field that values.yaml still contains);
+    - which field managers own spec.replicas (e.g. the HPA via the scale
+      subresource, or Argo CD);
+    - the Deployment's ReplicaSets: a rollout creates a new one with a new
+      pod-template hash, a replica-count change resizes the current one.
+    """
+    annotations = d.metadata.annotations or {}
+    s = d.status
+    lines = [
+        f"Deployment {d.metadata.name}: revision {annotations.get(REVISION, '?')}, "
+        f"generation {d.metadata.generation} (observed {s.observed_generation})",
+        f"Live spec.replicas: {d.spec.replicas}; status: replicas {s.replicas or 0}, "
+        f"ready {s.ready_replicas or 0}, updated {s.updated_replicas or 0}, "
+        f"available {s.available_replicas or 0}",
+    ]
+
+    applied = annotations.get(LAST_APPLIED)
+    if applied:
+        try:
+            spec = json.loads(applied).get("spec") or {}
+            in_manifest = (f"present, = {spec['replicas']}" if "replicas" in spec
+                           else "absent (the manifest does not set it)")
+        except ValueError:
+            in_manifest = "unknown (annotation is not valid JSON)"
+        lines.append(f"spec.replicas in the last applied manifest ({LAST_APPLIED}): {in_manifest}")
+    else:
+        lines.append(f"No {LAST_APPLIED} annotation: the last apply was not a client-side apply")
+
+    owners = []
+    for m in d.metadata.managed_fields or []:
+        if "f:replicas" in ((m.fields_v1 or {}).get("f:spec") or {}):
+            via = f", subresource {m.subresource}" if m.subresource else ""
+            owners.append(f"{m.manager} ({m.operation}{via}, {_age(m.time)} ago)")
+    lines.append("Field managers of spec.replicas: " + ("; ".join(owners) or "none recorded"))
+
+    current = _revision(d)
+    lines.append("ReplicaSets, newest revision first (a rollout adds a new one; "
+                 "a replica-count change resizes the current one):")
+    for rs in sorted(replica_sets, key=_revision, reverse=True):
+        tags = ", ".join(c.image.rsplit(":", 1)[-1] for c in rs.spec.template.spec.containers)
+        marker = " (current)" if _revision(rs) == current else ""
+        lines.append(f"  {rs.metadata.name}: revision {_revision(rs)}{marker}, desired "
+                     f"{rs.spec.replicas}, ready {rs.status.ready_replicas or 0}, image tag "
+                     f"{tags}, created {_age(rs.metadata.creation_timestamp)} ago")
+    if not replica_sets:
+        lines.append("  none found")
+    return "\n".join(lines)
+
+
 def _cap(lines: list[str]) -> str:
     if not lines:
         return "None found."
@@ -154,6 +219,20 @@ def make_tools(kube: KubeReader) -> list[Tool]:
 
     def list_deployments(args):
         return _cap([format_deployment(d) for d in kube.apps.list_namespaced_deployment(ns).items])
+
+    def describe_deployment_tool(args):
+        name = require_str(args, "name", NAME)
+        try:
+            d = kube.apps.read_namespaced_deployment(name, ns)
+        except Exception as e:
+            if getattr(e, "status", None) == 404:
+                raise ToolError(f"No Deployment named {name!r} in {ns}") from None
+            raise
+        owned = [rs for rs in kube.apps.list_namespaced_replica_set(
+                     ns, label_selector=f"app={name}").items
+                 if any(o.kind == "Deployment" and o.name == name
+                        for o in rs.metadata.owner_references or [])]
+        return describe_deployment(d, owned)
 
     def list_hpas(args):
         hpas = kube.autoscaling.list_namespaced_horizontal_pod_autoscaler(ns).items
@@ -212,6 +291,16 @@ def make_tools(kube: KubeReader) -> list[Tool]:
              f"List deployments in {ns} with desired/ready replicas, image tag, and "
              "container CPU/memory requests and limits.",
              no_input, list_deployments),
+        Tool("describe_deployment",
+             f"Show what is actually deployed for one Deployment in {ns}: live "
+             "spec.replicas, whether the applied manifest sets spec.replicas at all, "
+             "which field managers (HPA, Argo CD, ...) own it, and its ReplicaSets with "
+             "revision, size and image tag. Use it before concluding from the chart's "
+             "values what the cluster runs - templates can omit a value.",
+             {"type": "object", "properties": {
+                 "name": {"type": "string", "description": "Deployment name, e.g. emailservice"}},
+              "required": ["name"]},
+             describe_deployment_tool),
         Tool("list_hpas",
              f"List HorizontalPodAutoscalers in {ns} with min/max/current replicas and "
              "current vs target CPU utilization.",

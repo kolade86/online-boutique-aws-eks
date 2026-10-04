@@ -31,6 +31,11 @@ Consequences for an investigation:
   wanted (list_hpas). values.yaml is long: use read_repo_file with
   search="  <service>:" to find the service's block, then start_line to read
   it; also check values-dev.yaml for overrides.
+- The chart's templates decide what is rendered, so a value in values.yaml
+  is not proof that the live object has it (a template can omit a field).
+  Before concluding from Git what the cluster runs, check the live object
+  with describe_deployment: live spec.replicas, whether the applied manifest
+  sets it, and which field managers own it.
 
 How Kubernetes removes pods - get this right before blaming a pod:
 - A failing readiness probe only removes the pod from Service endpoints. It

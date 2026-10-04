@@ -188,6 +188,52 @@ class KubeFormatTest(unittest.TestCase):
         self.assertIn("ScalingReplicaSet Deployment/emailservice", output)
         self.assertIn("truncated", output)
 
+    def test_describe_deployment_after_the_replicas_fix(self):
+        now = datetime.now(timezone.utc)
+
+        def rs(name, revision, replicas, tag, minutes):
+            return NS(metadata=NS(name=name, annotations={k8s_tools.REVISION: str(revision)},
+                                  creation_timestamp=now - timedelta(minutes=minutes)),
+                      spec=NS(replicas=replicas, template=NS(spec=NS(containers=[
+                          NS(image=f"123456789012.dkr.ecr.us-east-1.amazonaws.com/x-emailservice:{tag}")]))),
+                      status=NS(ready_replicas=replicas))
+
+        dep = NS(
+            metadata=NS(name="emailservice", generation=49, annotations={
+                k8s_tools.REVISION: "5",
+                k8s_tools.LAST_APPLIED: '{"kind": "Deployment", "spec": {"selector": {}}}'},
+                managed_fields=[
+                    NS(manager="argocd-controller", operation="Update", subresource=None,
+                       time=now - timedelta(minutes=20), fields_v1={"f:spec": {"f:template": {}}}),
+                    NS(manager="kube-controller-manager", operation="Update", subresource="scale",
+                       time=now - timedelta(minutes=10), fields_v1={"f:spec": {"f:replicas": {}}}),
+                ]),
+            spec=NS(replicas=1),
+            status=NS(observed_generation=49, replicas=1, ready_replicas=1, updated_replicas=1,
+                      available_replicas=1))
+        sets = [rs("emailservice-7959ddb655", 4, 0, "v20261004-134739-d34db63e", 180),
+                rs("emailservice-748b648c5f", 5, 1, "v20261004-154933-68ac8238", 18)]
+
+        out = k8s_tools.describe_deployment(dep, sets).splitlines()
+
+        self.assertEqual(out[1], "Live spec.replicas: 1; status: replicas 1, ready 1, updated 1, available 1")
+        self.assertIn("last applied manifest", out[2])
+        self.assertTrue(out[2].endswith("absent (the manifest does not set it)"))
+        self.assertEqual(out[3], "Field managers of spec.replicas: "
+                                 "kube-controller-manager (Update, subresource scale, 10m ago)")
+        self.assertTrue(out[5].startswith("  emailservice-748b648c5f: revision 5 (current), desired 1"))
+        self.assertIn("image tag v20261004-154933-68ac8238", out[5])
+        self.assertTrue(out[6].startswith("  emailservice-7959ddb655: revision 4, desired 0"))
+
+    def test_describe_deployment_before_the_fix_shows_replicas_in_manifest(self):
+        dep = NS(metadata=NS(name="emailservice", generation=40, managed_fields=[],
+                             annotations={k8s_tools.LAST_APPLIED: '{"spec": {"replicas": 2}}'}),
+                 spec=NS(replicas=2), status=NS(observed_generation=40, replicas=2, ready_replicas=2,
+                                               updated_replicas=2, available_replicas=2))
+        out = k8s_tools.describe_deployment(dep, [])
+        self.assertIn("present, = 2", out)
+        self.assertIn("Field managers of spec.replicas: none recorded", out)
+
     def test_rejects_invalid_names(self):
         tools = {t.name: t for t in k8s_tools.make_tools(NS(namespace="ns"))}
         for bad in ("../etc", "Pod_Name", "a b", ""):
