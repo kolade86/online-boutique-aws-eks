@@ -52,8 +52,8 @@ class Config:
             raise ConfigError("GITHUB_REPO must be set to owner/name")
 
         return cls(
-            model=env.get("SREAGENT_MODEL", "claude-haiku-4-5-20251001"),
-            max_tokens=integer("SREAGENT_MAX_TOKENS", 8000),
+            model=env.get("SREAGENT_MODEL", "claude-sonnet-5-5"),
+            max_tokens=integer("SREAGENT_MAX_TOKENS", 16000),
             model_timeout_seconds=integer("SREAGENT_MODEL_TIMEOUT_SECONDS", 120),
             max_tool_calls=integer("SREAGENT_MAX_TOOL_CALLS", 15),
             investigation_timeout_seconds=integer("SREAGENT_TIMEOUT_SECONDS", 300),

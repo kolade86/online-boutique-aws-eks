@@ -219,6 +219,39 @@ file, update its time first.
 - **Never more than one open agent PR per alert** is enforced in stage 3. It
   checks open PRs on GitHub, so it survives restarts.
 
+## Model choice
+
+The default is **Claude Sonnet 5.5** (`claude-sonnet-5-5`), for both `/alert`
+and `/ask`. Set `SREAGENT_MODEL` to change it.
+
+**Why not Haiku 4.5.** It was the original default, and it failed the
+[emailservice regression case](regressions/emailservice-pod-replaced.json)
+in all three runs on 2026-10-04. That includes the run after the prompt and
+tool fixes that let Sonnet 5.5 pass.
+
+- Each time, Haiku stopped after two tool calls (pods and events) and filled
+  the gaps with claims no tool result supported:
+  - readiness probes as the cause
+  - an HPA scale-up that no event shows
+  - blame on a node
+- It never checked the chart values, although the prompt told it to.
+- On the same prompt, Sonnet 5.5 used six tool calls. It confirmed
+  `replicas: 2` against `minReplicas: 1` in `values.yaml`, explained both
+  halves of the cycle, and marked the Argo CD step as inferred.
+- Sonnet 5.5 costs about twice as much per token, and used about three times
+  the tool calls on this case. A wrong diagnosis that opens a PR costs more.
+
+**Refusal fallback.** Sonnet 5.5's safety classifiers can decline a request
+(`stop_reason: refusal`). Logs full of errors could plausibly trip the
+`cyber` classifier by mistake.
+
+- For Sonnet 5.5 and the Opus and Fable models, the provider sends
+  `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). The API
+  then retries `cyber` declines on Claude Sonnet 5.
+- A decline that is not retried ends the run as `model_stopped`, with the
+  category shown, for example `refusal:cyber`.
+- Haiku and other models are called without the fallback.
+
 ## Configuration
 
 | Variable | Default | |
@@ -229,11 +262,11 @@ file, update its time first.
 | `APP_NAMESPACE` | the pod's own namespace | Required outside the cluster |
 | `PROMETHEUS_URL` | `http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090` | |
 | `KUBE_CONTEXT` | current context | kubeconfig context to use locally |
-| `SREAGENT_MODEL` | `claude-haiku-4-5-20251001` | |
+| `SREAGENT_MODEL` | `claude-sonnet-5-5` | Used by `/alert`, `/ask` and the CLI. See [Model choice](#model-choice) |
 | `SREAGENT_MAX_TOOL_CALLS` | `15` | Per investigation |
 | `SREAGENT_TIMEOUT_SECONDS` | `300` | Per investigation |
 | `SREAGENT_MODEL_TIMEOUT_SECONDS` | `120` | Per model request |
-| `SREAGENT_MAX_TOKENS` | `8000` | Max output tokens per model turn |
+| `SREAGENT_MAX_TOKENS` | `16000` | Max output tokens per model turn. Includes Sonnet 5.5's thinking |
 | `SREAGENT_TOOL_OUTPUT_MAX_CHARS` | `6000` | Each tool result is cut to this length |
 | `SREAGENT_API_TOKEN` | (none) | Required by the server: bearer token for `/alert`, `/ask`, `/investigations` |
 | `SREAGENT_DEDUP_MINUTES` | `30` | Skip an alert key investigated this recently |
@@ -255,9 +288,11 @@ file, update its time first.
 is the first: the HPA and Argo CD self-heal were fighting over the replica
 count.
 
-- The first run blamed a readiness probe.
-- The second blamed startup readiness timeouts, and never explained what
-  scaled the Deployment back up.
+- All three Haiku 4.5 runs failed. They blamed readiness probes and never
+  found what scaled the Deployment back up.
+- Sonnet 5.5 passed on the current prompt.
+- The file includes a short model comparison, and the full fix: omit
+  `spec.replicas` for HPA-managed services.
 
 A correct answer explains both halves of the cycle: the HPA scale-down to 1,
 and the scale-up back to 2 that restores the chart's value. It must not name

@@ -2,10 +2,14 @@
   "id": "emailservice-pod-replaced",
   "mode": "ask",
   "question": "Why was the emailservice pod replaced?",
-  "situation": "emailservice had hpa.minReplicas 1 but replicas 2 in the chart. Every ~5 minutes the HPA scaled the Deployment 2 -> 1 ('All metrics below target'), and seconds later Argo CD self-heal restored the 2 replicas rendered from values.yaml, so the ReplicaSet deleted its newest pod and then created a new one. Fixed by omitting spec.replicas from Deployments that have an HPA (branch fix/hpa-omit-replicas).",
+  "question_variants": [
+    "One emailservice pod is only a few minutes old while the others are an hour old. Why was it replaced?"
+  ],
+  "situation": "emailservice had hpa.minReplicas 1 but replicas 2 in the chart. Every ~5 minutes the HPA scaled the Deployment 2 -> 1 ('All metrics below target'), and seconds later Argo CD self-heal restored the 2 replicas rendered from values.yaml, so the ReplicaSet deleted its newest pod and then created a new one.",
+  "full_fix": "Omit spec.replicas from the Deployment for every HPA-managed service, so the HPA alone owns the replica count and Argo CD has nothing to restore (branch fix/hpa-omit-replicas, chart templates/deployments.yaml). Aligning emailservice's replicas with its minReplicas - the fix both Sonnet runs suggested - only removes this one instance: any HPA scale-up above the chart's replicas would still be undone by self-heal, for every service.",
   "recorded_tool_output": {
     "list_events app=emailservice": "emailservice-events-raw.txt",
-    "note": "Captured on 2026-10-04 with the pre-'controller events first' formatter, as cut to 6000 characters by the agent. Reuse it to replay this case once the live cluster no longer shows the cycle."
+    "note": "Captured on 2026-10-04 with the pre-'controller events first' formatter, as cut to 6000 characters by the agent. Account ID, node names and pod IPs replaced with placeholders (123456789012, <node-a>, <pod-ip-N>), consistently across all files in this directory. Reuse it to replay this case once the live cluster no longer shows the cycle."
   },
   "key_evidence": [
     "HorizontalPodAutoscaler/emailservice SuccessfulRescale (x18): New size: 1; reason: All metrics below target",
@@ -28,14 +32,42 @@
       "explain the surviving pod by its node or health"
     ],
     "keyword_hints": {
-      "must_mention_any": [["HPA", "HorizontalPodAutoscaler", "autoscal"],
-                           ["Argo CD", "self-heal", "selfHeal", "GitOps"],
-                           ["values.yaml", "chart", "replicas: 2", "replica count"]],
-      "must_not_contain": ["root cause is readiness", "readiness probe timeouts are the root cause",
-                           "different node", "removed the unhealthy pod"]
+      "must_mention_any": [
+        [
+          "HPA",
+          "HorizontalPodAutoscaler",
+          "autoscal"
+        ],
+        [
+          "Argo CD",
+          "self-heal",
+          "selfHeal",
+          "GitOps"
+        ],
+        [
+          "values.yaml",
+          "chart",
+          "replicas: 2",
+          "replica count"
+        ]
+      ],
+      "must_not_contain": [
+        "root cause is readiness",
+        "readiness probe timeouts are the root cause",
+        "different node",
+        "removed the unhealthy pod"
+      ]
     },
-    "expected_tool_calls": ["list_events app=emailservice",
-                            "read_repo_file helm/online-boutique/values.yaml or list_hpas, to confirm replicas 2 vs minReplicas 1"]
+    "expected_tool_calls": [
+      "list_events app=emailservice",
+      "read_repo_file helm/online-boutique/values.yaml or list_hpas, to confirm replicas 2 vs minReplicas 1"
+    ]
+  },
+  "model_comparison": {
+    "summary": "Claude Haiku 4.5 failed this case in all three runs, including after the prompt and tool fixes that let Claude Sonnet 5.5 pass. Sonnet 5.5 is therefore the default model (SREAGENT_MODEL).",
+    "claude-haiku-4-5-20251001": "3 runs, 3 fails. Stops after 2 tool calls (pods, events) and fills the gaps: readiness probes as cause, an invented HPA scale-up, node blame. Did not use the GitOps guidance to check the chart values.",
+    "claude-sonnet-5-5": "1 run on the current prompt, pass (plus a partial pass with an earlier Sonnet run on the previous prompt, limited by read_repo_file truncation). Uses 6-7 tool calls, checks the HPA and the chart values, and separates evidence from inference.",
+    "cost_note": "Sonnet 5.5 costs about 2x Haiku 4.5 per token ($2/$10 vs $1/$5 per million input/output tokens) and used about 3x the tool calls here, each resending the conversation."
   },
   "runs": [
     {
@@ -43,7 +75,9 @@
       "agent_version": "stage 1",
       "tool_calls": "several, pod events only",
       "answer": "The pod was killed because its readiness probe failed.",
-      "why_wrong": "A failing readiness probe never kills a pod. It looked only at the pod's own events, not the Deployment, ReplicaSet and HPA."
+      "why_wrong": "A failing readiness probe never kills a pod. It looked only at the pod's own events, not the Deployment, ReplicaSet and HPA.",
+      "model": "claude-haiku-4-5-20251001",
+      "verdict": "fail"
     },
     {
       "date": "2026-10-04",
@@ -51,15 +85,40 @@
       "tool_calls": 2,
       "output_file": "emailservice-improved-run.txt",
       "answer": "Identified the HPA scale-down, but called readiness probe timeouts 'the root cause', said the HPA 'removed the unhealthy pod', and said the old pod survived because it is on a different node.",
-      "why_wrong": "Ignored 'Scaled up replica set from 1 to 2 (x19)' and never asked what keeps restoring 2 replicas. The readiness failures occur only in each pod's first seconds. The HPA only sets a count; the ReplicaSet deletes its newest pod. Neither the HPA choosing a pod nor the node explanation is supported by any tool result."
+      "why_wrong": "Ignored 'Scaled up replica set from 1 to 2 (x19)' and never asked what keeps restoring 2 replicas. The readiness failures occur only in each pod's first seconds. The HPA only sets a count; the ReplicaSet deletes its newest pod. Neither the HPA choosing a pod nor the node explanation is supported by any tool result.",
+      "model": "claude-haiku-4-5-20251001",
+      "verdict": "fail"
     },
     {
       "date": "2026-10-04",
-      "agent_version": "after commit a1b83a2, Sonnet model (per the file name)",
+      "agent_version": "after commit a1b83a2",
       "tool_calls": 7,
       "output_file": "emailservice-sonnet-run.txt",
       "answer": "HPA scale-down and Argo CD self-heal restoring 2 replicas, repeating all hour; readiness failures only at startup and explicitly not the cause; noted Deployment generation 40 vs 2 elsewhere.",
-      "verdict": "Mostly passes. Gap: could not confirm replicas: 2 in values.yaml because read_repo_file output was truncated before the emailservice block, so the Git side was inferred from the Deployment's desired count. Fixed by read_repo_file search/start_line. Its suggested fix (align replicas with minReplicas in values) treats the symptom; the chart fix removes the conflict for every HPA service."
+      "verdict": "partial pass - Gap: could not confirm replicas: 2 in values.yaml because read_repo_file output was truncated before the emailservice block, so the Git side was inferred from the Deployment's desired count. Fixed by read_repo_file search/start_line. Its suggested fix (align replicas with minReplicas in values) treats the symptom; the chart fix removes the conflict for every HPA service.",
+      "model": "claude-sonnet-5-5 (not recorded in the output; per the operator)"
+    },
+    {
+      "date": "2026-10-04",
+      "agent_version": "after commit e88c381 (GitOps context, cycles, controller events first, read_repo_file search)",
+      "model": "claude-haiku-4-5-20251001",
+      "question": "One emailservice pod is only a few minutes old while the others are an hour old. Why was it replaced?",
+      "tool_calls": 2,
+      "output_file": "emailservice-haiku-run3.txt",
+      "verdict": "fail",
+      "answer": "Leads with readiness probe failures as the reason the pod was replaced; says 'the HPA scales back up to 2 replicas'; attributes the failures to pods scheduled on <node-a> and says the old pod is stable on a different node.",
+      "why_wrong": "No HPA event ever asks for 2 - every SuccessfulRescale says 'New size: 1' - so 'the HPA scales back up' is invented, and the real scale-up half (Argo CD restoring the chart's replicas) is never found. Readiness failures are startup-only. The node explanation is unsupported. It stopped after 2 tool calls without reading list_hpas or the chart values, despite the prompt."
+    },
+    {
+      "date": "2026-10-04",
+      "agent_version": "after commit e88c381",
+      "model": "claude-sonnet-5-5",
+      "question": "One emailservice pod is only a few minutes old while the others are an hour old. Why was it replaced?",
+      "tool_calls": 6,
+      "output_file": "emailservice-sonnet-run2.txt",
+      "verdict": "pass",
+      "answer": "Both halves of the cycle: HPA 'New size: 1' (x21) and the Deployment scaled back to 2 (x22) with no HPA event asking for it; replicas: 2 vs minReplicas: 1 confirmed at values.yaml line 261 via read_repo_file search then start_line, and no override in values-dev.yaml; the ReplicaSet deletes its newest pod; readiness failures are normal startup; the Argo CD step explicitly flagged as inferred.",
+      "notes": "Suggested fix (align emailservice replicas with minReplicas) treats the symptom; see full_fix."
     }
   ]
 }

@@ -1,0 +1,42 @@
+4m ago Warning Unhealthy Pod/emailservice-7959ddb655-c5v9n [kubelet] (x2): Readiness probe failed: timeout: failed to connect service "<pod-ip-1>:8080" within 1s: context deadline exceeded
+4m ago Normal Started Pod/emailservice-7959ddb655-c5v9n [kubelet] (x1): Container started
+4m ago Normal Scheduled Pod/emailservice-7959ddb655-c5v9n [default-scheduler] (x1): Successfully assigned online-boutique-dev/emailservice-7959ddb655-c5v9n to <node-a>
+4m ago Normal Pulled Pod/emailservice-7959ddb655-c5v9n [kubelet] (x1): Container image "123456789012.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:v20261004-134739-d34db63e" already present on machine and can be accessed by the pod
+4m ago Normal Created Pod/emailservice-7959ddb655-c5v9n [kubelet] (x1): Container created
+4m ago Normal SuccessfulCreate ReplicaSet/emailservice-7959ddb655 [replicaset-controller] (x11): (combined from similar events): Created pod: emailservice-7959ddb655-c5v9n
+4m ago Normal ScalingReplicaSet Deployment/emailservice [deployment-controller] (x19): Scaled up replica set emailservice-7959ddb655 from 1 to 2
+4m ago Normal Killing Pod/emailservice-7959ddb655-bp9kx [kubelet] (x1): Stopping container server
+4m ago Normal SuccessfulDelete ReplicaSet/emailservice-7959ddb655 [replicaset-controller] (x1): Deleted pod: emailservice-7959ddb655-bp9kx
+4m ago Normal SuccessfulRescale HorizontalPodAutoscaler/emailservice [horizontal-pod-autoscaler] (x18): New size: 1; reason: All metrics below target
+4m ago Normal ScalingReplicaSet Deployment/emailservice [deployment-controller] (x18): Scaled down replica set emailservice-7959ddb655 from 2 to 1
+10m ago Warning Unhealthy Pod/emailservice-7959ddb655-bp9kx [kubelet] (x2): Readiness probe failed: timeout: failed to connect service "<pod-ip-2>:8080" within 1s: context deadline exceeded
+10m ago Normal Pulled Pod/emailservice-7959ddb655-bp9kx [kubelet] (x1): Container image "123456789012.dkr.ecr.us-east-1.amazonaws.com/online-boutique-
+... [truncated 1556 characters] ...
+ervice-7959ddb655-zn8tx [kubelet] (x1): Stopping container server
+15m ago Normal SuccessfulDelete ReplicaSet/emailservice-7959ddb655 [replicaset-controller] (x1): Deleted pod: emailservice-7959ddb655-zn8tx
+20m ago Warning Unhealthy Pod/emailservice-7959ddb655-zn8tx [kubelet] (x2): Readiness probe failed: timeout: failed to connect service "<pod-ip-3>:8080" within 1s: context deadline exceeded
+20m ago Normal Started Pod/emailservice-7959ddb655-zn8tx [kubelet] (x1): Container started
+20m ago Normal Scheduled Pod/emailservice-7959ddb655-zn8tx [default-scheduler] (x1): Successfully assigned online-boutique-dev/emailservice-7959ddb655-zn8tx to <node-a>
+20m ago Normal Pulled Pod/emailservice-7959ddb655-zn8tx [kubelet] (x1): Container image "123456789012.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:v20261004-134739-d34db63e" already present on machine and can be accessed by the pod
+20m ago Normal Created Pod/emailservice-7959ddb655-zn8tx [kubelet] (x1): Container created
+20m ago Normal Killing Pod/emailservice-7959ddb655-snnf8 [kubelet] (x1): Stopping container server
+20m ago Normal SuccessfulDelete ReplicaSet/emailservice-7959ddb655 [replicaset-controller] (x1): Deleted pod: emailservice-7959ddb655-snnf8
+25m ago Warning Unhealthy Pod/emailservice-7959ddb655-snnf8 [kubelet] (x2): Readiness probe failed: timeout: failed to connect service "<pod-ip-5>:8080" within 1s: context deadline exceeded
+25m ago Normal Pulled Pod/emailservice-7959ddb655-snnf8 [kubelet] (x1): Container image "123456789012.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:v20261004-134739-d34db63e" already present on machine and can be accessed by the pod
+25m ago Normal Created Pod/emailservice-7959ddb655-snnf8 [kubelet] (x1): Container created
+25m ago Normal Started Pod/emailservice-7959ddb655-snnf8 [kubelet] (x1): Container started
+25m ago Normal Scheduled Pod/emailservice-7959ddb655-snnf8 [default-scheduler] (x1): Successfully assigned online-boutique-dev/emailservice-7959ddb655-snnf8 to <node-a>
+25m ago Normal Killing Pod/emailservice-7959ddb655-8rhk2 [kubelet] (x1): Stopping container server
+25m ago Normal SuccessfulDelete ReplicaSet/emailservice-7959ddb655 [replicaset-controller] (x1): Deleted pod: emailservice-7959ddb655-8rhk2
+31m ago Warning Unhealthy Pod/emailservice-7959ddb655-8rhk2 [kubelet] (x2): Readiness probe failed: timeout: failed to connect service "<pod-ip-4>:8080" within 1s: context deadline exceeded
+31m ago Normal Started Pod/emailservice-7959ddb655-8rhk2 [kubelet] (x1): Container started
+31m ago Normal Scheduled Pod/emailservice-7959ddb655-8rhk2 [default-scheduler] (x1): Successfully assigned online-boutique-dev/emailservice-7959ddb655-8rhk2 to <node-a>
+31m ago Normal Pulled Pod/emailservice-7959ddb655-8rhk2 [kubelet] (x1): Container image "123456789012.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:v20261004-134739-d34db63e" already present on machine and can be accessed by the pod
+31m ago Normal Created Pod/emailservice-7959ddb655-8rhk2 [kubelet] (x1): Container created
+31m ago Normal Killing Pod/emailservice-7959ddb655-4md4b [kubelet] (x1): Stopping container server
+31m ago Normal SuccessfulDelete ReplicaSet/emailservice-7959ddb655 [replicaset-controller] (x1): Deleted pod: emailservice-7959ddb655-4md4b
+36m ago Warning Unhealthy Pod/emailservice-7959ddb655-4md4b [kubelet] (x3): Readiness probe failed: timeout: failed to connect service "<pod-ip-1>:8080" within 1s: context deadline exceeded
+36m ago Normal Pulled Pod/emailservice-7959ddb655-4md4b [kubelet] (x1): Container image "123456789012.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-emailservice:v20261004-134739-d34db63e" already present on machine and can be accessed by the pod
+36m ago Normal Created Pod/emailservice-7959ddb655-4md4b [kubelet] (x1): Container created
+36m ago Normal Started Pod/emailservice-7959ddb655-4md4b [kubelet] (x1): Container started
+... and 28 more

@@ -1,0 +1,23 @@
+ask: One emailservice pod is only a few minutes old while the others are an hour old. Why was it replaced?
+model: claude-haiku-4-5-20251001   run at: 2026-10-04T15:45:18Z
+
+The new pod was replaced due to **readiness probe failures**. Here's what the evidence shows:
+
+**The cycle:**
+The events reveal a repeating pattern over the past ~1 hour 50 minutes:
+- Pods on node `<node-a>` fail readiness probes with "timeout: failed to connect service on port 8080 within 1s"
+- Each failed pod is deleted (e.g., `emailservice-7959ddb655-j5sz6` 6 minutes ago, `emailservice-7959ddb655-c9txp` 11 minutes ago)
+- **The HPA then scales down to 1 replica** ("All metrics below target")
+- Soon after, **the HPA scales back up to 2 replicas**
+- A new pod is created and immediately fails readiness with the same timeout error
+
+**Current state:**
+- The 1-minute-old pod (`emailservice-7959ddb655-97dt8`) shows readiness failures: "Readiness probe failed: timeout: failed to connect service `<pod-ip-4>:8080` within 1s"
+- The hour-old pod (`emailservice-7959ddb655-s98dz`) is stable and on a different node (`<node-b>`)
+
+The pattern suggests pods scheduled to `<node-a>` repeatedly fail to respond to readiness probes within 1 second. This could indicate a network issue, load issue, or startup timing problem specific to that node or the pod's startup latency. The pod isn't killed by the probe (only removed from service endpoints), but the HPA's response to reduced traffic triggers a scale-down/up cycle that recreates the pod.
+
+------------------------------------------------------------------------
+Outcome: answered   Tool calls: 2 of 15 allowed   Elapsed: 7.8s
+   1. [ok] list_pods {"app": "emailservice"}
+   2. [ok] list_events {"app": "emailservice"}
