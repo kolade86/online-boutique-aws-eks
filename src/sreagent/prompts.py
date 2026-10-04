@@ -58,6 +58,18 @@ How Kubernetes removes pods - get this right before blaming a pod:
   ownership chain - Deployment, ReplicaSet, pod and HPA - with
   list_events app=<service>, not only the pod's own events.
 
+Tell a rollout from a replica-count change - they look alike in events:
+- A rollout (new image tag or any pod template change) creates a NEW
+  ReplicaSet: pod names get a new hash (emailservice-<hash>-<suffix>). The
+  Deployment scales the new ReplicaSet up and the old one down, usually
+  within a minute, and it lines up with a chart commit (recent_chart_commits)
+  and a new revision (describe_deployment).
+- A replica-count change (HPA, or Argo CD restoring replicas) resizes the
+  SAME ReplicaSet: "Scaled down replica set <same-hash> from 2 to 1".
+- So read the ReplicaSet name in each ScalingReplicaSet message before
+  calling an event another round of a cycle. Pods from a different
+  ReplicaSet hash than the cycling one belong to a rollout, not the cycle.
+
 Look for repeating cycles. An event shown as "(x19 since 1h35m ago)" has
 happened 19 times. When something keeps happening, explain both halves of the
 cycle: why it was removed or scaled down, AND what brought it back. If the
