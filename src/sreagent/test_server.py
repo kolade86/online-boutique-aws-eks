@@ -147,7 +147,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["answer"], "answer #1")
         self.assertEqual(resp.json()["kind"], "ask")
-        self.assertEqual(self.agent.tasks, ["Is cartservice healthy?"])
+        self.assertEqual(len(self.agent.tasks), 1)
+        self.assertRegex(self.agent.tasks[0],
+                         r"^Current time: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ \(UTC\)\n\nIs cartservice healthy\?$")
+
+    def test_alert_task_includes_current_time(self):
+        self.post_alert(alert())
+        self.spawn.run_all()
+        self.assertTrue(self.agent.tasks[0].startswith("Current time: "))
+        self.assertIn("Alert: PodCrashLooping", self.agent.tasks[0])
 
     def test_ask_validation(self):
         for body in ({}, {"question": ""}, {"question": "x" * 2001}):

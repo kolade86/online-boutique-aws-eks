@@ -348,6 +348,17 @@ class PromptTest(unittest.TestCase):
             self.assertNotIn("{", text.replace('{namespace="', ""))  # nothing left unformatted
 
 
+class CurrentTimeTest(unittest.TestCase):
+    def test_task_is_prefixed_with_utc_time(self):
+        now = datetime(2026, 10, 4, 16, 1, 32, tzinfo=timezone.utc)
+        self.assertEqual(prompts.with_current_time("Is it stable?", now=now),
+                         "Current time: 2026-10-04T16:01:32Z (UTC)\n\nIs it stable?")
+
+    def test_system_prompt_has_no_clock(self):
+        # The time lives in the task so the system prompt stays cacheable
+        self.assertNotIn("Current time", prompts.system_prompt("ask", "ns", 15))
+
+
 class RefreshStartsAtTest(unittest.TestCase):
     def test_sets_recent_start_time(self):
         import cli

@@ -1,5 +1,7 @@
 """System prompts and the conversion of an AlertManager payload into a task."""
 
+from datetime import datetime, timezone
+
 from redact import redact
 
 _CONTEXT = """\
@@ -150,6 +152,17 @@ guessing."""
 def system_prompt(kind: str, namespace: str, max_tool_calls: int) -> str:
     template = INVESTIGATE_SYSTEM if kind == "investigate" else ASK_SYSTEM
     return template.format(namespace=namespace, max_tool_calls=max_tool_calls)
+
+
+def with_current_time(task: str, now=None) -> str:
+    """Prefix the task with the current UTC time.
+
+    Event ages are relative ("4m ago") but commit times are absolute; the
+    model needs "now" to line them up. It goes in the task, not the system
+    prompt, so the system prompt stays identical and cacheable.
+    """
+    now = now or datetime.now(timezone.utc)
+    return f"Current time: {now:%Y-%m-%dT%H:%M:%SZ} (UTC)\n\n{task}"
 
 
 def alert_task(payload: dict) -> str:

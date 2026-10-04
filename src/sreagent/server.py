@@ -58,7 +58,8 @@ class Runner:
                 system = prompts.system_prompt("investigate", self._config.app_namespace,
                                                self._config.max_tool_calls)
                 self._record("alert", investigation_id, str(key),
-                             self._agent.run(system, prompts.alert_task(payload)))
+                             self._agent.run(system, prompts.with_current_time(
+                                 prompts.alert_task(payload))))
             except Exception:
                 log.exception("investigation crashed", extra={"id": investigation_id})
             finally:
@@ -74,7 +75,7 @@ class Runner:
         try:
             system = prompts.system_prompt("ask", self._config.app_namespace,
                                            self._config.max_tool_calls)
-            result = self._agent.run(system, question)
+            result = self._agent.run(system, prompts.with_current_time(question))
             return self._record("ask", uuid.uuid4().hex[:8], question, result)
         finally:
             self._busy.release()

@@ -106,14 +106,14 @@ def main(argv=None) -> int:
     agent = wiring.build_agent(config)
     if opts.command == "ask":
         system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
-        result = agent.run(system, opts.question)
+        result = agent.run(system, prompts.with_current_time(opts.question))
     else:
         with open(opts.alert_file, encoding="utf-8") as f:
             payload = json.load(f)
         if not opts.keep_starts_at:
             refresh_starts_at(payload, opts.started_minutes_ago)
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
-        result = agent.run(system, prompts.alert_task(payload))
+        result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
 
     print(format_report(result, config.max_tool_calls), end="")
     if opts.output:
