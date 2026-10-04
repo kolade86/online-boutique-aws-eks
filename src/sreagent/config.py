@@ -32,6 +32,7 @@ class Config:
     github_branch: str
     values_file: str
     api_token: str | None
+    open_prs: bool
     dedup_minutes: int
     port: int
 
@@ -66,9 +67,19 @@ class Config:
             github_branch=env.get("GITHUB_BRANCH", "main"),
             values_file=env.get("VALUES_FILE", "helm/online-boutique/values-dev.yaml"),
             api_token=env.get("SREAGENT_API_TOKEN") or None,
+            open_prs=_flag(env, "SREAGENT_OPEN_PRS", False),
             dedup_minutes=integer("SREAGENT_DEDUP_MINUTES", 30),
             port=integer("PORT", 8080),
         )
+
+
+def _flag(env, name: str, default: bool) -> bool:
+    raw = env.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw not in ("true", "false", "1", "0", "yes", "no"):
+        raise ConfigError(f"{name} must be true or false, got {raw!r}")
+    return raw in ("true", "1", "yes")
 
 
 def _service_account_namespace() -> str:

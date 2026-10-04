@@ -3,3 +3,4 @@ kubernetes==36.0.3
 python-json-logger==4.2.0
 fastapi==0.142.2
 uvicorn==0.54.0
+ruamel.yaml==0.19.1

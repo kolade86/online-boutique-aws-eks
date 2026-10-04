@@ -12,6 +12,7 @@ import argparse
 import json
 import logging
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import prompts
@@ -57,6 +58,57 @@ def format_report(result, max_tool_calls: int, header: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_pull_request(pr: dict) -> str:
+    lines = ["", "-" * 72, f"Pull request: {pr['status']}"
+             + (f" - {pr['url']} (branch {pr['branch']})" if pr.get("url") else "")]
+    if pr.get("why"):
+        lines.append(f"  {pr['why']}")
+    lines += [f"  {c}" for c in pr["changes"]]
+    lines += ["", pr["diff"].rstrip("\n")]
+    return "\n".join(lines) + "\n"
+
+
+def _propose(config, wiring, opts) -> int:
+    """Validate (and with --open-pr, open) a change without the model or the cluster."""
+    import pr_tool
+    import values_change as vc
+
+    changes = []
+    for pair in opts.changes:
+        path, sep, value = pair.partition("=")
+        if not sep:
+            print(f"Expected path=value, got {pair!r}", file=sys.stderr)
+            return 2
+        changes.append({"path": path, "value": int(value) if value.isdigit() else value})
+
+    opener = wiring.build_pr_opener(config)
+    tool = pr_tool.ProposalTool(opener, opts.key)
+    try:
+        tool.handle({"changes": changes, "reason": opts.reason})
+    except pr_tool.ToolError as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    if not opts.open_pr:
+        p = tool.proposal
+        body = pr_tool.pr_body(p, opts.key, "dry-run0", "_(cli.py propose: no investigation)_",
+                               [], opener.values_file)
+        print(f"Valid change against {opener.gh.branch} ({p.context.base_sha[:8]}):")
+        print("\n".join(f"  {c}" for c in vc.describe(p.diff)))
+        print(f"\n{p.diff_text}\n--- PR title ---\n{pr_tool.title(p)}\n--- PR body ---\n{body}")
+        print("\nDry run: nothing was written. Add --open-pr to open it.")
+        return 0
+
+    if not config.github_token:
+        print("GITHUB_TOKEN is required to open a pull request", file=sys.stderr)
+        return 2
+    from agent import ANSWERED, Investigation
+    result = Investigation(ANSWERED, "_(Opened with cli.py propose: no investigation was run.)_", [], 0.0)
+    pr = pr_tool.finish(tool, result, opts.key, uuid.uuid4().hex[:8], open_prs=True)
+    print(format_pull_request(pr), end="")
+    return 0 if pr["status"] == "opened" else 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Online Boutique SRE agent (local runner)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Log each tool call as JSON")
@@ -78,6 +130,19 @@ def main(argv=None) -> int:
                        help="Rewrite each alert's startsAt to N minutes ago (default 10)")
     p_inv.add_argument("--keep-starts-at", action="store_true",
                        help="Use the startsAt values in the file unchanged")
+    p_inv.add_argument("--open-pr", action="store_true",
+                       help="Open a pull request if the agent proposes a change "
+                            "(default: validate and show it only). Needs a GITHUB_TOKEN with write access")
+
+    p_prop = sub.add_parser("propose", help="Validate a values-dev.yaml change and optionally "
+                                            "open it as a PR, without the model or a cluster")
+    p_prop.add_argument("changes", nargs="+", metavar="path=value",
+                        help="e.g. services.emailservice.resources.limits.memory=256Mi")
+    p_prop.add_argument("--reason", default="Manual test of the sreagent PR path (cli.py propose).")
+    p_prop.add_argument("--key", default="manual/cli/propose",
+                        help="Alert key recorded in the PR; one open PR per key")
+    p_prop.add_argument("--open-pr", action="store_true",
+                        help="Actually open the PR (default: validate and print the diff and body)")
 
     opts = parser.parse_args(argv)
     # Log lines can hold characters a Windows console code page cannot print
@@ -103,19 +168,32 @@ def main(argv=None) -> int:
         print(output)
         return 1 if is_error else 0
 
-    agent = wiring.build_agent(config)
+    if opts.command == "propose":
+        return _propose(config, wiring, opts)
+
+    pr = None
     if opts.command == "ask":
+        agent = wiring.build_agent(config)   # no proposal tool: /ask never opens a PR
         system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(opts.question))
     else:
+        import alerts
+        import pr_tool
         with open(opts.alert_file, encoding="utf-8") as f:
             payload = json.load(f)
         if not opts.keep_starts_at:
             refresh_starts_at(payload, opts.started_minutes_ago)
+        firing = alerts.firing(payload)
+        key = str(alerts.key_of(firing[0])) if firing else "manual/cli/investigate"
+        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key)
+        agent = wiring.build_agent(config, [proposal.tool()])
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
+        pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr)
 
     print(format_report(result, config.max_tool_calls), end="")
+    if pr is not None:
+        print(format_pull_request(pr), end="")
     if opts.output:
         subject = opts.question if opts.command == "ask" else opts.alert_file
         header = (f"{opts.command}: {subject}\nmodel: {config.model}   "

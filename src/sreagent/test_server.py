@@ -24,11 +24,29 @@ def config(**overrides):
 
 
 class StubAgent:
+    """Stands in for agent_factory and the Agent it builds.
+
+    Records which extra tools each run was given and, when `propose` is set,
+    calls the proposal tool the way the model would.
+    """
+
     def __init__(self):
         self.tasks = []
+        self.extra_tools = []   # tool names given to each run
+        self.propose = None     # args for propose_values_change
+        self.tool_results = []
+        self._current = []
+
+    def __call__(self, extra_tools):
+        self._current = list(extra_tools)
+        self.extra_tools.append([t.name for t in extra_tools])
+        return self
 
     def run(self, system, task):
         self.tasks.append(task)
+        for t in self._current:
+            if t.name == "propose_values_change" and self.propose:
+                self.tool_results.append(t.handler(self.propose))
         return Investigation(ANSWERED, f"answer #{len(self.tasks)}", [], 1.0)
 
 
@@ -161,6 +179,67 @@ class ServerTest(unittest.TestCase):
         for body in ({}, {"question": ""}, {"question": "x" * 2001}):
             with self.subTest(body=str(body)[:30]):
                 self.assertEqual(self.client.post("/ask", json=body, headers=AUTH).status_code, 422)
+
+
+try:
+    import pr_tool
+    from test_pr_tool import KEY, VALUES, VALUES_DEV, FakeGitHub
+except ImportError:  # ruamel.yaml not installed
+    pr_tool = None
+
+
+@unittest.skipIf(server is None or pr_tool is None, "fastapi/httpx/ruamel.yaml not installed")
+class ServerPullRequestTest(unittest.TestCase):
+    def make_client(self, **env):
+        self.agent = StubAgent()
+        self.spawn = DeferredSpawn()
+        self.gh = FakeGitHub()
+        opener = pr_tool.PullRequestOpener(self.gh, VALUES_DEV, VALUES)
+        return TestClient(server.create_app(config(**env), self.agent, spawn=self.spawn,
+                                            pr_opener=opener))
+
+    def emailservice_alert(self):
+        return payload({**alert(pod="emailservice-6b9f7c8d4-aaaaa"),
+                        "labels": {"alertname": "PodCrashLooping", "namespace": "online-boutique-dev",
+                                   "pod": "emailservice-6b9f7c8d4-aaaaa"}})
+
+    def test_only_alerts_get_the_proposal_tool(self):
+        client = self.make_client()
+        client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
+        self.spawn.run_all()
+        client.post("/ask", json={"question": "q"}, headers=AUTH)
+        self.assertEqual(self.agent.extra_tools, [["propose_values_change"], []])
+
+    def test_dry_run_by_default(self):
+        client = self.make_client()
+        self.agent.propose = {"changes": [{"path": "services.emailservice.resources.limits.memory",
+                                           "value": "256Mi"}], "reason": "OOM"}
+        client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
+        self.spawn.run_all()
+
+        pr = client.get("/investigations", headers=AUTH).json()[0]["pull_request"]
+        self.assertEqual(pr["status"], "dry_run")
+        self.assertEqual(pr["changes"], ["services.emailservice.resources.limits.memory: (unset) -> 256Mi"])
+        self.assertEqual(self.gh.writes, [])
+
+    def test_opens_pr_when_enabled_with_the_alert_key(self):
+        client = self.make_client(SREAGENT_OPEN_PRS="true")
+        self.agent.propose = {"changes": [{"path": "services.emailservice.resources.limits.memory",
+                                           "value": "256Mi"}], "reason": "OOM"}
+        client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
+        self.spawn.run_all()
+
+        pr = client.get("/investigations", headers=AUTH).json()[0]["pull_request"]
+        self.assertEqual(pr["status"], "opened")
+        self.assertTrue(pr["branch"].startswith("sre-agent/"))
+        self.assertTrue(self.gh.pulls[0]["body"].startswith(pr_tool.key_marker(KEY)))
+
+    def test_no_proposal_no_pull_request(self):
+        client = self.make_client(SREAGENT_OPEN_PRS="true")
+        client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
+        self.spawn.run_all()
+        self.assertIsNone(client.get("/investigations", headers=AUTH).json()[0]["pull_request"])
+        self.assertEqual(self.gh.writes, [])
 
 
 if __name__ == "__main__":

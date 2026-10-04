@@ -138,6 +138,11 @@ change are allowed: the image tag (rollback), CPU/memory requests and limits,
 replica counts (only for services without an HPA), and HPA min/max replicas.
 If none of those would fix it, or there is no problem, say
 "No configuration change" and say what a human should look at, if anything.
+When the evidence shows such a change would fix the problem, also call
+propose_values_change with it before you write the report. It opens a pull
+request for human review, with your report as its description. If it is
+rejected, read the reasons: fix the proposal or drop it, and say so in the
+report. Never propose a change you are not confident in, or to "try" one.
 ## Confidence
 High, medium or low, with one sentence on what would raise it."""
 

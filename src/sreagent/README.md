@@ -3,13 +3,13 @@
 An SRE assistant for Online Boutique. Given an alert or a question, it
 investigates the live system with read-only tools and writes a diagnosis.
 
-**Status: stage 2 of 4.** Done so far:
+**Status: stage 3 of 4.** Done so far:
 
 - the agent loop, the model provider and the read-only tools
 - the HTTP server (`/alert`, `/ask`) with deduplication and limits
+- the pull-request tool, with an allow-list enforced in code
 
-Both run from your laptop. The pull-request tool and the in-cluster
-deployment come in stages 3 and 4.
+All of it runs from your laptop. The in-cluster deployment comes in stage 4.
 
 ## How it works
 
@@ -45,6 +45,8 @@ Every tool call is recorded as evidence.
 | `cli.py` | Local runner |
 | `server.py` | FastAPI app: `/alert`, `/ask`, `/investigations`, `/healthz` |
 | `alerts.py` | Alert identity (alertname + namespace + service) and deduplication |
+| `values_change.py` | Applies a proposed change to `values-dev.yaml` and validates it against the allow-list |
+| `pr_tool.py` | `propose_values_change` (the one write tool) and opening the pull request |
 
 To add a Bedrock provider later, write a class with the same `complete()`
 method as `AnthropicProvider` and choose it in `wiring.py`. The loop does not
@@ -220,6 +222,126 @@ file, update its time first.
 - **Never more than one open agent PR per alert** is enforced in stage 3. It
   checks open PRs on GitHub, so it survives restarts.
 
+## The pull-request tool
+
+The agent's only write is a pull request that changes
+`helm/online-boutique/values-dev.yaml`. A human reviews and merges it, and
+Argo CD deploys it. The agent never touches the cluster and never writes to
+`main`.
+
+**How it works.** There are two steps, so the model gets feedback and the PR
+gets the whole story:
+
+1. **During the investigation**, the model calls `propose_values_change` with
+   `path`/`value` pairs and a reason.
+   - The code applies them to the current `values-dev.yaml` on `main`. The
+     round trip keeps every comment and the layout.
+   - It then validates the result: the parsed difference between the old and
+     new file.
+   - If the change is rejected, the reasons go back to the model. If it is
+     accepted, it is held, not written.
+2. **After the investigation finishes** with a report, the code:
+   - re-reads `main` and re-validates the change (main may have moved)
+   - creates the branch `sre-agent/<investigation id>`
+   - commits the file to that branch
+   - opens a PR labelled `sre-agent`
+
+   The PR body has the final report (the diagnosis), every tool call the loop
+   recorded with an output excerpt (the evidence), and the exact diff.
+   Alerts get the tool; `/ask` never does.
+
+**The allow-list**, enforced in [values_change.py](values_change.py) on the
+resulting diff, not on what the model claims:
+
+| Setting | Rule |
+|---|---|
+| `image.tag` | Rollback only, to a tag deployed by one of the last 6 `values-dev.yaml` commits (ECR keeps only 10 images). Must be the only change in its PR |
+| `services.<svc>.resources.(requests\|limits).(cpu\|memory)` | CPU 10m–2000m, memory 16Mi–4Gi, request ≤ limit |
+| `services.<svc>.replicas` | Only for services **without** an HPA (the chart ignores it otherwise), 0–5 |
+| `services.<svc>.hpa.(minReplicas\|maxReplicas)` | Only for services **with** an HPA, 1–10, min ≤ max |
+
+Whether a service has an HPA is decided from the merged chart values
+(`values.yaml` plus the new `values-dev.yaml`), the same way the templates
+decide.
+
+Also rejected:
+
+- any other path
+- a service that is not in the chart, or is disabled
+- anything under `services.sreagent` (the agent never edits itself)
+- removing an existing key
+- more than 6 changes
+- dropping a comment
+- a file without exactly one `  tag:` line (build.yml's `update-manifest`
+  rewrites that line with `sed`)
+
+**One open PR per alert.**
+
+- The alert key (alertname + namespace + service) is hidden in the PR body.
+- A proposal for a key that already has an open `sre-agent/*` PR is rejected,
+  with a link to that PR.
+- This uses GitHub, not memory, so it survives restarts.
+
+**Dry run by default.**
+
+- With `SREAGENT_OPEN_PRS` off (the default), the server validates a proposal
+  and records the diff in `/investigations` as `dry_run`, but writes nothing.
+  Turn it on once you trust the output.
+- The CLI's `investigate` only opens a PR with `--open-pr`.
+
+**GitHub token for writes.** A fine-grained token on this repository only:
+
+- **Contents: Read and write** (the branch and commit)
+- **Pull requests: Read and write**
+- **Metadata: Read**
+
+Contents write is also enough to push to `main`, so the code refuses any
+branch except `sre-agent/<8 hex chars>`. The backstop is a ruleset on `main`
+that this token cannot bypass.
+
+> **Until stage 4 changes build.yml**, merging an agent PR still triggers
+> `Build Images`, because the workflow runs on pushes to `helm/**`. Its
+> `update-manifest` job then writes a new tag over any image rollback. Don't
+> merge a rollback PR before stage 4.
+
+### Testing it live (no cluster needed)
+
+`propose` runs the PR path without the model and without a cluster. It only
+needs GitHub.
+
+```powershell
+cd src\sreagent
+$env:GITHUB_REPO = "kolade86/online-boutique-aws-eks"
+$env:APP_NAMESPACE = "online-boutique-dev"
+
+# 1. Dry run. Reads main; prints the validated diff, the PR title and the body.
+#    Works without a token on a public repo.
+python cli.py propose services.emailservice.resources.limits.memory=256Mi
+
+# 2. A rejection. Every broken rule is listed; exit code 1.
+python cli.py propose services.emailservice.replicas=3 redis.addr=x:6379
+
+# 3. Open a real PR (needs the write token above).
+$env:GITHUB_TOKEN = Read-Host "GitHub token (Contents + Pull requests: write)"
+python cli.py propose services.emailservice.resources.limits.memory=256Mi --open-pr
+
+# 4. Run the same command again: rejected, because a PR for this key is open.
+python cli.py propose services.emailservice.resources.limits.memory=256Mi --open-pr
+```
+
+Then check the PR on GitHub:
+
+- the branch is `sre-agent/<id>`, never `main`
+- the label is `sre-agent`
+- the diff touches only `values-dev.yaml`, with its comments intact
+- **Unit Tests** runs on it
+
+Close the PR and delete the branch without merging.
+
+With a cluster, `python cli.py investigate my-alert.json` runs the full flow.
+It ends with the proposal, if the agent made one, as a dry run. Add
+`--open-pr` to open the PR.
+
 ## Model choice
 
 The default is **Claude Sonnet 5.5** (`claude-sonnet-5-5`), for both `/alert`
@@ -271,6 +393,7 @@ tool fixes that let Sonnet 5.5 pass.
 | `SREAGENT_TOOL_OUTPUT_MAX_CHARS` | `6000` | Each tool result is cut to this length |
 | `SREAGENT_API_TOKEN` | (none) | Required by the server: bearer token for `/alert`, `/ask`, `/investigations` |
 | `SREAGENT_DEDUP_MINUTES` | `30` | Skip an alert key investigated this recently |
+| `SREAGENT_OPEN_PRS` | `false` | Server only: open the PRs the agent proposes (otherwise `dry_run`) |
 | `PORT` | `8080` | Server port |
 | `GITHUB_BRANCH` | `main` | |
 | `VALUES_FILE` | `helm/online-boutique/values-dev.yaml` | |
@@ -328,6 +451,9 @@ skipped when their packages are missing:
 
 - `test_anthropic_provider.py` needs `anthropic`
 - `test_server.py` needs `fastapi` and `httpx`
+- `test_values_change.py` and `test_pr_tool.py` need `ruamel.yaml`. They run
+  the allow-list and the whole PR flow against an in-memory GitHub, using the
+  real chart files. Only the HTTP calls themselves are left untested.
 
 `httpx` is used only by FastAPI's test client, so it is not in
 `requirements.txt`. Run `pip install httpx` to run the server tests.

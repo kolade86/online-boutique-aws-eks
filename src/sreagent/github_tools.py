@@ -33,6 +33,10 @@ class GitHubReader:
         self._open = opener
 
     def get(self, path: str, params=None):
+        return self.send("GET", path, params=params)
+
+    def send(self, method: str, path: str, body=None, params=None):
+        """One GitHub REST call. Writes (POST/PUT) are made only by pr_tool."""
         url = f"{self.API}/repos/{self.repo}{path}"
         if params:
             url += "?" + urllib.parse.urlencode(params)
@@ -41,12 +45,22 @@ class GitHubReader:
                    "User-Agent": "sreagent"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode()
+            headers["Content-Type"] = "application/json"
         try:
-            with self._open(urllib.request.Request(url, headers=headers),
-                            timeout=self._timeout) as resp:
+            request = urllib.request.Request(url, data=data, headers=headers, method=method)
+            with self._open(request, timeout=self._timeout) as resp:
                 return json.load(resp)
         except urllib.error.HTTPError as e:
-            raise ToolError(f"GitHub HTTP {e.code} for {path}: {e.reason}") from None
+            detail = ""
+            try:
+                detail = json.load(e).get("message", "")
+            except Exception:
+                pass
+            raise ToolError(f"GitHub HTTP {e.code} for {method} {path}: "
+                            f"{detail or e.reason}") from None
         except urllib.error.URLError as e:
             raise ToolError(f"GitHub unreachable: {e.reason}") from None
 

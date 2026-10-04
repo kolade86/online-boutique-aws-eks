@@ -38,11 +38,14 @@ class AskRequest(BaseModel):
 class Runner:
     """Runs one investigation at a time and keeps the most recent results."""
 
-    def __init__(self, agent: Agent, config: Config,
-                 spawn: Callable[[Callable[[], None]], None]):
-        self._agent = agent
+    def __init__(self, agent_factory: Callable[[list], Agent], config: Config,
+                 spawn: Callable[[Callable[[], None]], None], pr_opener=None):
+        # agent_factory(extra_tools) builds an Agent; alerts get the PR
+        # proposal tool, /ask never does.
+        self._agent_factory = agent_factory
         self._config = config
         self._spawn = spawn
+        self._pr_opener = pr_opener
         self._busy = threading.Lock()
         self.dedup = alerts.Deduplicator(config.dedup_minutes * 60)
         self.results: deque = deque(maxlen=RECENT_RESULTS)
@@ -55,11 +58,19 @@ class Runner:
 
         def work():
             try:
+                proposal = None
+                if self._pr_opener is not None:
+                    import pr_tool  # needs ruamel.yaml
+                    proposal = pr_tool.ProposalTool(self._pr_opener, str(key))
+                agent = self._agent_factory([proposal.tool()] if proposal else [])
                 system = prompts.system_prompt("investigate", self._config.app_namespace,
                                                self._config.max_tool_calls)
-                self._record("alert", investigation_id, str(key),
-                             self._agent.run(system, prompts.with_current_time(
-                                 prompts.alert_task(payload))))
+                result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
+                pr = None
+                if proposal is not None:
+                    pr = pr_tool.finish(proposal, result, str(key), investigation_id,
+                                        self._config.open_prs)
+                self._record("alert", investigation_id, str(key), result, pull_request=pr)
             except Exception:
                 log.exception("investigation crashed", extra={"id": investigation_id})
             finally:
@@ -75,13 +86,13 @@ class Runner:
         try:
             system = prompts.system_prompt("ask", self._config.app_namespace,
                                            self._config.max_tool_calls)
-            result = self._agent.run(system, prompts.with_current_time(question))
+            result = self._agent_factory([]).run(system, prompts.with_current_time(question))
             return self._record("ask", uuid.uuid4().hex[:8], question, result)
         finally:
             self._busy.release()
 
     def _record(self, kind: str, investigation_id: str, subject: str,
-                result: Investigation) -> dict:
+                result: Investigation, pull_request=None) -> dict:
         entry = {
             "id": investigation_id,
             "kind": kind,
@@ -94,10 +105,12 @@ class Runner:
             "answer": result.answer,
             "evidence": [{"tool": e.tool, "input": e.input, "is_error": e.is_error}
                          for e in result.evidence],
+            "pull_request": pull_request,
         }
         self.results.appendleft(entry)
         log.info("investigation result", extra={k: entry[k] for k in (
-            "id", "kind", "subject", "outcome", "tool_calls", "elapsed_seconds", "answer")})
+            "id", "kind", "subject", "outcome", "tool_calls", "elapsed_seconds", "answer",
+            "pull_request")})
         return entry
 
 
@@ -105,12 +118,13 @@ def _start_thread(fn: Callable[[], None]) -> None:
     threading.Thread(target=fn, daemon=True, name="investigation").start()
 
 
-def create_app(config: Config, agent: Agent, spawn=_start_thread) -> FastAPI:
+def create_app(config: Config, agent_factory: Callable[[list], Agent],
+               spawn=_start_thread, pr_opener=None) -> FastAPI:
     if not config.api_token:
         raise ValueError("SREAGENT_API_TOKEN must be set to run the server")
 
     app = FastAPI(title="sreagent", docs_url=None, redoc_url=None, openapi_url=None)
-    runner = Runner(agent, config, spawn)
+    runner = Runner(agent_factory, config, spawn, pr_opener)
     app.state.runner = runner
 
     def authorized(authorization: str = Header(default="")):
@@ -169,7 +183,8 @@ def main():
 
     logger.configure()
     config = Config.from_env()
-    app = create_app(config, wiring.build_agent(config))
+    app = create_app(config, lambda extra_tools: wiring.build_agent(config, extra_tools),
+                     pr_opener=wiring.build_pr_opener(config))
     uvicorn.run(app, host="0.0.0.0", port=config.port, access_log=False)
 
 
