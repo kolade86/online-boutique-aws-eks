@@ -19,6 +19,9 @@ ingress:
 # opted out with noService/noHpa/noPdb/noServiceMonitor). Set `enabled: false`
 # on a service to skip it entirely - no manifests of any kind are generated.
 # Omitting `enabled` means enabled.
+# `replicas` only applies to services without an HPA (noHpa: true). With an
+# HPA, the Deployment omits spec.replicas and hpa.minReplicas/maxReplicas
+# decide the count.
 services:
   frontend:
     port: 8080
