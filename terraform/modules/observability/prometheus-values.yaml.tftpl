@@ -110,14 +110,28 @@ alertmanager:
       smtp_smarthost: localhost:587
       smtp_from: "alertmanager@${project_name}.local"
 
+    # Helm merges maps but replaces lists. The chart's default route.routes
+    # sends Watchdog to a receiver named "null"; overriding `receivers`
+    # below drops the chart's "null" receiver, and Alertmanager then refuses
+    # the whole config ("undefined receiver "null" used in route"), so it
+    # never started. Both the route and the receiver are therefore spelled
+    # out here. Keep the "null" route FIRST in `routes`: it has no
+    # `continue`, so the always-firing Watchdog and InfoInhibitor stop there
+    # and never reach email (or any receiver added after it).
     route:
       group_by: ['alertname']
       group_wait: 10s
       group_interval: 10s
       repeat_interval: 1h
       receiver: web.hook
+      routes:
+        - receiver: "null"
+          matchers:
+            - 'alertname =~ "Watchdog|InfoInhibitor"'
 
     receivers:
+      # Discards what is routed to it (no integrations configured).
+      - name: "null"
       - name: web.hook
         sns_configs:
           - topic_arn: "${sns_topic_arn}"
