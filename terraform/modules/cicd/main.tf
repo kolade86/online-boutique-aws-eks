@@ -20,6 +20,7 @@ locals {
     "recommendationservice",
     "adservice",
     "loadgenerator",
+    "sreagent", # SRE agent (src/sreagent); in build.yml's ALL_SERVICES too
   ]
 }
 
