@@ -133,14 +133,21 @@ alertmanager:
       - name: web.hook
         sns_configs:
           - topic_arn: "${sns_topic_arn}"
-            subject: "[${environment_upper}] Alert: {{ .GroupLabels.alertname }}"
+            # Plain text: SNS email does not render Markdown, so the old
+            # "**Alert:**" markers arrived literally. One block per alert,
+            # with the target (service/job/pod) that the old template left out.
+            subject: "[${environment_upper}] {{ .Status | toUpper }}: {{ .GroupLabels.alertname }} ({{ len .Alerts }})"
             message: |
+              {{ .Status | toUpper }}: {{ .GroupLabels.alertname }}, {{ len .Alerts }} alert(s)
               {{ range .Alerts }}
-              **Alert:** {{ .Annotations.summary }}
-              **Description:** {{ .Annotations.description }}
-              **Severity:** {{ .Labels.severity }}
-              **Instance:** {{ .Labels.instance }}
-              **Time:** {{ .StartsAt }}
+              {{ .Annotations.summary }}
+                Status:    {{ .Status }}
+                Severity:  {{ .Labels.severity }}
+                Namespace: {{ or .Labels.namespace "-" }}
+                Target:    {{ with .Labels.service }}service={{ . }} {{ end }}{{ with .Labels.job }}job={{ . }} {{ end }}{{ with .Labels.pod }}pod={{ . }} {{ end }}{{ with .Labels.instance }}instance={{ . }}{{ end }}
+                Details:   {{ .Annotations.description }}
+                Started:   {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+                Runbook:   {{ or .Annotations.runbook_url "-" }}
               {{ end }}
             attributes:
               environment: "${environment}"
