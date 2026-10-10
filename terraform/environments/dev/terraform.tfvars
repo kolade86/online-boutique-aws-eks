@@ -93,3 +93,6 @@ alert_email_address = "koladeodusanya20@outlook.com"
 # committed there by the Build Images workflow. Argo CD syncs the commit.
 argocd_enable_automated_sync = true
 argocd_enable_prune          = true
+
+# Send app-namespace workload alerts to the SRE agent
+sreagent_alerts_enabled = true
