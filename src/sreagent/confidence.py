@@ -117,9 +117,12 @@ class Score:
     value: int
     reasons: list[Reason]
     assessment: dict          # the assessment as scored (cleaned)
+    # True only for cause_found with "observed" credited (valid citations):
+    # the hard requirement for proposing a change
+    observed: bool = False
 
     def as_dict(self) -> dict:
-        return {"score": self.value,
+        return {"score": self.value, "observed": self.observed,
                 "reasons": [{"points": r.points, "text": r.text} for r in self.reasons],
                 "assessment": self.assessment}
 
@@ -220,7 +223,8 @@ def score(raw_assessment, evidence: list) -> Score:
     total = 0
 
     cause_calls = _valid(a["cause_evidence"], evidence, dropped)
-    if a["cause_support"] == "observed" and cause_calls:
+    observed = a["cause_support"] == "observed" and bool(cause_calls)
+    if observed:
         total += POINTS["cause_observed"]
         reasons.append(Reason(POINTS["cause_observed"],
                               f"{subject} directly observed: {_cite(cause_calls, evidence)}"))
@@ -288,7 +292,8 @@ def score(raw_assessment, evidence: list) -> Score:
                               "was ruled out with evidence"))
         total = CAP_NO_ALTERNATIVE_RULED_OUT
 
-    return Score(max(0, min(100, total)), reasons, a)
+    return Score(max(0, min(100, total)), reasons, a,
+                 observed=observed and a["conclusion"] == "cause_found")
 
 
 def format_reasons(s: Score) -> list[str]:
@@ -333,6 +338,8 @@ class AssessmentTool:
     def summary(self) -> dict:
         latest = self.latest
         return {"score": latest.value if latest else None,
+                "display": display(latest),
+                "observed": latest.observed if latest else False,
                 "min_for_pr": self.min_for_pr,
                 "min_for_rollback": self.min_for_rollback,
                 "reasons": [{"points": r.points, "text": r.text} for r in latest.reasons] if latest else [],
@@ -349,11 +356,12 @@ class AssessmentTool:
                             "Gather more evidence first, or write your report.")
         s = score(args, evidence)
         self.submissions.append(Submission(gathered, s))
+        blocked = change_blocked(s, self.min_for_pr)
         verdict = (f"A configuration change may be proposed (it needs {self.min_for_pr}, "
                    f"or {self.min_for_rollback} for an image.tag rollback)."
-                   if s.value >= self.min_for_pr else
-                   f"Below {self.min_for_pr}: do not propose a configuration change. Report the "
-                   "diagnosis and say what evidence is missing.")
+                   if not blocked else
+                   f"Do not propose a configuration change: {blocked}. Report the diagnosis "
+                   "and say what evidence is missing.")
         revision = "" if len(self.submissions) == 1 else " (revision)"
         return (f"Recorded{revision}. Evidence score: {s.value}/100.\n"
                 + "\n".join(format_reasons(s)) + "\n" + verdict)
@@ -371,17 +379,34 @@ class AssessmentTool:
             SCHEMA, self.handle, strict=True)
 
 
-def note_below_threshold(assessment) -> str:
-    """Written by code under a report when the evidence is too weak for a change."""
-    if assessment is None:
+def display(score) -> str:
+    """How a score is shown to people: "96/100", or "not assessed"."""
+    return f"{score.value}/100" if score is not None else "not assessed"
+
+
+def change_blocked(score, needed: int) -> str:
+    """Why this assessment may not lead to a proposed change ("" if it may).
+
+    The one rule shared by the proposal tool, the final check before a PR is
+    opened, and the note under the report.
+    """
+    if score is None:
+        return "no evidence assessment was submitted, so the evidence was not scored"
+    if not score.observed:
+        if score.assessment.get("conclusion") != "cause_found":
+            return "the conclusion is not a cause that a change could fix"
+        return ("the cause is inferred, not directly observed in a cited tool result - "
+                "a change needs an observed cause")
+    if score.value < needed:
+        why = ("; ".join(r.text for r in score.reasons if r.points < 0)
+               or "too little of the conclusion is backed by cited evidence")
+        return f"the evidence score is {score.value}/100, below the {needed} needed ({why})"
+    return ""
+
+
+def note_no_change(assessment, proposed: bool = False) -> str:
+    """Written by code under a report when the evidence does not allow a change."""
+    if assessment is None or proposed:
         return ""
-    latest = assessment.latest
-    if latest is None:
-        return ("No change proposed: no evidence assessment was submitted, so the evidence "
-                "behind this report was not scored.")
-    if latest.value >= assessment.min_for_pr:
-        return ""
-    why = "; ".join(r.text for r in latest.reasons if r.points < 0 or "inferred" in r.text) \
-        or "too little of the conclusion is backed by cited evidence"
-    return (f"No change proposed: the evidence score is {latest.value}/100, below the "
-            f"{assessment.min_for_pr} needed for a pull request ({why}).")
+    blocked = change_blocked(assessment.latest, assessment.min_for_pr)
+    return f"No change proposed: {blocked}." if blocked else ""

@@ -249,7 +249,7 @@ class PullRequestTest(unittest.TestCase):
         self.assertEqual(result["status"], "opened")
         body = self.gh.writes[2][2]["body"]
         self.assertIn("**Evidence score: 90 / 100.**", body)
-        self.assertIn("A pull request needs at least 70.", body)
+        self.assertIn("A pull request needs a directly observed cause and a score of at least 70.", body)
         self.assertIn("Assessment history: first after 2 tool call(s): 55; "
                       "revised after 3 tool call(s): 90.", body)
         self.assertIn("> **Agent's own assessment:** High. The numbers fit.", body)
@@ -263,7 +263,7 @@ class PullRequestTest(unittest.TestCase):
         result = pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY,
                                 "ab12cd34", open_prs=True, assessment=assessment)
         self.assertEqual(result["status"], "below_confidence")
-        self.assertIn("evidence score 55 is below the 70", result["why"])
+        self.assertIn("the evidence score is 55/100, below the 70 needed", result["why"])
         self.assertEqual(self.gh.writes, [])
 
     def test_body_hides_nodes_ips_and_account_ids(self):

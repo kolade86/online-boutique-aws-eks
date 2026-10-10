@@ -148,8 +148,9 @@ def _replay(config, opts) -> int:
         run = replay.run_case(opts.case, config, provider)
         grade = run["keyword_check"]
         verdict = "passes" if grade["passed"] else "FAILS"
+        shown = "not assessed" if run["score"] is None else f"{run['score']}/100"
         print(f"run {i}: model {run['model']}  outcome {run['outcome']}  "
-              f"evidence score {run['score']}  keyword check {verdict}")
+              f"evidence score {shown}  keyword check {verdict}")
         for r in run["reasons"]:
             print(f"    {r['points']:+4d}  {r['text']}" if r["points"] else f"       .  {r['text']}")
         if not grade["passed"]:
@@ -219,7 +220,8 @@ def main(argv=None) -> int:
                                                "regressions"))
         print(f"{'case':34} {'run':42} {'source':13} {'verdict':22} score")
         for r in rows:
-            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {r['score']}")
+            shown = "not assessed" if r["score"] is None else r["score"]
+            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {shown}")
         return 0
     # Log lines can hold characters a Windows console code page cannot print
     sys.stdout.reconfigure(errors="replace")
@@ -274,7 +276,8 @@ def main(argv=None) -> int:
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
         pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr, assessment)
-        note = confidence.note_below_threshold(assessment)
+        proposed = pr is not None and pr.get("status") in ("opened", "dry_run")
+        note = confidence.note_no_change(assessment, proposed)
 
     print(format_report(result, config.max_tool_calls, assessment=assessment, note=note), end="")
     if pr is not None:

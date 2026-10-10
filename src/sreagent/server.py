@@ -77,7 +77,8 @@ class Runner:
                     pr = pr_tool.finish(proposal, result, str(key), investigation_id,
                                         self._config.open_prs, assessment)
                 self._record("alert", investigation_id, str(key), result, pull_request=pr,
-                             assessment=assessment, note=confidence.note_below_threshold(assessment))
+                             assessment=assessment, note=confidence.note_no_change(
+                                 assessment, pr is not None and pr.get("status") in ("opened", "dry_run")))
             except Exception:
                 log.exception("investigation crashed", extra={"id": investigation_id})
             finally:

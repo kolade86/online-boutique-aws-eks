@@ -20,6 +20,7 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 
+import confidence
 import values_change as vc
 from redact import redact, redact_public
 from tools import Tool, ToolError, require_str
@@ -223,8 +224,8 @@ def confidence_section(confidence: dict, report: str, rollback: bool) -> list[st
     parts = ["## Confidence", "",
              f"**Evidence score: {confidence['score']} / 100.** Computed in code from the agent's "
              f"evidence assessment; it measures how well the conclusion is supported by the "
-             f"evidence it cited, not a probability. {kind[0].upper() + kind[1:]} needs at "
-             f"least {needed}.", "",
+             f"evidence it cited, not a probability. {kind[0].upper() + kind[1:]} needs a "
+             f"directly observed cause and a score of at least {needed}.", "",
              "| Points | Why |", "|---:|---|"]
     for r in confidence["reasons"]:
         parts.append(f"| {r['points']:+d} | {r['text'].replace('|', '/')} |" if r["points"]
@@ -269,14 +270,13 @@ class ProposalTool:
         except vc.Rejected as e:
             raise ToolError("Rejected:\n" + "\n".join(f"- {r}" for r in e.reasons)) from None
         if self.assessment is not None:
-            needed = required_score(proposal.diff, self.assessment)
-            got = self.assessment.latest.value
-            if got < needed:
-                what = ("an image.tag rollback (it affects every service)"
-                        if ("image", "tag") in proposal.diff else "a change")
-                raise ToolError(f"Not proposed: the evidence score is {got}/100 and {what} needs "
-                                f"{needed}. Report the diagnosis without proposing a change, and "
-                                "say what evidence would be needed.")
+            blocked = confidence.change_blocked(self.assessment.latest,
+                                                required_score(proposal.diff, self.assessment))
+            if blocked:
+                rollback = (" An image.tag rollback affects every service, so it needs more."
+                            if ("image", "tag") in proposal.diff else "")
+                raise ToolError(f"Not proposed: {blocked}.{rollback} Report the diagnosis "
+                                "without proposing a change, and say what evidence would be needed.")
         replaced = " It replaces your earlier proposal." if self.proposal else ""
         self.proposal = proposal
         return ("Accepted." + replaced + " A pull request with this change will be opened for "
@@ -326,20 +326,18 @@ def finish(tool, result, key: str, investigation_id: str, open_prs: bool, assess
     if result.outcome not in (ANSWERED, ANSWERED_AT_LIMIT):
         return {**summary, "status": "not_opened",
                 "why": f"the investigation ended with {result.outcome}, without a full report"}
-    confidence = None
+    conf = None
     if assessment is not None:
-        latest, needed = assessment.latest, required_score(p.diff, assessment)
-        if latest is None or latest.value < needed:
-            return {**summary, "status": "below_confidence",
-                    "why": f"evidence score {latest.value if latest else 'not assessed'} is below "
-                           f"the {needed} this change needs"}
-        confidence = assessment.summary()
+        blocked = confidence.change_blocked(assessment.latest, required_score(p.diff, assessment))
+        if blocked:
+            return {**summary, "status": "below_confidence", "why": blocked}
+        conf = assessment.summary()
     if not open_prs:
         return {**summary, "status": "dry_run",
                 "why": "SREAGENT_OPEN_PRS is off; the change was validated but not opened"}
     try:
         return {**summary, "status": "opened",
                 **tool.opener.open(p, key, investigation_id, result.answer, result.evidence,
-                                   confidence)}
+                                   conf)}
     except (vc.Rejected, ToolError) as e:
         return {**summary, "status": "failed", "why": str(e)}

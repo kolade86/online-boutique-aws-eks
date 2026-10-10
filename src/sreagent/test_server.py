@@ -310,11 +310,21 @@ class ServerPullRequestTest(unittest.TestCase):
         self.assertEqual(record["confidence"]["score"], 55)
         self.assertIsNone(record["pull_request"])
         self.assertEqual(self.gh.writes, [])
-        self.assertIn("Not proposed: the evidence score is 55/100 and a change needs 70",
+        self.assertIn("Not proposed: the evidence score is 55/100, below the 70 needed",
                       self.agent.tool_results[-1])
         self.assertTrue(record["note"].startswith(
             "No change proposed: the evidence score is 55/100, below the 70 needed"))
         self.assertIn("no alternative explanation was ruled out", record["note"])
+
+    def test_inferred_cause_opens_no_pr_even_above_threshold(self):
+        client = self.make_client(SREAGENT_OPEN_PRS="true")
+        record = self.run_alert(client, dict(STRONG, cause_support="inferred"))   # 70
+        self.assertEqual(record["confidence"]["score"], 70)
+        self.assertFalse(record["confidence"]["observed"])
+        self.assertIsNone(record["pull_request"])
+        self.assertEqual(self.gh.writes, [])
+        self.assertIn("the cause is inferred, not directly observed", self.agent.tool_results[-1])
+        self.assertIn("No change proposed: the cause is inferred", record["note"])
 
     def test_threshold_is_configurable(self):
         client = self.make_client(SREAGENT_OPEN_PRS="true", SREAGENT_MIN_CONFIDENCE_FOR_PR="75")
@@ -335,7 +345,7 @@ class ServerPullRequestTest(unittest.TestCase):
         record = self.run_alert(client, dict(STRONG, unverified=[             # 90 - 15 = 75
             {"what": "the old image's behaviour", "could_change_diagnosis": True}]), rollback)
         self.assertIsNone(record["pull_request"])
-        self.assertIn("an image.tag rollback (it affects every service) needs 85",
+        self.assertIn("the evidence score is 75/100, below the 85 needed",
                       self.agent.tool_results[-1])
         record = self.run_alert(self.make_client(), STRONG, rollback)          # 90
         self.assertEqual(record["pull_request"]["status"], "dry_run")
