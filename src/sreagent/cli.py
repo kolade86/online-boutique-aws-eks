@@ -270,7 +270,8 @@ def main(argv=None) -> int:
             refresh_starts_at(payload, opts.started_minutes_ago)
         firing = alerts.firing(payload)
         key = str(alerts.key_of(firing[0])) if firing else "manual/cli/investigate"
-        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment)
+        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment,
+                                        config.recent_merge_minutes)
         agent = wiring.build_agent(config, [assessment.tool(), proposal.tool()])
         assessment.attach_to(agent)
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)

@@ -124,7 +124,8 @@ class ServerTest(unittest.TestCase):
 
     def test_alert_is_investigated_in_background_and_recorded(self):
         decisions = self.post_alert(alert())
-        self.assertEqual(decisions, [{"key": "PodCrashLooping/ns/cartservice", "status": "accepted"}])
+        self.assertEqual(decisions, [{"key": "PodCrashLooping/ns/cartservice",
+                                      "incident": "ns/cartservice", "status": "accepted"}])
         self.assertEqual(self.agent.tasks, [])  # not run inline
 
         self.spawn.run_all()
@@ -139,7 +140,8 @@ class ServerTest(unittest.TestCase):
 
         decisions = self.post_alert(alert(pod="cartservice-7c8d9e0f1-bbbbb"))
         self.assertEqual(decisions[0]["status"], "skipped")
-        self.assertIn("last 30 minutes", decisions[0]["reason"])
+        self.assertIn("part of incident ns/cartservice, investigated 0 minute(s) ago",
+                      decisions[0]["reason"])
         self.assertEqual(len(self.agent.tasks), 1)
 
     def test_one_investigation_at_a_time(self):
@@ -147,7 +149,7 @@ class ServerTest(unittest.TestCase):
 
         decisions = self.post_alert(alert(pod="emailservice-6b9f7c8d4-ccccc"))
         self.assertEqual(decisions[0], {"key": "PodCrashLooping/ns/emailservice",
-                                        "status": "skipped",
+                                        "incident": "ns/emailservice", "status": "skipped",
                                         "reason": "another investigation is running"})
         self.assertEqual(self.client.post("/ask", json={"question": "q"},
                                           headers=AUTH).status_code, 409)
@@ -155,6 +157,24 @@ class ServerTest(unittest.TestCase):
         self.spawn.run_all()  # first one finishes and frees the slot
         decisions = self.post_alert(alert(pod="emailservice-6b9f7c8d4-ccccc"))
         self.assertEqual(decisions[0]["status"], "accepted")
+
+    def test_different_alerts_for_one_service_are_one_incident(self):
+        self.post_alert(alert(alertname="HighMemoryUsage", pod="cartservice-6b9f7c8d4-aaaaa"))
+        self.spawn.run_all()
+        for name in ("ContainerOOMKilled", "PodNotReady"):
+            with self.subTest(alert=name):
+                d = self.post_alert(alert(alertname=name, pod="cartservice-7c8d9e0f1-bbbbb"))[0]
+                self.assertEqual((d["incident"], d["status"]), ("ns/cartservice", "skipped"))
+                self.assertIn("part of incident ns/cartservice", d["reason"])
+        self.assertEqual(len(self.agent.tasks), 1)
+        # Another service is another incident
+        d = self.post_alert(alert(alertname="ContainerOOMKilled", pod="emailservice-6b9f7c8d4-ccccc"))[0]
+        self.assertEqual(d["status"], "accepted")
+
+    def test_one_decision_per_incident_in_a_payload(self):
+        decisions = self.post_alert(alert(alertname="HighMemoryUsage", pod="cartservice-6b9f7c8d4-aaaaa"),
+                                    alert(alertname="ContainerOOMKilled", pod="cartservice-6b9f7c8d4-bbbbb"))
+        self.assertEqual([(d["incident"], d["status"]) for d in decisions], [("ns/cartservice", "accepted")])
 
     def test_skipped_while_busy_is_not_marked_as_seen(self):
         self.post_alert(alert(pod="cartservice-6b9f7c8d4-aaaaa"))
@@ -240,19 +260,86 @@ MEMORY_CHANGE = {"changes": [{"path": "services.emailservice.resources.limits.me
 
 @unittest.skipIf(server is None or pr_tool is None, "fastapi/httpx/ruamel.yaml not installed")
 class ServerPullRequestTest(unittest.TestCase):
-    def make_client(self, **env):
+    def make_client(self, gh=None, **env):
         self.agent = StubAgent()
         self.spawn = DeferredSpawn()
-        self.gh = FakeGitHub()
+        self.gh = gh or FakeGitHub()
+        self.collected = []
+
+        def collect_state(service):
+            self.collected.append(service)
+            return [(f"list_pods app={service}",
+                     f"{service}-x: Running, node ip-10-0-11-45.ec2.internal")]
+
         opener = pr_tool.PullRequestOpener(self.gh, VALUES_DEV, VALUES)
         return TestClient(server.create_app(config(APP_NAMESPACE="online-boutique-dev", **env),
                                             self.agent, spawn=self.spawn,
-                                            pr_opener=opener))
+                                            pr_opener=opener, collect_state=collect_state))
 
-    def emailservice_alert(self):
+    def emailservice_alert(self, alertname="PodCrashLooping"):
         return payload({**alert(pod="emailservice-6b9f7c8d4-aaaaa"),
-                        "labels": {"alertname": "PodCrashLooping", "namespace": "online-boutique-dev",
-                                   "pod": "emailservice-6b9f7c8d4-aaaaa", "severity": "critical"}})
+                        "labels": {"alertname": alertname, "namespace": "online-boutique-dev",
+                                   "pod": "emailservice-6b9f7c8d4-aaaaa", "severity": "critical"},
+                        "annotations": {"summary": f"{alertname} on emailservice"}})
+
+    def test_one_incident_one_pr_the_pr25_pr26_sequence(self):
+        """The live incident of 2026-10-10, through the server (see
+        regressions/recommendationservice-duplicate-prs.json)."""
+        client = self.make_client(SREAGENT_OPEN_PRS="true")
+        self.agent.assess, self.agent.propose = STRONG, MEMORY_CHANGE
+
+        # 17:22 HighMemoryUsage: investigated, PR opened (as #25 was)
+        d = client.post("/alert", json=self.emailservice_alert("HighMemoryUsage"), headers=AUTH).json()
+        self.assertEqual(d["decisions"][0]["status"], "accepted")
+        self.spawn.run_all()
+        self.assertEqual([p["number"] for p in self.gh.pulls], [42])
+
+        # 17:24 ContainerOOMKilled: same incident -> not investigated, no second PR,
+        # a comment on the open PR with the alert and the current state instead
+        d = client.post("/alert", json=self.emailservice_alert("ContainerOOMKilled"), headers=AUTH).json()
+        self.assertEqual(d["decisions"][0]["status"], "skipped")
+        self.assertIn("part of incident online-boutique-dev/emailservice", d["decisions"][0]["reason"])
+        self.spawn.run_all()
+        self.assertEqual(len(self.gh.pulls), 1)
+        comments = [w for w in self.gh.writes if w[1] == "/issues/42/comments"]
+        self.assertEqual(len(comments), 1)
+        text = comments[0][2]["body"]
+        self.assertIn("**Another alert for this incident:** `ContainerOOMKilled/online-boutique-dev/emailservice`", text)
+        self.assertIn("- Summary: ContainerOOMKilled on emailservice", text)
+        self.assertIn("Not investigated separately", text)
+        self.assertIn("emailservice-x: Running, node <node-1>", text)       # collected by code, redacted
+        self.assertEqual(self.collected, ["emailservice"])
+
+        # The same alert again (AlertManager repeat): no second comment
+        client.post("/alert", json=self.emailservice_alert("ContainerOOMKilled"), headers=AUTH)
+        self.spawn.run_all()
+        self.assertEqual(len([w for w in self.gh.writes if w[1] == "/issues/42/comments"]), 1)
+
+        # 17:26 the PR is merged; 17:27 PodNotReady: same incident, nothing open -> nothing posted
+        self.gh.merge(42, minutes_ago=1)
+        writes = len(self.gh.writes)
+        d = client.post("/alert", json=self.emailservice_alert("PodNotReady"), headers=AUTH).json()
+        self.spawn.run_all()
+        self.assertEqual(d["decisions"][0]["status"], "skipped")
+        self.assertEqual(len(self.gh.writes), writes)
+        self.assertEqual(len(self.agent.tasks), 1)                         # investigated once
+
+    def test_late_alert_after_the_window_does_not_repropose_a_merged_fix(self):
+        gh = FakeGitHub()
+        client = self.make_client(gh=gh, SREAGENT_OPEN_PRS="true")
+        self.agent.assess, self.agent.propose = STRONG, MEMORY_CHANGE
+        client.post("/alert", json=self.emailservice_alert("HighMemoryUsage"), headers=AUTH)
+        self.spawn.run_all()
+        gh.merge(42, minutes_ago=10)
+
+        # A fresh server (the dedup window has passed, or the pod restarted)
+        client = self.make_client(gh=gh, SREAGENT_OPEN_PRS="true")
+        self.agent.assess, self.agent.propose = STRONG, MEMORY_CHANGE
+        record = self.run_alert(client, STRONG)
+        self.assertEqual(record["pull_request"]["status"], "recently_merged")
+        self.assertEqual(record["pull_request"]["number"], 42)
+        self.assertIn("was merged at", self.agent.tool_results[-1])
+        self.assertEqual(len(gh.pulls), 1)
 
     def test_only_alerts_get_the_proposal_tool(self):
         client = self.make_client()
@@ -287,7 +374,8 @@ class ServerPullRequestTest(unittest.TestCase):
         pr = client.get("/investigations", headers=AUTH).json()[0]["pull_request"]
         self.assertEqual(pr["status"], "opened")
         self.assertTrue(pr["branch"].startswith("sre-agent/"))
-        self.assertTrue(self.gh.pulls[0]["body"].startswith(pr_tool.key_marker(KEY)))
+        self.assertTrue(self.gh.pulls[0]["body"].startswith(
+            pr_tool.incident_marker("online-boutique-dev/emailservice")))
 
     def run_alert(self, client, assess, propose=MEMORY_CHANGE):
         self.agent.assess, self.agent.propose = assess, propose

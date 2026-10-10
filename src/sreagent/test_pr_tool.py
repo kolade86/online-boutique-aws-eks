@@ -71,15 +71,25 @@ class FakeGitHub:
         if path == "/commits":
             return [{"sha": s} for s in self.history[:params["per_page"]]]
         if path == "/pulls":
-            return [p for p in self.pulls if p["state"] == "open"]
+            return [p for p in self.pulls if p["state"] == params.get("state", "open")]
         raise AssertionError(f"unexpected GET {path}")
+
+    def merge(self, number, minutes_ago=2):
+        """Mark an agent PR as merged that many minutes ago."""
+        from datetime import datetime, timedelta, timezone
+        for p in self.pulls:
+            if p["number"] == number:
+                when = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+                p.update(state="closed", merged_at=when.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
     def send(self, method, path, body=None, params=None):
         if method == "GET":
             return self.get(path, params)
         self.writes.append((method, path, body))
         if path == "/pulls":
-            pr = {"number": 42, "html_url": "https://github.com/o/r/pull/42", "state": "open",
+            number = 42 + len(self.pulls)
+            pr = {"number": number, "html_url": f"https://github.com/o/r/pull/{number}",
+                  "state": "open", "title": body["title"], "merged_at": None,
                   "head": {"ref": body["head"]}, "body": body["body"]}
             self.pulls.append(pr)
             return pr
@@ -156,7 +166,7 @@ class PullRequestTest(unittest.TestCase):
         title = self.gh.writes[2][2]["title"]
 
         self.assertEqual(title, "sre-agent: services.emailservice.resources.limits.memory: (unset) -> 256Mi")
-        self.assertTrue(body.startswith(pr_tool.key_marker(KEY)))
+        self.assertTrue(body.startswith(pr_tool.incident_marker("online-boutique-dev/emailservice")))
         self.assertIn("**Why this change:** memory limit too low: OOMKilled", body)
         self.assertIn("```diff\n--- a/helm/online-boutique/values-dev.yaml", body)
         self.assertIn("+        memory: 256Mi", body)
@@ -178,19 +188,91 @@ class PullRequestTest(unittest.TestCase):
                          "reason": "r"})
         self.assertIn("not one of the recently deployed tags", str(ctx.exception))
 
-    def test_one_open_pr_per_alert(self):
+    def test_one_open_pr_per_incident_whatever_the_alert(self):
         self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
         pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY, "ab12cd34", True)
 
-        again = pr_tool.ProposalTool(self.opener, KEY)
+        # A different alert for the same service is the same incident
+        again = pr_tool.ProposalTool(self.opener, "ContainerOOMKilled/online-boutique-dev/emailservice")
         with self.assertRaises(ToolError) as ctx:
             again.handle({"changes": [{"path": "services.emailservice.resources.limits.cpu",
                                        "value": "300m"}], "reason": "r"})
-        self.assertIn("pull request #42 is already open for this alert", str(ctx.exception))
+        self.assertIn("pull request #42 is already open for online-boutique-dev/emailservice",
+                      str(ctx.exception))
+        self.assertEqual(again.existing_pr["number"], 42)
 
         other = pr_tool.ProposalTool(self.opener, "PodCrashLooping/online-boutique-dev/cartservice")
         self.assertTrue(other.handle({"changes": [{"path": "services.cartservice.resources.limits.memory",
                                                    "value": "512Mi"}], "reason": "r"}).startswith("Accepted"))
+
+    def test_incident_markers_new_and_legacy(self):
+        self.assertEqual(pr_tool.incident_in(pr_tool.incident_marker("ns/svc") + "\nbody"), "ns/svc")
+        legacy = "<!-- sre-agent-key: HighMemoryUsage/online-boutique-dev/recommendationservice -->"
+        self.assertEqual(pr_tool.incident_in(legacy), "online-boutique-dev/recommendationservice")
+        self.assertIsNone(pr_tool.incident_in("no marker"))
+        self.assertEqual(pr_tool.incident_from_key("ContainerOOMKilled/ns/svc"), "ns/svc")
+
+    def test_a_pr_opened_before_incidents_still_blocks(self):
+        self.gh.pulls.append({"number": 7, "html_url": "u7", "state": "open", "title": "t",
+                              "merged_at": None, "head": {"ref": "sre-agent/aaaaaaaa"},
+                              "body": "<!-- sre-agent-key: HighMemoryUsage/online-boutique-dev/emailservice -->"})
+        with self.assertRaisesRegex(ToolError, "pull request #7 is already open"):
+            self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+
+    def test_recently_merged_fix_is_not_proposed_again(self):
+        # PR #25 then #26: the second alert must not re-propose what was just merged
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+        pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY, "ab12cd34", True)
+        self.gh.merge(42, minutes_ago=2)
+
+        late = pr_tool.ProposalTool(self.opener, "PodNotReady/online-boutique-dev/emailservice")
+        with self.assertRaises(ToolError) as ctx:
+            late.handle({"changes": [{"path": "services.emailservice.resources.limits.memory",
+                                      "value": "320Mi"}], "reason": "r"})
+        self.assertIn("pull request #42 for online-boutique-dev/emailservice was merged", str(ctx.exception))
+        self.assertIn("Check whether that change has rolled out", str(ctx.exception))
+        result = pr_tool.finish(late, Investigation(ANSWERED, "r", [], 1.0),
+                                "PodNotReady/online-boutique-dev/emailservice", "cd34ef56", True)
+        self.assertEqual((result["status"], result["number"]), ("recently_merged", 42))
+        self.assertEqual(len(self.gh.pulls), 1)
+
+    def test_an_old_merge_does_not_block(self):
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+        pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY, "ab12cd34", True)
+        self.gh.merge(42, minutes_ago=90)
+        later = pr_tool.ProposalTool(self.opener, KEY, recent_merge_minutes=60)
+        self.assertTrue(later.handle({"changes": [{"path": "services.emailservice.resources.limits.cpu",
+                                                   "value": "300m"}], "reason": "r"}).startswith("Accepted"))
+
+    def test_later_alert_comments_on_the_open_pr_instead(self):
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+        pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY, "ab12cd34", True)
+
+        # ContainerOOMKilled for the same service, 2.5 minutes later: investigated, no proposal
+        later = pr_tool.ProposalTool(self.opener, "ContainerOOMKilled/online-boutique-dev/emailservice")
+        report = "## Diagnosis\nOOMKilled on ip-10-0-10-135.ec2.internal"
+        result = pr_tool.finish(later, Investigation(ANSWERED, report, [], 1.0),
+                                "ContainerOOMKilled/online-boutique-dev/emailservice", "cd34ef56", True)
+
+        self.assertEqual((result["status"], result["number"]), ("commented", 42))
+        self.assertEqual(len(self.gh.pulls), 1)                       # no second PR
+        method, path, body = self.gh.writes[-1]
+        self.assertEqual((method, path), ("POST", "/issues/42/comments"))
+        text = body["body"]
+        self.assertIn("**Another alert for this incident:** `ContainerOOMKilled/online-boutique-dev/emailservice`", text)
+        self.assertIn("It was investigated (`cd34ef56`)", text)
+        self.assertIn("OOMKilled on <node-1>", text)                   # redacted
+        self.assertNotIn("ip-10-0-10-135", text)
+
+    def test_comment_is_a_dry_run_when_prs_are_off(self):
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+        pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY, "ab12cd34", True)
+        writes = len(self.gh.writes)
+        later = pr_tool.ProposalTool(self.opener, "PodNotReady/online-boutique-dev/emailservice")
+        result = pr_tool.finish(later, Investigation(ANSWERED, "r", [], 1.0),
+                                "PodNotReady/online-boutique-dev/emailservice", "cd34ef56", False)
+        self.assertEqual(result["status"], "comment_dry_run")
+        self.assertEqual(len(self.gh.writes), writes)
 
     def test_open_revalidates_against_main_as_it_is_now(self):
         self.propose(("image.tag", TAGS[1]), reason="rollback")

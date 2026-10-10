@@ -42,21 +42,55 @@ class Runner:
     """Runs one investigation at a time and keeps the most recent results."""
 
     def __init__(self, agent_factory: Callable[[list], Agent], config: Config,
-                 spawn: Callable[[Callable[[], None]], None], pr_opener=None):
+                 spawn: Callable[[Callable[[], None]], None], pr_opener=None,
+                 collect_state: Callable[[str], list] = None):
         # agent_factory(extra_tools) builds an Agent; alerts get the PR
         # proposal tool, /ask never does.
         self._agent_factory = agent_factory
         self._config = config
         self._spawn = spawn
         self._pr_opener = pr_opener
+        # collect_state(service) -> [(label, output)]: read-only tools run by
+        # code, for comments about alerts that are not investigated again
+        self._collect_state = collect_state
         self._busy = threading.Lock()
+        # One investigation per incident (namespace/service) within the window
         self.dedup = alerts.Deduplicator(config.dedup_minutes * 60)
+        # One follow-up comment per incident and alert name within the window
+        self.followups = alerts.Deduplicator(config.dedup_minutes * 60)
         self.results: deque = deque(maxlen=RECENT_RESULTS)
 
-    def try_start_alert(self, key: alerts.AlertKey, payload: dict) -> bool:
+    def follow_up(self, incident: str, alert: dict) -> None:
+        """An alert for an incident investigated recently: if an agent PR is open for
+        it, add the alert and the current state to that PR. Runs in the background."""
+        name = alert.get("labels", {}).get("alertname", "")
+        if self._pr_opener is None or self.followups.is_recent((incident, name)):
+            return
+        self.followups.mark((incident, name))
+
+        def work():
+            import pr_tool
+            try:
+                existing = self._pr_opener.open_pr_for(incident)
+                if existing is None or not self._config.open_prs:
+                    return
+                service = incident.split("/", 1)[1]
+                state = self._collect_state(service) if self._collect_state else []
+                body = pr_tool.followup_comment(str(alerts.key_of(alert)), alert=alert,
+                                                evidence=state)
+                self._pr_opener.comment(existing["number"], body)
+                log.info("follow-up comment", extra={"incident": incident, "alert": name,
+                                                    "pull_request": existing["number"]})
+            except Exception:
+                log.exception("follow-up comment failed", extra={"incident": incident})
+
+        self._spawn(work)
+
+    def try_start_alert(self, key: alerts.AlertKey, payload: dict, incident: str) -> bool:
         if not self._busy.acquire(blocking=False):
             return False
-        self.dedup.mark(key)
+        self.dedup.mark(incident)
+        self.followups.mark((incident, key.alertname))
         investigation_id = uuid.uuid4().hex[:8]
 
         def work():
@@ -65,7 +99,8 @@ class Runner:
                 proposal = None
                 if self._pr_opener is not None:
                     import pr_tool  # needs ruamel.yaml
-                    proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment)
+                    proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment,
+                                                    self._config.recent_merge_minutes)
                 agent = self._agent_factory([assessment.tool()]
                                             + ([proposal.tool()] if proposal else []))
                 assessment.attach_to(agent)
@@ -138,12 +173,12 @@ def _start_thread(fn: Callable[[], None]) -> None:
 
 
 def create_app(config: Config, agent_factory: Callable[[list], Agent],
-               spawn=_start_thread, pr_opener=None) -> FastAPI:
+               spawn=_start_thread, pr_opener=None, collect_state=None) -> FastAPI:
     if not config.api_token:
         raise ValueError("SREAGENT_API_TOKEN must be set to run the server")
 
     app = FastAPI(title="sreagent", docs_url=None, redoc_url=None, openapi_url=None)
-    runner = Runner(agent_factory, config, spawn, pr_opener)
+    runner = Runner(agent_factory, config, spawn, pr_opener, collect_state)
     app.state.runner = runner
 
     def authorized(authorization: str = Header(default="")):
@@ -160,27 +195,33 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
     def alert(payload: dict):
         decisions = []
         started = None
-        for a in alerts.firing(payload)[:MAX_ALERTS_PER_PAYLOAD]:
-            key = alerts.key_of(a)
-            if any(d["key"] == str(key) for d in decisions):
-                continue  # several pods of one service: one decision per key
+        firing = alerts.firing(payload)[:MAX_ALERTS_PER_PAYLOAD]
+        for a in firing:
+            key, incident = alerts.key_of(a), alerts.incident_of(a)
+            if any(d["incident"] == incident for d in decisions):
+                continue  # one decision per incident (several pods or alerts of one service)
+            decision = {"key": str(key), "incident": incident}
             worth, why = alerts.worth_investigating(a, config.app_namespace)
+            age = runner.dedup.age(incident)
             if not worth:
-                decisions.append({"key": str(key), "status": "skipped", "reason": why})
-            elif runner.dedup.is_recent(key):
-                decisions.append({"key": str(key), "status": "skipped",
-                                  "reason": f"investigated in the last {config.dedup_minutes} minutes"})
+                decisions.append({**decision, "status": "skipped", "reason": why})
+            elif age is not None:
+                decisions.append({**decision, "status": "skipped",
+                                  "reason": f"part of incident {incident}, investigated "
+                                            f"{int(age // 60)} minute(s) ago"})
+                runner.follow_up(incident, a)
             elif started is not None or not runner.try_start_alert(
                     key, {**payload, "alerts": [
-                        x for x in alerts.firing(payload) if alerts.key_of(x) == key
-                        and alerts.worth_investigating(x, config.app_namespace)[0]]}):
-                decisions.append({"key": str(key), "status": "skipped",
+                        x for x in firing if alerts.incident_of(x) == incident
+                        and alerts.worth_investigating(x, config.app_namespace)[0]]}, incident):
+                decisions.append({**decision, "status": "skipped",
                                   "reason": "another investigation is running"})
             else:
-                started = key
-                decisions.append({"key": str(key), "status": "accepted"})
+                started = incident
+                decisions.append({**decision, "status": "accepted"})
         if not decisions:
-            decisions.append({"key": None, "status": "skipped", "reason": "no firing alerts"})
+            decisions.append({"key": None, "incident": None, "status": "skipped",
+                              "reason": "no firing alerts"})
         log.info("alert received", extra={"decisions": decisions})
         return {"decisions": decisions}
 
@@ -206,8 +247,18 @@ def main():
 
     logger.configure()
     config = Config.from_env()
+    registry = wiring.build_registry(config)
+
+    def collect_state(service: str) -> list:
+        """Current pods and events for a service, for follow-up comments."""
+        out = []
+        for name, args in (("list_pods", {"app": service}), ("list_events", {"app": service})):
+            output, _ = registry.run(name, args)
+            out.append((f"{name} app={service}", output))
+        return out
+
     app = create_app(config, lambda extra_tools: wiring.build_agent(config, extra_tools),
-                     pr_opener=wiring.build_pr_opener(config))
+                     pr_opener=wiring.build_pr_opener(config), collect_state=collect_state)
     uvicorn.run(app, host="0.0.0.0", port=config.port, access_log=False)
 
 
