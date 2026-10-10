@@ -4,7 +4,7 @@
 # rewrites this line after pushing to ECR, and Argo CD deploys the commit.
 # Change it by merging to main, not by editing the cluster.
 image:
-  tag: "v20261004-154933-68ac8238"
+  tag: "v20261010-123611-c307e836"
 
 services:
   loadgenerator:
