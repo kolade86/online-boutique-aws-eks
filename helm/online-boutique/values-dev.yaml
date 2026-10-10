@@ -17,6 +17,6 @@ services:
   recommendationservice:
     resources:
       requests:
-        memory: 40Mi
+        memory: 24Mi
       limits:
-        memory: 40Mi
+        memory: 24Mi
