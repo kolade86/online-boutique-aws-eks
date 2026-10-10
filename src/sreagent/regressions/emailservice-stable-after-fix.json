@@ -27,9 +27,11 @@
       "count the image rollout (new ReplicaSet hash) as a round of the cycle",
       "recommend removing replicas: 2 from values.yaml or the chart as if the conflict still existed"
     ],
-    "expected_tool_calls": ["describe_deployment name=emailservice",
-                            "recent_chart_commits",
-                            "list_events app=emailservice"]
+    "expected_tool_calls": [
+      "describe_deployment name=emailservice",
+      "recent_chart_commits",
+      "list_events app=emailservice"
+    ]
   },
   "runs": [
     {
@@ -54,5 +56,151 @@
       "answer": "No, not stable; the cycle was still running 2 minutes ago; the single pod is the low point of the cycle; expect another scale-up within minutes.",
       "why_wrong": "Treated the image rollout (new ReplicaSet 748b648c5f, two pods) as 'the most recent round' of the cycle. Weighed aggregated counts (x23 over 2h, mostly before the fix) over the latest evidence (one scale-down, no scale-up since). Predicted a future event with confidence. Recommended removing replicas: 2 even though the deployed template already ignores it. Its own range query of kube_deployment_spec_replicas could have shown the value staying at 1."
     }
-  ]
+  ],
+  "hand_assessments": [
+    {
+      "run": "emailservice-after-fix.txt",
+      "verdict": "wrong",
+      "method": "Hand-written from the saved report text and its real tool-call list, as an honest agent would fill submit_assessment for that report. No recorded tool outputs exist for this case, so it cannot be replayed through the model.",
+      "tool_calls": [
+        "list_pods",
+        "list_events",
+        "list_hpas",
+        "recent_values_commits",
+        "read_repo_file",
+        "read_repo_file",
+        "list_deployments"
+      ],
+      "assessment": {
+        "conclusion": "cause_found",
+        "cause": "The HPA/Argo CD replica cycle is still running: values.yaml sets replicas 2 against HPA minReplicas 1",
+        "cause_support": "inferred",
+        "cause_evidence": [
+          2,
+          5,
+          6
+        ],
+        "alternatives": [
+          {
+            "cause": "readiness probe failures replacing pods",
+            "result": "ruled_out",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "cause": "the new ReplicaSet being the latest deploy rather than the cycle",
+            "result": "not_ruled_out",
+            "evidence": []
+          }
+        ],
+        "timing": "not_checked",
+        "timing_evidence": [],
+        "unverified": [
+          {
+            "what": "whether the new ReplicaSet came from the latest deploy (no current time)",
+            "could_change_diagnosis": true
+          },
+          {
+            "what": "Argo CD restoring the replicas (not visible in events)",
+            "could_change_diagnosis": true
+          }
+        ]
+      }
+    },
+    {
+      "run": "emailservice-after-fix-confirmed.txt",
+      "verdict": "wrong",
+      "method": "Hand-written from the saved report text and its real tool-call list, as an honest agent would fill submit_assessment for that report. No recorded tool outputs exist for this case, so it cannot be replayed through the model.",
+      "tool_calls": [
+        "list_pods",
+        "list_events",
+        "list_hpas",
+        "read_repo_file",
+        "recent_values_commits",
+        "read_repo_file",
+        "prometheus_query_range"
+      ],
+      "assessment": {
+        "conclusion": "cause_found",
+        "cause": "The replacement cycle is still going: values.yaml sets replicas 2 while the HPA minimum is 1, and Argo CD restores 2",
+        "cause_support": "inferred",
+        "cause_evidence": [
+          2,
+          4,
+          6
+        ],
+        "alternatives": [
+          {
+            "cause": "probe failures or crashes",
+            "result": "ruled_out",
+            "evidence": [
+              2
+            ]
+          },
+          {
+            "cause": "the latest image deploy causing it",
+            "result": "ruled_out",
+            "evidence": [
+              5
+            ]
+          }
+        ],
+        "timing": "matches",
+        "timing_evidence": [
+          2
+        ],
+        "unverified": [
+          {
+            "what": "Argo CD's sync history for spec.replicas",
+            "could_change_diagnosis": true
+          }
+        ]
+      }
+    }
+  ],
+  "expected_assessment": {
+    "note": "What a correct answer's assessment looks like, with the tools that exist now (describe_deployment, recent_chart_commits). Hand-written.",
+    "tool_calls": [
+      "list_pods",
+      "list_events",
+      "describe_deployment",
+      "recent_chart_commits"
+    ],
+    "assessment": {
+      "conclusion": "no_problem",
+      "cause": "The cycle appears to have stopped: spec.replicas is no longer in the applied manifest and no scale-up followed the last scale-down",
+      "cause_support": "observed",
+      "cause_evidence": [
+        2,
+        3
+      ],
+      "alternatives": [
+        {
+          "cause": "the cycle is still running",
+          "result": "ruled_out",
+          "evidence": [
+            2
+          ]
+        },
+        {
+          "cause": "the two new pods are another round of the cycle",
+          "result": "ruled_out",
+          "evidence": [
+            3
+          ]
+        }
+      ],
+      "timing": "matches",
+      "timing_evidence": [
+        4
+      ],
+      "unverified": [
+        {
+          "what": "only one cycle period has passed since the fix",
+          "could_change_diagnosis": true
+        }
+      ]
+    }
+  }
 }

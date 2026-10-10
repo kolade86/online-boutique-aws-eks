@@ -120,5 +120,21 @@
       "answer": "Both halves of the cycle: HPA 'New size: 1' (x21) and the Deployment scaled back to 2 (x22) with no HPA event asking for it; replicas: 2 vs minReplicas: 1 confirmed at values.yaml line 261 via read_repo_file search then start_line, and no override in values-dev.yaml; the ReplicaSet deletes its newest pod; readiness failures are normal startup; the Argo CD step explicitly flagged as inferred.",
       "notes": "Suggested fix (align emailservice replicas with minReplicas) treats the symptom; see full_fix."
     }
-  ]
+  ],
+  "replay": {
+    "question": "Why was the emailservice pod replaced?",
+    "now": "2026-10-04T15:32:00Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "f124e61",
+    "recorded": [
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "emailservice"
+        },
+        "file": "emailservice-events-raw.txt"
+      }
+    ],
+    "note": "The only tool output recorded on 2026-10-04 was list_events app=emailservice (captured about 15:32 UTC). Repository tools read git at f124e61, main at that time. Every other call returns 'no recorded output'. Run with `python cli.py replay regressions/emailservice-pod-replaced.json --record`, once with SREAGENT_MODEL=claude-haiku-4-5-20251001 and once with claude-sonnet-5-5."
+  }
 }

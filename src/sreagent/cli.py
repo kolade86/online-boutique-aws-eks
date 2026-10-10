@@ -137,6 +137,35 @@ def _propose(config, wiring, opts) -> int:
     return 0 if pr["status"] == "opened" else 1
 
 
+def _replay(config, opts) -> int:
+    """Run a regression case against its recording; print and optionally record each run."""
+    import replay
+    from anthropic_provider import AnthropicProvider
+
+    provider = AnthropicProvider(config.model, config.max_tokens, config.model_timeout_seconds)
+    worst = 0
+    for i in range(1, opts.runs + 1):
+        run = replay.run_case(opts.case, config, provider)
+        grade = run["keyword_check"]
+        verdict = "passes" if grade["passed"] else "FAILS"
+        print(f"run {i}: model {run['model']}  outcome {run['outcome']}  "
+              f"evidence score {run['score']}  keyword check {verdict}")
+        for r in run["reasons"]:
+            print(f"    {r['points']:+4d}  {r['text']}" if r["points"] else f"       .  {r['text']}")
+        if not grade["passed"]:
+            print(f"    keyword check: missing one of {grade['missing_any_of']}; "
+                  f"contains {grade['contains_forbidden']}")
+            if run["score"] is not None and run["score"] >= config.min_confidence_for_pr:
+                print(f"    WARNING: an answer that fails the keyword check scored {run['score']}, "
+                      f"at or above the PR threshold {config.min_confidence_for_pr}")
+                worst = 1
+        if opts.record:
+            replay.record(opts.case, run)
+    if opts.record:
+        print(f"recorded {opts.runs} run(s) in {opts.case}")
+    return worst
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Online Boutique SRE agent (local runner)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Log each tool call as JSON")
@@ -172,7 +201,26 @@ def main(argv=None) -> int:
     p_prop.add_argument("--open-pr", action="store_true",
                         help="Actually open the PR (default: validate and print the diff and body)")
 
+    p_rep = sub.add_parser("replay", help="Re-run a regression case with the real model against "
+                                          "its recorded tool outputs, and score the answer")
+    p_rep.add_argument("case", help="e.g. regressions/emailservice-pod-replaced.json")
+    p_rep.add_argument("--runs", type=int, default=1, help="Number of runs (default 1)")
+    p_rep.add_argument("--record", action="store_true",
+                       help="Append each run (assessment, score, keyword check) to the case file")
+
+    sub.add_parser("scores", help="Show the evidence score of every scored run in regressions/")
+
     opts = parser.parse_args(argv)
+    if opts.command == "scores":   # no cluster, model or GitHub needed
+        import os
+
+        import replay
+        rows = replay.score_table(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               "regressions"))
+        print(f"{'case':34} {'run':42} {'source':13} {'verdict':22} score")
+        for r in rows:
+            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {r['score']}")
+        return 0
     # Log lines can hold characters a Windows console code page cannot print
     sys.stdout.reconfigure(errors="replace")
     import logger  # needs python-json-logger; keep this module importable in tests
@@ -198,6 +246,8 @@ def main(argv=None) -> int:
 
     if opts.command == "propose":
         return _propose(config, wiring, opts)
+    if opts.command == "replay":
+        return _replay(config, opts)
 
     import confidence
     pr, note = None, ""
