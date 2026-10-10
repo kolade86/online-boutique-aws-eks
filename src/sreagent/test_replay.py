@@ -108,9 +108,47 @@ class RunCaseTest(unittest.TestCase):
         self.assertIn("Current time: 2026-10-04T15:32:00Z (UTC)", model.seen[0].text)
         self.assertTrue(model.seen[1].results[0].content.startswith("[call #1]"))
 
+        self.assertEqual(run["unavailable"], ["list_hpas {}"])            # counted, not hidden
+
         replay.record(case_path, run)
         with open(case_path, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["replay_runs"][0]["score"], 43)
+
+
+class CaptureTest(unittest.TestCase):
+    def test_standard_pack_is_recorded_redacted_and_replayable(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        case_path = os.path.join(tmp, "incident.json")
+        ran = []
+
+        class LiveRegistry:
+            def run(self, tool, args):
+                ran.append(tool)
+                if tool == "list_hpas":
+                    return "metrics API down", True            # failed: not recorded
+                return f"{tool} {json.dumps(args)} on ip-10-0-11-45.ec2.internal", False
+
+        spec = replay.capture(LiveRegistry(), case_path, "recommendationservice",
+                              "online-boutique-dev", "Why is it OOMKilled?", "439be39",
+                              now=replay.datetime(2026, 10, 10, 17, 25, tzinfo=replay.timezone.utc))
+
+        pack = replay.standard_pack("recommendationservice", "online-boutique-dev")
+        self.assertEqual(len(ran), len(pack))
+        self.assertIn(("describe_deployment", {"name": "recommendationservice"}), pack)
+        self.assertEqual(len(spec["recorded"]), len(pack) - 1)
+        self.assertNotIn("list_hpas", [r["tool"] for r in spec["recorded"]])
+        self.assertEqual((spec["now"], spec["repo_ref"]), ("2026-10-10T17:25:00Z", "439be39"))
+        with open(os.path.join(tmp, spec["recorded"][0]["file"]), encoding="utf-8") as f:
+            self.assertIn("<node-1>", f.read())             # redacted before it goes into Git
+
+        # The recording answers the same calls in a replay
+        reg = replay.replay_registry(spec, tmp, 6000)
+        out, err = reg.run("describe_deployment", {"name": "recommendationservice"})
+        self.assertFalse(err)
+        out, err = reg.run("list_hpas", {})
+        self.assertTrue(err)
+        self.assertTrue(out.startswith(replay.UNAVAILABLE))
 
 
 if __name__ == "__main__":

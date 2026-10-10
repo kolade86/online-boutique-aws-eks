@@ -26,6 +26,7 @@ import prometheus_tools
 from tools import Tool, ToolError, ToolRegistry
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+UNAVAILABLE = "No recorded output"
 
 
 class LocalGit:
@@ -98,7 +99,7 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
             key = (name, _normalise(args))
             if key in recorded:
                 return recorded[key]
-            raise ToolError(f"No recorded output for {name} {key[1]} in this replay: the call was "
+            raise ToolError(f"{UNAVAILABLE} for {name} {key[1]} in this replay: the call was "
                             "not made when the case was recorded. Treat it as unavailable.")
         return handler
 
@@ -155,6 +156,10 @@ def run_case(case_path: str, config, provider, now=None) -> dict:
         "reasons": summary["reasons"],
         "submissions": summary["submissions"],
         "keyword_check": grade,
+        # Calls the recording could not answer. A score lost to them reflects the
+        # fixture, not the agent: compare runs only with the same unavailable set.
+        "unavailable": [f"{e.tool} {_normalise(e.input)}" for e in result.evidence
+                        if e.is_error and e.output.startswith(UNAVAILABLE)],
         "tool_calls": [{"tool": e.tool, "input": e.input, "is_error": e.is_error}
                        for e in result.evidence],
         "answer": redact_public(result.answer)[:6000],
@@ -203,3 +208,67 @@ def score_table(regressions_dir: str) -> list[dict]:
                          "verdict": "keyword check " + ("passes" if r["keyword_check"]["passed"] else "fails"),
                          "score": r["score"]})
     return rows
+
+
+def standard_pack(service: str, namespace: str) -> list:
+    """The checks a case should record, so replays are not short of the basics.
+
+    Both models lost points on the emailservice replay because describe_deployment
+    and list_hpas had no recording; every captured case now has them.
+    """
+    pod = f'namespace="{namespace}",pod=~"{service}-.*"'
+    return [
+        ("list_pods", {"app": service}),
+        ("list_pods", {}),
+        ("list_events", {"app": service}),
+        ("list_events", {"warnings_only": True}),
+        ("list_deployments", {}),
+        ("describe_deployment", {"name": service}),
+        ("list_hpas", {}),
+        ("prometheus_query_range", {"query": f'sum by (pod) (container_memory_working_set_bytes{{{pod},container!=""}})',
+                                    "minutes": 60}),
+        ("prometheus_query_range", {"query": f'sum by (pod) (rate(container_cpu_usage_seconds_total{{{pod},container!=""}}[5m]))',
+                                    "minutes": 60}),
+        ("prometheus_query", {"query": f"sum by (pod) (kube_pod_container_status_restarts_total{{{pod}}})"}),
+    ]
+
+
+def capture(registry, case_path: str, service: str, namespace: str, question: str,
+            repo_ref: str, now=None) -> dict:
+    """Record the standard pack from the live system into files beside the case,
+    and write the case's replay spec. Outputs are redacted: they go into Git."""
+    from redact import redact_public
+
+    now = now or datetime.now(timezone.utc)
+    case_dir = os.path.dirname(os.path.abspath(case_path))
+    case_id = os.path.splitext(os.path.basename(case_path))[0]
+    out_dir = os.path.join(case_dir, f"{case_id}-recorded")
+    os.makedirs(out_dir, exist_ok=True)
+
+    recorded = []
+    for i, (tool, args) in enumerate(standard_pack(service, namespace), 1):
+        output, is_error = registry.run(tool, args)
+        if is_error:
+            continue   # not recorded: a replay will say it is unavailable, which is true
+        name = f"{i:02d}-{tool}.txt"
+        with open(os.path.join(out_dir, name), "w", encoding="utf-8", newline="\n") as f:
+            f.write(redact_public(output))
+        recorded.append({"tool": tool, "input": args, "file": f"{case_id}-recorded/{name}"})
+
+    if os.path.exists(case_path):
+        with open(case_path, encoding="utf-8") as f:
+            case = json.load(f)
+    else:
+        case = {"id": case_id, "mode": "ask"}
+    case["replay"] = {
+        "question": question,
+        "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "namespace": namespace,
+        "repo_ref": repo_ref,
+        "recorded": recorded,
+        "note": f"Captured with `cli.py capture` ({len(recorded)} calls recorded, redacted).",
+    }
+    with open(case_path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(case, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    return case["replay"]
