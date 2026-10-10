@@ -233,18 +233,26 @@ payloads. The tests check that every one of them is skipped.
   running:
   - an alert is skipped with reason `another investigation is running`
   - `/ask` returns 409
-- **Deduplication.** An alert's identity is alertname + namespace + service.
-  The service is worked out from the `deployment`, `horizontalpodautoscaler`,
-  `app` or `pod` label, then `grpc_service`, then `service`.
-  - A replaced pod therefore counts as the same alert. The raw AlertManager
-    fingerprint would not, because it includes the pod name.
-  - A key investigated in the last `SREAGENT_DEDUP_MINUTES` (default 30) is
-    skipped.
+- **Incidents.** One fault often fires several alerts for one service: for
+  example HighMemoryUsage, then ContainerOOMKilled, then PodNotReady. They are
+  one **incident**, identified by namespace + service, whatever the alert
+  name.
+  - The service comes from the `deployment`, `horizontalpodautoscaler`, `app`
+    or `pod` label, then `grpc_service`, then `service`. A replaced pod is
+    therefore the same incident. The raw AlertManager fingerprint would not
+    be, because it includes the pod name.
+  - An incident investigated in the last `SREAGENT_DEDUP_MINUTES` (default 30)
+    is not investigated again. The skipped alert's reason says which incident
+    it belongs to.
+  - If an agent PR is open for the incident, the skipped alert is added to it
+    as a comment instead. The comment has the alert, plus the service's pods
+    and events, collected by code without the model. There is one comment per
+    incident and alert name per window, so AlertManager repeats don't spam the
+    PR.
   - An alert skipped because the agent was busy is not marked, so it can be
     investigated later.
-- **One key per payload.** AlertManager groups alerts by alertname. When a
-  group covers several services, the first new one is investigated and the
-  rest are skipped as busy.
+- **One decision per incident per payload.** When a payload covers several
+  services, the first new one is investigated and the rest are skipped as busy.
 - **Skips return 200, not an error.** Otherwise AlertManager would retry. Its
   `repeat_interval` (1h) re-sends alerts that are still firing.
 - **Per-investigation limits:** `SREAGENT_MAX_TOOL_CALLS` and
@@ -252,8 +260,9 @@ payloads. The tests check that every one of them is skipped.
 - **State is in memory.** A restart forgets the dedup history and the recent
   results. That is acceptable with one replica; at worst an alert is
   investigated twice.
-- **Never more than one open agent PR per alert** is enforced in stage 3. It
-  checks open PRs on GitHub, so it survives restarts.
+- **Never more than one open agent PR per incident.** This is checked on
+  GitHub, so it survives restarts. See
+  [the pull-request tool](#the-pull-request-tool).
 
 ## The pull-request tool
 
@@ -308,12 +317,21 @@ Also rejected:
 - a file without exactly one `  tag:` line (build.yml's `update-manifest`
   rewrites that line with `sed`)
 
-**One open PR per alert.**
+**One open PR per incident.** On 2026-10-10 one fault fired three alerts,
+and two of them opened identical PRs, #25 and #26
+([the case](regressions/recommendationservice-duplicate-prs.json)). Since
+then:
 
-- The alert key (alertname + namespace + service) is hidden in the PR body.
-- A proposal for a key that already has an open `sre-agent/*` PR is rejected,
-  with a link to that PR.
-- This uses GitHub, not memory, so it survives restarts.
+- **The marker is the incident.** Each agent PR hides it in its body as
+  namespace/service. The older per-alert marker is still recognised.
+- **A PR already open for the incident blocks a new one.** The proposal is
+  refused. After the investigation, its report, score and alert are added to
+  the open PR as a comment.
+- **A recently merged fix blocks a new proposal.** If an agent PR for the
+  incident was merged within `SREAGENT_RECENT_MERGE_MINUTES` (60), the
+  proposal is refused. The model is told to check whether that fix has rolled
+  out first. The record's status is `recently_merged`.
+- **This uses GitHub, not memory,** so it survives restarts.
 
 **Dry run by default.**
 
@@ -583,6 +601,23 @@ pull request body, and the code's note when no change is proposed.
 - **Stage 6 evaluation is what checks whether scores track correctness.**
   Until then, treat the score as a structured summary of the agent's
   evidence, not as a measure of accuracy.
+- **Scores are not comparable across models.** On the same emailservice
+  replay (three runs each), every Sonnet and Opus answer passed the keyword
+  check, and every one called the cause inferred:
+
+  | Model | Scores |
+  |---|---|
+  | Claude Haiku 4.5 | not assessed ×3: it never called `submit_assessment`, before the reminder existed |
+  | Claude Sonnet 5.5 | 33, 46, 48 |
+  | Claude Opus 5.5 | 76, 63, 63 (reported; these runs are not recorded in the case file) |
+
+  The gap comes from self-description, not evidence. Sonnet marked the
+  missing `describe_deployment` check as "could change the diagnosis" (−15)
+  and listed an alternative as not ruled out (−15). Opus marked the same gap
+  "detail only" (−2). So the score penalises a more self-critical model.
+- **The same fixture varies by about 15 points between runs** of the same
+  model: Opus 63 to 76, Sonnet 33 to 48. Read a single score as a band, not
+  a number.
 
 ### How it is produced
 
@@ -637,9 +672,19 @@ making new tool calls. Every submission and its score is kept, both in
 | `SREAGENT_MIN_CONFIDENCE_FOR_PR` | `70` | Below this, `propose_values_change` refuses. The agent reports its diagnosis without a change, and the code adds a note saying why |
 | `SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK` | `85` | For a change to `image.tag`, which affects every service |
 
-- **No assessment, no change.** If the model never submits an assessment,
-  nothing can be proposed.
-- **The latest assessment decides.** Before a PR is opened, the score is
+- **The cause must be observed.** On top of the thresholds, a change needs
+  `cause_support: observed` with valid citations, and a `cause_found`
+  conclusion. An inferred cause is reported with its score but never opens a
+  PR, whatever the number. Opus scored an inferred cause at 76.
+  `confidence.change_blocked()` is the one rule used everywhere: the proposal
+  tool, the final check before opening, the tool's reply to the model, and
+  the note under the report.
+- **No assessment, no change.** If the model finishes without an assessment,
+  it is reminded once ("call submit_assessment for the report you just
+  wrote"), and the report it already wrote is kept. If it still doesn't
+  assess, the result shows **not assessed** and nothing can be proposed.
+  `submit_assessment` doesn't count against `SREAGENT_MAX_TOOL_CALLS`.
+- **The latest assessment decides.** Before a PR is opened, the rule is
   checked again against the latest assessment.
 
 ### The regression cases
@@ -668,6 +713,27 @@ python cli.py scores
 Each replay run is graded by the case's keyword hints. That is a rough
 automatic check, not a review. If an answer that fails the check scores at
 or above the PR threshold, `replay` prints a WARNING.
+
+**Tools the recording lacks.** A replay answers any unrecorded call with
+"No recorded output ... treat it as unavailable". It uses the same prompt and
+tools as live, so it tests the real agent.
+
+- **Unavailable calls are counted.** Each run records which calls had no
+  recording (`unavailable`), and `replay` prints them.
+- **What that means for scores:** a score lost to a missing recording
+  reflects the fixture, not the agent. Compare replay scores only between
+  runs with the same unavailable set.
+- **The emailservice case has only `list_events` recorded,** so every run
+  lacks `describe_deployment`, `list_pods` and `list_hpas`.
+- **New cases should record the basics.** When an incident happens, record
+  the standard pack while the cluster still shows it. The pack is pods,
+  events, deployments, `describe_deployment`, HPAs, memory, CPU and
+  restarts, saved redacted and pinned to main's current commit:
+
+```bash
+python cli.py capture regressions/my-incident.json --service recommendationservice \
+  --question "Why is recommendationservice being OOMKilled?"
+```
 
 **Redaction.** Everything people read has node names, IP addresses and AWS
 account IDs (including inside ECR image URLs) replaced. That covers
@@ -726,9 +792,10 @@ tool fixes that let Sonnet 5.5 pass.
 | `SREAGENT_MAX_TOKENS` | `16000` | Max output tokens per model turn. Includes Sonnet 5.5's thinking |
 | `SREAGENT_TOOL_OUTPUT_MAX_CHARS` | `6000` | Each tool result is cut to this length |
 | `SREAGENT_API_TOKEN` | (none) | Required by the server: bearer token for `/alert`, `/ask`, `/investigations` |
-| `SREAGENT_DEDUP_MINUTES` | `30` | Skip an alert key investigated this recently |
+| `SREAGENT_DEDUP_MINUTES` | `30` | Incident window: later alerts for the same namespace/service are not investigated again (they comment on an open agent PR instead) |
 | `SREAGENT_MIN_CONFIDENCE_FOR_PR` | `70` | Evidence score a proposed change needs. See [Evidence score](#evidence-score) |
 | `SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK` | `85` | Evidence score an `image.tag` rollback needs |
+| `SREAGENT_RECENT_MERGE_MINUTES` | `60` | An agent PR for the same service merged this recently blocks a new proposal |
 | `SREAGENT_OPEN_PRS` | `false` | Server only: open the PRs the agent proposes (otherwise `dry_run`) |
 | `PORT` | `8080` | Server port |
 | `GITHUB_BRANCH` | `main` | |
