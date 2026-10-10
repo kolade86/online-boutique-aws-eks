@@ -43,7 +43,10 @@ resource "aws_iam_role" "external_secrets_operator" {
         StringEquals = {
           "${replace(var.cluster_oidc_issuer_url, "https://", "")}:sub" : [
             "system:serviceaccount:external-secrets-system:external-secrets",
-            "system:serviceaccount:${var.app_namespace}:external-secrets-sa"
+            "system:serviceaccount:${var.app_namespace}:external-secrets-sa",
+            # The monitoring namespace's SecretStore (modules/observability)
+            # syncs the SRE agent's webhook token for Alertmanager.
+            "system:serviceaccount:monitoring:external-secrets-sa"
           ]
           "${replace(var.cluster_oidc_issuer_url, "https://", "")}:aud" : "sts.amazonaws.com"
         }
@@ -77,7 +80,8 @@ resource "aws_iam_policy" "external_secrets_operator" {
         ]
         Resource = [
           var.secrets_manager_secret_arn,
-          "${var.secrets_manager_secret_arn}:*"
+          "${var.secrets_manager_secret_arn}:*",
+          aws_secretsmanager_secret.sreagent.arn,
         ]
       },
       {
@@ -99,6 +103,27 @@ resource "aws_iam_policy" "external_secrets_operator" {
 resource "aws_iam_role_policy_attachment" "external_secrets_operator" {
   policy_arn = aws_iam_policy.external_secrets_operator.arn
   role       = aws_iam_role.external_secrets_operator.name
+}
+
+# SRE agent secrets (src/sreagent): one JSON secret with the keys
+# anthropic-api-key, github-token and api-token - the same keys as the
+# Kubernetes Secrets the agent and Alertmanager read.
+#
+# Terraform creates the secret but deliberately NO aws_secretsmanager_secret_version:
+# the values are loaded with src/sreagent/load-secrets.sh after apply, so they
+# never appear in Git, tfvars or Terraform state.
+resource "aws_secretsmanager_secret" "sreagent" {
+  name        = "${var.project_name}-${var.environment}-sreagent"
+  description = "SRE agent API keys and webhook token. Values loaded by src/sreagent/load-secrets.sh, not Terraform."
+
+  # Sandboxes are torn down and rebuilt; let a destroyed secret's name be
+  # reused straight away instead of waiting out a recovery window.
+  recovery_window_in_days = 0
+
+  tags = {
+    Name        = "${var.project_name}-${var.environment}-sreagent"
+    Environment = var.environment
+  }
 }
 
 # External Secrets Operator Service Account

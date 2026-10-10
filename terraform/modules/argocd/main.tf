@@ -32,6 +32,11 @@ locals {
     { name = "image.registry", value = var.app_image_registry },
     { name = "image.prefix", value = var.app_image_prefix },
     { name = "redis.addr", value = var.app_redis_addr },
+    # External Secrets: the app namespace's SecretStore and the Secrets
+    # Manager name prefix. Names only, never values. Empty disables the
+    # chart's ExternalSecrets.
+    { name = "externalSecrets.secretStore", value = var.app_secret_store },
+    { name = "externalSecrets.remoteKeyPrefix", value = var.app_secret_key_prefix },
   ]
 }
 

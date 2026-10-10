@@ -196,15 +196,18 @@ module "observability" {
   # Alerting Configuration
   alert_email_address = var.alert_email_address
 
-  # SRE agent webhook - off until its Secret exists (see the variable)
-  app_namespace           = var.app_namespace
-  sreagent_alerts_enabled = var.sreagent_alerts_enabled
+  # SRE agent webhook. Its token is synced from Secrets Manager by External
+  # Secrets, so this module now runs after platform-services (ESO and its CRDs).
+  app_namespace             = var.app_namespace
+  sreagent_alerts_enabled   = var.sreagent_alerts_enabled
+  external_secrets_role_arn = module.platform_services.external_secrets_operator_role_arn
+  sreagent_secret_name      = module.platform_services.sreagent_secret_name
 
   # CloudWatch Alarms — AWS Managed Services
   rds_instance_identifier    = module.data_persistence.rds_instance_identifier
   redis_replication_group_id = module.data_persistence.redis_replication_group_id
 
-  depends_on = [module.eks_core, module.data_persistence]
+  depends_on = [module.eks_core, module.data_persistence, module.platform_services]
 }
 
 # ============================================
@@ -245,6 +248,11 @@ module "argocd" {
   app_image_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
   app_image_prefix   = "${var.project_name}-${var.environment}"
   app_redis_addr     = "${module.data_persistence.redis_endpoint}:${module.data_persistence.redis_port}"
+
+  # The chart's ExternalSecrets (SRE agent) read <prefix>-<service> from
+  # Secrets Manager through the app namespace's SecretStore.
+  app_secret_store      = module.platform_services.secret_store_name
+  app_secret_key_prefix = "${var.project_name}-${var.environment}"
 
   # Sync policy - prune stays off until Argo CD is trusted with deletions
   enable_automated_sync = var.argocd_enable_automated_sync

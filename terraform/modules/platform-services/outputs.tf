@@ -33,6 +33,16 @@ output "external_secret_name" {
   value       = "${var.project_name}-${var.environment}-db-credentials"
 }
 
+output "sreagent_secret_name" {
+  description = "Secrets Manager secret holding the SRE agent's keys (values loaded by src/sreagent/load-secrets.sh)"
+  value       = aws_secretsmanager_secret.sreagent.name
+}
+
+output "sreagent_secret_arn" {
+  description = "ARN of the SRE agent's Secrets Manager secret"
+  value       = aws_secretsmanager_secret.sreagent.arn
+}
+
 # Metrics Server Outputs
 output "metrics_server_role_arn" {
   description = "ARN of the Metrics Server IAM role"

@@ -87,7 +87,19 @@ variable "app_namespace" {
 }
 
 variable "sreagent_alerts_enabled" {
-  description = "Send workload-health alerts to the SRE agent's /alert webhook. Create the Secret 'sreagent-webhook' (key 'token') in the monitoring namespace first: Alertmanager mounts it and cannot start without it"
+  description = "Send workload-health alerts to the SRE agent's /alert webhook. Also syncs the agent's api-token from Secrets Manager into the Secret 'sreagent-webhook' (an optional mount: Alertmanager starts with or without it)"
   type        = bool
   default     = false
+}
+
+variable "external_secrets_role_arn" {
+  description = "IRSA role of the External Secrets Operator (platform-services); the monitoring namespace's SecretStore assumes it"
+  type        = string
+  default     = ""
+}
+
+variable "sreagent_secret_name" {
+  description = "Secrets Manager secret holding the SRE agent's keys (platform-services); its api-token becomes the webhook token"
+  type        = string
+  default     = ""
 }

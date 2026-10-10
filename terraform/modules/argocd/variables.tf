@@ -156,6 +156,18 @@ variable "app_redis_addr" {
   type        = string
 }
 
+variable "app_secret_store" {
+  description = "External Secrets SecretStore in the app namespace that the chart's ExternalSecrets use (empty: render none)"
+  type        = string
+  default     = ""
+}
+
+variable "app_secret_key_prefix" {
+  description = "Prefix of the Secrets Manager names the chart's ExternalSecrets read: <prefix>-<service> (empty: render none)"
+  type        = string
+  default     = ""
+}
+
 # ============================================
 # Sync policy
 # ============================================
