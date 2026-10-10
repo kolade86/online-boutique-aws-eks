@@ -1,0 +1,86 @@
+{
+  "id": "recommendationservice-duplicate-prs",
+  "mode": "alert",
+  "source": "Live test on 2026-10-10: faults PR #23 (40Mi) and PR #24 (24Mi), agent PRs #25 and #26",
+  "situation": "One fault on recommendationservice fired three alerts: HighMemoryUsage, then ContainerOOMKilled about 2.5 minutes later, then PodNotReady about 3 minutes after that. Dedup and the one-open-PR check keyed on the alert name, so each alert was a separate investigation, and the first two opened identical pull requests.",
+  "timeline_utc": [
+    {
+      "at": "2026-10-10T17:21:37Z",
+      "event": "PR #24 merged: memory 24Mi (the fault)"
+    },
+    {
+      "at": "2026-10-10T17:22:18Z",
+      "event": "HighMemoryUsage investigated; PR #25 opened, evidence score 96"
+    },
+    {
+      "at": "2026-10-10T17:24:44Z",
+      "event": "ContainerOOMKilled investigated; PR #26 opened with the identical change, evidence score 98 (#25 still open)"
+    },
+    {
+      "at": "2026-10-10T17:26:35Z",
+      "event": "PR #25 merged; the service recovered"
+    },
+    {
+      "at": "about 17:27-17:28",
+      "event": "PodNotReady investigated; evidence score 79; no PR"
+    },
+    {
+      "at": "2026-10-10T17:32:23Z",
+      "event": "PR #26 closed unmerged as a duplicate"
+    }
+  ],
+  "pull_requests": {
+    "25": {
+      "head": "sre-agent/b6295ed6",
+      "title": "sre-agent: 2 settings",
+      "changes": [
+        "services.recommendationservice.resources.limits.memory: 24Mi -> 128Mi",
+        "services.recommendationservice.resources.requests.memory: 24Mi -> 64Mi"
+      ],
+      "tool_calls": [
+        "list_pods",
+        "list_deployments",
+        "prometheus_query_range",
+        "recent_chart_commits",
+        "list_events",
+        "read_repo_file",
+        "read_repo_file",
+        "read_repo_file",
+        "prometheus_query",
+        "submit_assessment",
+        "propose_values_change"
+      ],
+      "merged": true
+    },
+    "26": {
+      "head": "sre-agent/630ef4c6",
+      "title": "sre-agent: 2 settings",
+      "changes": [
+        "services.recommendationservice.resources.limits.memory: 24Mi -> 128Mi",
+        "services.recommendationservice.resources.requests.memory: 24Mi -> 64Mi"
+      ],
+      "tool_calls": [
+        "list_pods",
+        "list_events",
+        "recent_chart_commits",
+        "prometheus_query_range",
+        "list_deployments",
+        "read_repo_file",
+        "read_repo_file",
+        "submit_assessment",
+        "propose_values_change"
+      ],
+      "merged": false
+    }
+  },
+  "root_cause": "The incident identity was the alert name. #26's proposal was valid against main (still 24Mi, #25 not yet merged) and no PR was open for its alert key, so nothing stopped it.",
+  "expected_behaviour": [
+    "HighMemoryUsage: investigated; one PR opened.",
+    "ContainerOOMKilled within the dedup window: same incident (namespace/service), not investigated again; a comment on the open PR with the alert and the service's current pods and events.",
+    "Its AlertManager repeats: no further comments.",
+    "PodNotReady after the PR was merged: same incident, skipped; nothing is posted (no open PR).",
+    "Any later alert after the window: investigated, but a proposal is refused while the fix was merged within SREAGENT_RECENT_MERGE_MINUTES; recorded as recently_merged."
+  ],
+  "podnotready_no_pr": "Most likely the proposal was refused because main already had #25's change (merged at 17:26:35, before the PodNotReady investigation): an identical change fails the allow-list's 'does not modify anything' check. The score (79) did not stop it. Confirm from that investigation's /investigations record: pull_request.status and the propose_values_change result in tool_calls.",
+  "reproduced_by": "test_server.ServerPullRequestTest.test_one_incident_one_pr_the_pr25_pr26_sequence"
+}
