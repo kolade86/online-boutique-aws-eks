@@ -47,15 +47,43 @@ def refresh_starts_at(payload: dict, minutes_ago: int, now=None) -> dict:
     return payload
 
 
-def format_report(result, max_tool_calls: int, header: str = "") -> str:
+def format_confidence(assessment, note: str = "") -> list[str]:
+    """The evidence score block: score, reasons, revisions, and the code's note."""
+    import confidence
+    if assessment is None:
+        return []
+    lines = ["", "-" * 72]
+    latest = assessment.latest
+    if latest is None:
+        lines.append(f"Evidence score: not assessed (PRs need {assessment.min_for_pr})")
+    else:
+        lines.append(f"Evidence score: {latest.value}/100 (PRs need {assessment.min_for_pr}, "
+                     f"image.tag rollbacks {assessment.min_for_rollback}) - an evidence score, "
+                     "not a probability")
+        lines += ["  " + r for r in confidence.format_reasons(latest)]
+        if len(assessment.submissions) > 1:
+            lines.append("  Revised: " + " -> ".join(
+                f"{s.score.value} (after {s.after_calls} calls)" for s in assessment.submissions))
+    if note:
+        lines += ["", note]
+    return lines
+
+
+def format_report(result, max_tool_calls: int, header: str = "", assessment=None,
+                  note: str = "") -> str:
+    from redact import redact_public
     lines = [header, ""] if header else []
-    lines += [result.answer, "", "-" * 72,
+    lines += [result.answer]
+    lines += format_confidence(assessment, note)
+    lines += ["", "-" * 72,
               f"Outcome: {result.outcome}   Tool calls: {len(result.evidence)} of "
               f"{max_tool_calls} allowed   Elapsed: {result.elapsed_seconds:.1f}s"]
     for i, e in enumerate(result.evidence, 1):
         status = "ERROR" if e.is_error else "ok"
         lines.append(f"  {i:2}. [{status}] {e.tool} {json.dumps(e.input)}")
-    return "\n".join(lines) + "\n"
+    # Printed and saved reports (e.g. into regressions/) carry no node names,
+    # IPs, account IDs or secrets
+    return redact_public("\n".join(lines)) + "\n"
 
 
 def format_pull_request(pr: dict) -> str:
@@ -171,9 +199,14 @@ def main(argv=None) -> int:
     if opts.command == "propose":
         return _propose(config, wiring, opts)
 
-    pr = None
+    import confidence
+    pr, note = None, ""
+    assessment = confidence.AssessmentTool(config.min_confidence_for_pr,
+                                           config.min_confidence_for_rollback)
     if opts.command == "ask":
-        agent = wiring.build_agent(config)   # no proposal tool: /ask never opens a PR
+        # scored, but no proposal tool: /ask never opens a PR
+        agent = wiring.build_agent(config, [assessment.tool()])
+        assessment.attach(lambda: agent.evidence)
         system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(opts.question))
     else:
@@ -185,13 +218,15 @@ def main(argv=None) -> int:
             refresh_starts_at(payload, opts.started_minutes_ago)
         firing = alerts.firing(payload)
         key = str(alerts.key_of(firing[0])) if firing else "manual/cli/investigate"
-        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key)
-        agent = wiring.build_agent(config, [proposal.tool()])
+        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment)
+        agent = wiring.build_agent(config, [assessment.tool(), proposal.tool()])
+        assessment.attach(lambda: agent.evidence)
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
-        pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr)
+        pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr, assessment)
+        note = confidence.note_below_threshold(assessment)
 
-    print(format_report(result, config.max_tool_calls), end="")
+    print(format_report(result, config.max_tool_calls, assessment=assessment, note=note), end="")
     if pr is not None:
         print(format_pull_request(pr), end="")
     if opts.output:
@@ -199,7 +234,7 @@ def main(argv=None) -> int:
         header = (f"{opts.command}: {subject}\nmodel: {config.model}   "
                   f"run at: {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}")
         with open(opts.output, "w", encoding="utf-8", newline="\n") as f:
-            f.write(format_report(result, config.max_tool_calls, header))
+            f.write(format_report(result, config.max_tool_calls, header, assessment, note))
     return 0 if result.outcome == "answered" else 1
 
 

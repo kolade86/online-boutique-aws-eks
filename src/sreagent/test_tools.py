@@ -401,6 +401,29 @@ class ReportTest(unittest.TestCase):
         self.assertIn("Tool calls: 1 of 15 allowed", report)
         self.assertIn('[ok] list_events {"app": "emailservice"}', report)
 
+    def test_report_shows_score_revision_and_note_and_is_redacted(self):
+        import cli
+        import confidence
+        from agent import Evidence, Investigation
+        ev = [Evidence("list_pods", {}, "x", False), Evidence("list_events", {}, "x", False)]
+        tool = confidence.AssessmentTool(70, 85)
+        tool.attach(lambda: ev)
+        a = {"conclusion": "cause_found", "cause": "c", "cause_support": "observed",
+             "cause_evidence": [1], "alternatives": [], "timing": "not_checked",
+             "timing_evidence": [], "unverified": []}
+        tool.handle(a)
+        ev.append(Evidence("list_hpas", {}, "x", False))
+        tool.handle(dict(a, cause_support="inferred"))
+        result = Investigation("answered", "killed on ip-10-0-10-135.ec2.internal", ev, 2.0)
+        report = cli.format_report(result, 15, assessment=tool,
+                                   note=confidence.note_below_threshold(tool))
+        self.assertIn("Evidence score: 30/100 (PRs need 70, image.tag rollbacks 85) - an "
+                      "evidence score, not a probability", report)
+        self.assertIn(" +30  Cause inferred: list_pods (#1)", report)
+        self.assertIn("Revised: 50 (after 2 calls) -> 30 (after 3 calls)", report)
+        self.assertIn("No change proposed: the evidence score is 30/100, below the 70 needed", report)
+        self.assertIn("killed on <node-1>", report)
+
 
 class AlertTaskTest(unittest.TestCase):
     def test_only_firing_alerts_and_redacted(self):

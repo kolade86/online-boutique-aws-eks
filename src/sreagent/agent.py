@@ -97,6 +97,7 @@ class Agent:
                     continue
                 output, is_error = self.tools.run(call.name, call.input)
                 evidence.append(Evidence(call.name, call.input, output, is_error))
-                results.append(ToolResult(call.id, output, is_error))
+                # Numbered so the model can cite it in submit_assessment
+                results.append(ToolResult(call.id, f"[call #{len(evidence)}]\n{output}", is_error))
 
             messages.append(ToolResultsTurn(results))
