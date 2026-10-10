@@ -369,3 +369,19 @@ class AssessmentTool:
             "could not check take away. Be honest: an inflated assessment only delays a human. You "
             "may revise it once, after gathering more evidence.",
             SCHEMA, self.handle, strict=True)
+
+
+def note_below_threshold(assessment) -> str:
+    """Written by code under a report when the evidence is too weak for a change."""
+    if assessment is None:
+        return ""
+    latest = assessment.latest
+    if latest is None:
+        return ("No change proposed: no evidence assessment was submitted, so the evidence "
+                "behind this report was not scored.")
+    if latest.value >= assessment.min_for_pr:
+        return ""
+    why = "; ".join(r.text for r in latest.reasons if r.points < 0 or "inferred" in r.text) \
+        or "too little of the conclusion is backed by cited evidence"
+    return (f"No change proposed: the evidence score is {latest.value}/100, below the "
+            f"{assessment.min_for_pr} needed for a pull request ({why}).")

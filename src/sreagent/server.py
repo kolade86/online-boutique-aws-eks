@@ -10,6 +10,7 @@ its repeat_interval already re-sends unresolved alerts later.
 """
 
 import hmac
+import json
 import logging
 import threading
 import time
@@ -21,9 +22,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 import alerts
+import confidence
 import prompts
 from agent import Agent, Investigation
 from config import Config
+from redact import redact_public
 
 log = logging.getLogger("sreagent.server")
 
@@ -58,19 +61,23 @@ class Runner:
 
         def work():
             try:
+                assessment = self._assessment_tool()
                 proposal = None
                 if self._pr_opener is not None:
                     import pr_tool  # needs ruamel.yaml
-                    proposal = pr_tool.ProposalTool(self._pr_opener, str(key))
-                agent = self._agent_factory([proposal.tool()] if proposal else [])
+                    proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment)
+                agent = self._agent_factory([assessment.tool()]
+                                            + ([proposal.tool()] if proposal else []))
+                assessment.attach(lambda: agent.evidence)
                 system = prompts.system_prompt("investigate", self._config.app_namespace,
                                                self._config.max_tool_calls)
                 result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
                 pr = None
                 if proposal is not None:
                     pr = pr_tool.finish(proposal, result, str(key), investigation_id,
-                                        self._config.open_prs)
-                self._record("alert", investigation_id, str(key), result, pull_request=pr)
+                                        self._config.open_prs, assessment)
+                self._record("alert", investigation_id, str(key), result, pull_request=pr,
+                             assessment=assessment, note=confidence.note_below_threshold(assessment))
             except Exception:
                 log.exception("investigation crashed", extra={"id": investigation_id})
             finally:
@@ -84,15 +91,23 @@ class Runner:
         if not self._busy.acquire(blocking=False):
             return None
         try:
+            assessment = self._assessment_tool()   # scored, but /ask never proposes a change
+            agent = self._agent_factory([assessment.tool()])
+            assessment.attach(lambda: agent.evidence)
             system = prompts.system_prompt("ask", self._config.app_namespace,
                                            self._config.max_tool_calls)
-            result = self._agent_factory([]).run(system, prompts.with_current_time(question))
-            return self._record("ask", uuid.uuid4().hex[:8], question, result)
+            result = agent.run(system, prompts.with_current_time(question))
+            return self._record("ask", uuid.uuid4().hex[:8], question, result,
+                                assessment=assessment)
         finally:
             self._busy.release()
 
+    def _assessment_tool(self):
+        return confidence.AssessmentTool(self._config.min_confidence_for_pr,
+                                         self._config.min_confidence_for_rollback)
+
     def _record(self, kind: str, investigation_id: str, subject: str,
-                result: Investigation, pull_request=None) -> dict:
+                result: Investigation, pull_request=None, assessment=None, note="") -> dict:
         entry = {
             "id": investigation_id,
             "kind": kind,
@@ -102,15 +117,18 @@ class Runner:
             "tool_calls": len(result.evidence),
             "max_tool_calls": self._config.max_tool_calls,
             "elapsed_seconds": round(result.elapsed_seconds, 1),
-            "answer": result.answer,
+            # What people read: no secrets, node names, IPs or account IDs
+            "answer": redact_public(result.answer),
+            "note": note,
+            "confidence": assessment.summary() if assessment else None,
             "evidence": [{"tool": e.tool, "input": e.input, "is_error": e.is_error}
                          for e in result.evidence],
-            "pull_request": pull_request,
+            "pull_request": json.loads(redact_public(json.dumps(pull_request))) if pull_request else None,
         }
         self.results.appendleft(entry)
         log.info("investigation result", extra={k: entry[k] for k in (
             "id", "kind", "subject", "outcome", "tool_calls", "elapsed_seconds", "answer",
-            "pull_request")})
+            "note", "pull_request")} | {"score": entry["confidence"] and entry["confidence"]["score"]})
         return entry
 
 

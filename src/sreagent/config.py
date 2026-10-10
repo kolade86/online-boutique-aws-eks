@@ -33,6 +33,8 @@ class Config:
     values_file: str
     api_token: str | None
     open_prs: bool
+    min_confidence_for_pr: int
+    min_confidence_for_rollback: int
     dedup_minutes: int
     port: int
 
@@ -46,6 +48,12 @@ class Config:
                 raise ConfigError(f"{name} must be an integer, got {raw!r}") from None
             if value <= 0:
                 raise ConfigError(f"{name} must be positive")
+            return value
+
+        def percent(name, default):
+            value = integer(name, default)
+            if value > 100:
+                raise ConfigError(f"{name} must be between 1 and 100")
             return value
 
         repo = env.get("GITHUB_REPO", "")
@@ -68,6 +76,10 @@ class Config:
             values_file=env.get("VALUES_FILE", "helm/online-boutique/values-dev.yaml"),
             api_token=env.get("SREAGENT_API_TOKEN") or None,
             open_prs=_flag(env, "SREAGENT_OPEN_PRS", False),
+            # Evidence score (confidence.py) a proposed change needs; an
+            # image.tag rollback affects every service, so it needs more
+            min_confidence_for_pr=percent("SREAGENT_MIN_CONFIDENCE_FOR_PR", 70),
+            min_confidence_for_rollback=percent("SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK", 85),
             dedup_minutes=integer("SREAGENT_DEDUP_MINUTES", 30),
             port=integer("PORT", 8080),
         )

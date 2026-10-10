@@ -9,7 +9,8 @@ try:
 except ImportError:  # fastapi / httpx not installed
     server = None
 
-from agent import ANSWERED, Investigation
+from agent import ANSWERED, Evidence, Investigation
+from tools import ToolError
 from config import Config
 
 TOKEN = "test-token-123"
@@ -26,15 +27,22 @@ def config(**overrides):
 class StubAgent:
     """Stands in for agent_factory and the Agent it builds.
 
-    Records which extra tools each run was given and, when `propose` is set,
-    calls the proposal tool the way the model would.
+    Records which extra tools each run was given. A run first makes the tool
+    calls in `calls` (recorded as evidence), then - like the model - submits
+    `assess` to submit_assessment and calls propose_values_change with
+    `propose`, when those are set. Tool errors are kept, as the real loop
+    returns them to the model.
     """
 
     def __init__(self):
         self.tasks = []
         self.extra_tools = []   # tool names given to each run
+        self.calls = ["list_pods", "list_events", "recent_chart_commits"]
+        self.assess = None      # args for submit_assessment
         self.propose = None     # args for propose_values_change
         self.tool_results = []
+        self.answer = "## Diagnosis\nanswer\n## Confidence\nHigh. It all fits."
+        self.evidence = []
         self._current = []
 
     def __call__(self, extra_tools):
@@ -42,12 +50,25 @@ class StubAgent:
         self.extra_tools.append([t.name for t in extra_tools])
         return self
 
+    def _call(self, tool, args):
+        try:
+            out, err = tool.handler(args), False
+        except ToolError as e:
+            out, err = str(e), True
+        self.tool_results.append(out)
+        self.evidence.append(Evidence(tool.name, args, out, err))
+
     def run(self, system, task):
         self.tasks.append(task)
-        for t in self._current:
-            if t.name == "propose_values_change" and self.propose:
-                self.tool_results.append(t.handler(self.propose))
-        return Investigation(ANSWERED, f"answer #{len(self.tasks)}", [], 1.0)
+        self.evidence = [Evidence(name, {}, "output", False) for name in self.calls]
+        tools = {t.name: t for t in self._current}
+        if self.assess and "submit_assessment" in tools:
+            self._call(tools["submit_assessment"], self.assess)
+        if self.propose and "propose_values_change" in tools:
+            self._call(tools["propose_values_change"], self.propose)
+        n = len(self.tasks)
+        return Investigation(ANSWERED, self.answer.replace("answer", f"answer #{n}"),
+                             list(self.evidence), 1.0)
 
 
 class DeferredSpawn:
@@ -110,7 +131,7 @@ class ServerTest(unittest.TestCase):
         self.assertIn("cartservice-6b9f7c8d4-aaaaa is crash looping", self.agent.tasks[0])
         results = self.client.get("/investigations", headers=AUTH).json()
         self.assertEqual(results[0]["subject"], "PodCrashLooping/ns/cartservice")
-        self.assertEqual(results[0]["answer"], "answer #1")
+        self.assertIn("answer #1", results[0]["answer"])
 
     def test_same_service_with_a_new_pod_is_deduplicated(self):
         self.post_alert(alert(pod="cartservice-6b9f7c8d4-aaaaa"))
@@ -181,7 +202,7 @@ class ServerTest(unittest.TestCase):
     def test_ask(self):
         resp = self.client.post("/ask", json={"question": "Is cartservice healthy?"}, headers=AUTH)
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["answer"], "answer #1")
+        self.assertIn("answer #1", resp.json()["answer"])
         self.assertEqual(resp.json()["kind"], "ask")
         self.assertEqual(len(self.agent.tasks), 1)
         self.assertRegex(self.agent.tasks[0],
@@ -201,9 +222,20 @@ class ServerTest(unittest.TestCase):
 
 try:
     import pr_tool
-    from test_pr_tool import KEY, VALUES, VALUES_DEV, FakeGitHub
+    from test_pr_tool import KEY, VALUES, VALUES_DEV, TAGS, FakeGitHub
 except ImportError:  # ruamel.yaml not installed
     pr_tool = None
+
+# Assessments of the stub's three calls (1 list_pods, 2 list_events, 3 recent_chart_commits)
+STRONG = {  # 50 observed + 10 corroborated + 10 ruled out + 20 timing = 90
+    "conclusion": "cause_found", "cause": "memory limit below the working set",
+    "cause_support": "observed", "cause_evidence": [1, 3],
+    "alternatives": [{"cause": "a memory leak", "result": "ruled_out", "evidence": [2]}],
+    "timing": "matches", "timing_evidence": [3], "unverified": []}
+MEDIUM = dict(STRONG, timing="not_checked", timing_evidence=[])                     # 70
+WEAK = dict(STRONG, alternatives=[], cause_evidence=[1])                           # 70, capped at 55
+MEMORY_CHANGE = {"changes": [{"path": "services.emailservice.resources.limits.memory",
+                              "value": "256Mi"}], "reason": "OOM"}
 
 
 @unittest.skipIf(server is None or pr_tool is None, "fastapi/httpx/ruamel.yaml not installed")
@@ -227,10 +259,13 @@ class ServerPullRequestTest(unittest.TestCase):
         client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
         self.spawn.run_all()
         client.post("/ask", json={"question": "q"}, headers=AUTH)
-        self.assertEqual(self.agent.extra_tools, [["propose_values_change"], []])
+        # Both are scored; only alerts may propose a change
+        self.assertEqual(self.agent.extra_tools,
+                         [["submit_assessment", "propose_values_change"], ["submit_assessment"]])
 
     def test_dry_run_by_default(self):
         client = self.make_client()
+        self.agent.assess = STRONG
         self.agent.propose = {"changes": [{"path": "services.emailservice.resources.limits.memory",
                                            "value": "256Mi"}], "reason": "OOM"}
         client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
@@ -243,6 +278,7 @@ class ServerPullRequestTest(unittest.TestCase):
 
     def test_opens_pr_when_enabled_with_the_alert_key(self):
         client = self.make_client(SREAGENT_OPEN_PRS="true")
+        self.agent.assess = STRONG
         self.agent.propose = {"changes": [{"path": "services.emailservice.resources.limits.memory",
                                            "value": "256Mi"}], "reason": "OOM"}
         client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
@@ -252,6 +288,81 @@ class ServerPullRequestTest(unittest.TestCase):
         self.assertEqual(pr["status"], "opened")
         self.assertTrue(pr["branch"].startswith("sre-agent/"))
         self.assertTrue(self.gh.pulls[0]["body"].startswith(pr_tool.key_marker(KEY)))
+
+    def run_alert(self, client, assess, propose=MEMORY_CHANGE):
+        self.agent.assess, self.agent.propose = assess, propose
+        client.post("/alert", json=self.emailservice_alert(), headers=AUTH)
+        self.spawn.run_all()
+        return client.get("/investigations", headers=AUTH).json()[0]
+
+    def test_record_carries_the_score_reasons_and_model_words(self):
+        record = self.run_alert(self.make_client(), STRONG)
+        conf = record["confidence"]
+        self.assertEqual((conf["score"], conf["min_for_pr"], conf["min_for_rollback"]), (90, 70, 85))
+        self.assertEqual(conf["reasons"][0]["points"], 50)
+        self.assertEqual(len(conf["submissions"]), 1)
+        self.assertEqual(record["note"], "")
+        self.assertIn("## Confidence\nHigh. It all fits.", record["answer"])   # model's words kept
+
+    def test_below_threshold_reports_but_proposes_nothing(self):
+        client = self.make_client(SREAGENT_OPEN_PRS="true")
+        record = self.run_alert(client, WEAK)
+        self.assertEqual(record["confidence"]["score"], 55)
+        self.assertIsNone(record["pull_request"])
+        self.assertEqual(self.gh.writes, [])
+        self.assertIn("Not proposed: the evidence score is 55/100 and a change needs 70",
+                      self.agent.tool_results[-1])
+        self.assertTrue(record["note"].startswith(
+            "No change proposed: the evidence score is 55/100, below the 70 needed"))
+        self.assertIn("no alternative explanation was ruled out", record["note"])
+
+    def test_threshold_is_configurable(self):
+        client = self.make_client(SREAGENT_OPEN_PRS="true", SREAGENT_MIN_CONFIDENCE_FOR_PR="75")
+        record = self.run_alert(client, MEDIUM)                     # 70 < 75
+        self.assertIsNone(record["pull_request"])
+        self.assertIn("below the 75 needed", record["note"])
+
+    def test_no_assessment_no_change(self):
+        record = self.run_alert(self.make_client(), None)
+        self.assertIsNone(record["confidence"]["score"])
+        self.assertIsNone(record["pull_request"])
+        self.assertIn("submit_assessment", self.agent.tool_results[-1])
+        self.assertIn("no evidence assessment was submitted", record["note"])
+
+    def test_rollback_needs_the_higher_threshold(self):
+        rollback = {"changes": [{"path": "image.tag", "value": TAGS[1]}], "reason": "bad deploy"}
+        client = self.make_client()
+        record = self.run_alert(client, dict(STRONG, unverified=[             # 90 - 15 = 75
+            {"what": "the old image's behaviour", "could_change_diagnosis": True}]), rollback)
+        self.assertIsNone(record["pull_request"])
+        self.assertIn("an image.tag rollback (it affects every service) needs 85",
+                      self.agent.tool_results[-1])
+        record = self.run_alert(self.make_client(), STRONG, rollback)          # 90
+        self.assertEqual(record["pull_request"]["status"], "dry_run")
+
+    def test_opened_pr_body_shows_the_score(self):
+        record = self.run_alert(self.make_client(SREAGENT_OPEN_PRS="true"), STRONG)
+        self.assertEqual(record["pull_request"]["status"], "opened")
+        body = self.gh.pulls[0]["body"]
+        self.assertIn("## Confidence\n\n**Evidence score: 90 / 100.**", body)
+        self.assertIn("| +50 | Cause directly observed: list_pods (#1), recent_chart_commits (#3) |", body)
+        self.assertIn("> **Agent's own assessment:** High. It all fits.", body)
+        self.assertLess(body.index("## Confidence"), body.index("## Diagnosis"))
+
+    def test_reports_are_redacted(self):
+        client = self.make_client()
+        self.agent.answer = "OOMKilled on ip-10-0-10-135.ec2.internal (10.0.10.135), image " \
+                            "073759315444.dkr.ecr.us-east-1.amazonaws.com/x:v1"
+        record = self.run_alert(client, STRONG)
+        self.assertEqual(record["answer"], "OOMKilled on <node-1> (<ip-1>), image "
+                                           "<account-id>.dkr.ecr.us-east-1.amazonaws.com/x:v1")
+
+    def test_ask_is_scored_too(self):
+        client = self.make_client()
+        self.agent.assess = STRONG
+        resp = client.post("/ask", json={"question": "why?"}, headers=AUTH).json()
+        self.assertEqual(resp["confidence"]["score"], 90)
+        self.assertIsNone(resp["pull_request"])
 
     def test_no_proposal_no_pull_request(self):
         client = self.make_client(SREAGENT_OPEN_PRS="true")

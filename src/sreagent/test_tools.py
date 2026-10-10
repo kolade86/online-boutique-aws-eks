@@ -50,6 +50,27 @@ class RedactTest(unittest.TestCase):
         text = 'max_tokens=100 grpc_code="Unavailable" memory=512Mi cpu: 100m'
         self.assertEqual(redact(text), text)
 
+    def test_infra_identifiers_get_numbered_placeholders(self):
+        from redact import redact_infra, redact_public
+        text = ("pods on ip-10-0-10-135.ec2.internal and ip-10-0-11-45.ec2.internal, again "
+                "ip-10-0-10-135.ec2.internal; node ip-10-0-1-5.us-east-1.compute.internal")
+        self.assertEqual(redact_infra(text), "pods on <node-1> and <node-2>, again <node-1>; "
+                                             "node <node-3>")
+        self.assertEqual(redact_infra('connect "10.0.11.207:8080"; dns 172.20.0.10:53; 10.0.11.207'),
+                         'connect "<ip-1>:8080"; dns <ip-2>:53; <ip-1>')
+        self.assertEqual(
+            redact_infra("073759315444.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-x:v20261004"),
+            "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-x:v20261004")
+        self.assertEqual(redact_infra("arn:aws:iam::073759315444:role/r arn:aws:sns:us-east-1:073759315444:t"),
+                         "arn:aws:iam::<account-id>:role/r arn:aws:sns:us-east-1:<account-id>:t")
+        self.assertEqual(redact_public("token=abcdef123456 on 10.1.2.3"), "token=[REDACTED] on <ip-1>")
+
+    def test_infra_redaction_leaves_ordinary_numbers(self):
+        from redact import redact_infra
+        text = ("v1.29.3 4.295e7 1.2.3 999.1.1.1 1.2.3.4.5 count 123456789012 "
+                "2026-10-04T15:45:34Z sha 20b4232a tag v20261004-134739-d34db63e 37.5%")
+        self.assertEqual(redact_infra(text), text)
+
     def test_truncate_tail_mode_keeps_head_and_tail(self):
         out = truncate("H" * 50 + "M" * 1000 + "T" * 50, 120, keep="tail")
         self.assertTrue(out.startswith("H"))
