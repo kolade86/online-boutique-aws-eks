@@ -428,7 +428,7 @@ services:
         value: "kolade86/online-boutique-aws-eks"  # change for a fork
       # Validate proposed changes but open no PRs until this is "true"
       - name: SREAGENT_OPEN_PRS
-        value: "false"
+        value: "true"
     secretEnv:
       - name: ANTHROPIC_API_KEY
         secret: sreagent
