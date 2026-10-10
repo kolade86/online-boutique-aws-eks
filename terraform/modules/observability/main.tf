@@ -438,6 +438,97 @@ resource "helm_release" "kube_prometheus_stack" {
 }
 
 # ============================================
+# SRE agent webhook token - External Secrets
+# ============================================
+# Alertmanager authenticates to the SRE agent with the agent's api-token.
+# It lives in Secrets Manager (platform-services: <project>-<env>-sreagent)
+# and is synced here as the Secret "sreagent-webhook", key "token". Same
+# pattern as the app namespace's database credentials: a namespaced
+# SecretStore authenticating as an "external-secrets-sa" ServiceAccount that
+# assumes the External Secrets Operator's IRSA role.
+#
+# No ordering is needed against the Helm release above: Alertmanager mounts
+# the Secret as an optional volume (prometheus-values.yaml.tftpl).
+
+resource "kubernetes_service_account" "external_secrets" {
+  count = var.sreagent_alerts_enabled ? 1 : 0
+
+  metadata {
+    name      = "external-secrets-sa"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = var.external_secrets_role_arn
+    }
+  }
+}
+
+resource "kubectl_manifest" "secret_store" {
+  count = var.sreagent_alerts_enabled ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "external-secrets.io/v1"
+    kind       = "SecretStore"
+    metadata = {
+      name      = "${var.project_name}-${var.environment}-secret-store"
+      namespace = kubernetes_namespace.monitoring.metadata[0].name
+    }
+    spec = {
+      provider = {
+        aws = {
+          service = "SecretsManager"
+          region  = var.aws_region
+          auth = {
+            jwt = {
+              serviceAccountRef = {
+                name = kubernetes_service_account.external_secrets[0].metadata[0].name
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+}
+
+resource "kubectl_manifest" "sreagent_webhook_secret" {
+  count = var.sreagent_alerts_enabled ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "external-secrets.io/v1"
+    kind       = "ExternalSecret"
+    metadata = {
+      name      = "sreagent-webhook"
+      namespace = kubernetes_namespace.monitoring.metadata[0].name
+    }
+    spec = {
+      refreshInterval = "1h"
+      secretStoreRef = {
+        name = "${var.project_name}-${var.environment}-secret-store"
+        kind = "SecretStore"
+      }
+      target = {
+        name = "sreagent-webhook"
+        # Owner adopts a pre-existing Secret of this name that has no
+        # ownerReference (the hand-made one), keeping it in place.
+        creationPolicy = "Owner"
+        deletionPolicy = "Retain"
+      }
+      data = [
+        {
+          secretKey = "token"
+          remoteRef = {
+            key      = var.sreagent_secret_name
+            property = "api-token"
+          }
+        }
+      ]
+    }
+  })
+
+  depends_on = [kubectl_manifest.secret_store]
+}
+
+# ============================================
 # Monitoring Access — private, no ingress
 # ============================================
 # The monitoring stack is deliberately NOT exposed through an ingress/ALB.

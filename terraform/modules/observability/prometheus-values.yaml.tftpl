@@ -76,11 +76,23 @@ alertmanager:
     serviceAccountName: monitoring-kube-prometheus-alertmanager
 %{ if sreagent_alerts_enabled ~}
 
-    # Bearer token for the SRE agent's webhook, mounted at
-    # /etc/alertmanager/secrets/sreagent-webhook/token. The Secret is created
-    # by hand; without it Alertmanager cannot start.
-    secrets:
-      - sreagent-webhook
+    # Bearer token for the SRE agent's webhook, from the Secret
+    # "sreagent-webhook" that External Secrets syncs from Secrets Manager
+    # (main.tf). Mounted as an OPTIONAL volume - not via `secrets:`, which
+    # cannot be optional - so a Secret that does not exist yet (a fresh
+    # sandbox before load-secrets.sh) can never stop Alertmanager from
+    # starting or reconciling. credentials_file is read on each request, so
+    # until the token appears only the notifications to the agent fail and
+    # are retried; the email receiver is unaffected.
+    volumes:
+      - name: sreagent-webhook
+        secret:
+          secretName: sreagent-webhook
+          optional: true
+    volumeMounts:
+      - name: sreagent-webhook
+        mountPath: /etc/alertmanager/sreagent-webhook
+        readOnly: true
 %{ endif ~}
 
     # Storage
@@ -160,7 +172,7 @@ alertmanager:
             max_alerts: 10
             http_config:
               authorization:
-                credentials_file: /etc/alertmanager/secrets/sreagent-webhook/token
+                credentials_file: /etc/alertmanager/sreagent-webhook/token
 %{ endif ~}
       - name: web.hook
         sns_configs:

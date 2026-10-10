@@ -8,6 +8,14 @@ image:
 redis:
   addr: ""  # e.g. online-boutique-dev-redis.abc123.ng.0001.use1.cache.amazonaws.com:6379
 
+# External Secrets - passed at deploy time by Terraform (Argo CD parameters).
+# Names only, never values. Empty: no ExternalSecrets are rendered, and a
+# service's Secret must be created by hand.
+externalSecrets:
+  secretStore: ""      # e.g. online-boutique-dev-secret-store
+  remoteKeyPrefix: ""  # e.g. online-boutique-dev -> reads online-boutique-dev-<service>
+  refreshInterval: 1h
+
 # Ingress
 ingress:
   enabled: true
@@ -401,7 +409,8 @@ services:
   # never changes the cluster. One replica, no HPA or PDB: it is not on the
   # request path. Reachable only inside the cluster (ClusterIP; the ingress
   # routes to frontend alone). Its secrets come from the Secret "sreagent",
-  # created by hand - see src/sreagent/README.md.
+  # which External Secrets syncs from the Secrets Manager secret
+  # <project>-<env>-sreagent (values loaded by src/sreagent/load-secrets.sh).
   sreagent:
     port: 8080
     protocol: http
@@ -429,6 +438,10 @@ services:
       # Validate proposed changes but open no PRs until this is "true"
       - name: SREAGENT_OPEN_PRS
         value: "true"
+    # Sync the Secret "sreagent" (every secretEnv key below) from Secrets
+    # Manager - templates/externalsecrets.yaml
+    externalSecret:
+      name: sreagent
     secretEnv:
       - name: ANTHROPIC_API_KEY
         secret: sreagent

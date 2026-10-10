@@ -1,0 +1,30 @@
+# Line endings
+#
+# Git for Windows defaults to core.autocrlf=true, which checks text files out
+# with CRLF. Files whose bytes reach Linux must keep LF everywhere, or they
+# break or change identity:
+# - a script with CRLF fails on Linux ("/bin/bash^M: bad interpreter");
+# - Terraform hashes user_data (bastion-userdata.sh) and renders templates
+#   (*.tftpl) from the working copy, so a CRLF checkout shows up as drift in
+#   `terraform plan` without any real change.
+# eol=lf pins these to LF in the working copy on every OS.
+
+# Let Git detect text and store it normalized (LF) in the repository.
+* text=auto
+
+# Shell scripts, including Terraform user_data
+*.sh       text eol=lf
+*.bash     text eol=lf
+gradlew    text eol=lf
+
+# Files rendered by Terraform's templatefile()
+*.tftpl    text eol=lf
+*.tpl      text eol=lf
+
+# Container builds run on Linux
+Dockerfile   text eol=lf
+Dockerfile.* text eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
