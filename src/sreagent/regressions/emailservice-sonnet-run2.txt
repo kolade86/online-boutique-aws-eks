@@ -1,0 +1,35 @@
+ask: One emailservice pod is only a few minutes old while the others are an hour old. Why was it replaced?
+model: claude-sonnet-5-5   run at: 2026-10-04T15:45:34Z
+
+**Cause:** the pod was deleted by a scale-down loop between the HPA and Argo CD. A probe or crash didn't remove it.
+
+**Current state**
+- Two pods exist: `emailservice-7959ddb655-s98dz` (1h51m old) and `emailservice-7959ddb655-97dt8` (1m old). Both have 0 restarts, so nothing is crashing or being restarted in place.
+
+**Removal half**
+- The HPA reports "New size: 1; reason: All metrics below target". This has happened 21 times since 1h45m ago. CPU is at 1% against a 70% target.
+- The Deployment then logs "Scaled down replica set from 2 to 1", also 21 times.
+- The ReplicaSet deletes the newest pod each time: j5sz6, c9txp, c5v9n, bp9kx and so on, roughly every 5 minutes. The 1h51m-old pod survives because the ReplicaSet removes the most recently started pod.
+- Each deletion is followed by a kubelet "Killing … Stopping container server", which is the effect of that deletion.
+
+**What brings it back**
+- The Deployment logs "Scaled up replica set from 1 to 2" 22 times, and the ReplicaSet creates a replacement pod each time. No HPA event asks for this: the HPA only ever reports scaling to 1.
+- The chart explains it. In `values.yaml` (line 261 onward), `emailservice` has `replicas: 2` and an HPA of `minReplicas: 1`, `maxReplicas: 3`. `values-dev.yaml` doesn't override either.
+- The Deployment is therefore rendered with 2 replicas. The HPA scales it to 1 because load is low. Argo CD's self-heal then most likely restores 2.
+- I did not see Argo CD act directly, because its changes don't appear as events in this namespace. This is inferred from the chart values and the missing HPA scale-up events.
+- Other services don't loop because their HPA minimum is 2, which matches their replica count.
+
+**Readiness failures**
+- Each new pod shows "Readiness probe failed … within 1s" twice, just after it starts. That is normal startup. The old pods weren't killed by this, since a failed readiness probe never deletes a pod.
+
+**Fix**
+- Make the chart consistent: either set `emailservice` `replicas` to 1, or set the HPA `minReplicas` to 2. Do this through a commit to Git, not on the cluster.
+
+------------------------------------------------------------------------
+Outcome: answered   Tool calls: 6 of 15 allowed   Elapsed: 14.3s
+   1. [ok] list_pods {"app": "emailservice"}
+   2. [ok] list_events {"app": "emailservice"}
+   3. [ok] list_hpas {}
+   4. [ok] read_repo_file {"path": "helm/online-boutique/values.yaml", "search": "  emailservice:"}
+   5. [ok] read_repo_file {"path": "helm/online-boutique/values-dev.yaml"}
+   6. [ok] read_repo_file {"path": "helm/online-boutique/values.yaml", "start_line": 261, "max_lines": 35}

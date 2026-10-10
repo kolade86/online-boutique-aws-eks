@@ -77,3 +77,17 @@ variable "alb_arn_suffix" {
   type        = string
   default     = ""
 }
+# ============================================
+# SRE agent webhook (src/sreagent)
+# ============================================
+
+variable "app_namespace" {
+  description = "Namespace of the application; only alerts from it are sent to the SRE agent, whose Service lives there"
+  type        = string
+}
+
+variable "sreagent_alerts_enabled" {
+  description = "Send workload-health alerts to the SRE agent's /alert webhook. Create the Secret 'sreagent-webhook' (key 'token') in the monitoring namespace first: Alertmanager mounts it and cannot start without it"
+  type        = bool
+  default     = false
+}

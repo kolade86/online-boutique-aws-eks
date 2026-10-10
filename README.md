@@ -113,9 +113,9 @@ images, then records which tag to run; Argo CD applies it to the dev cluster.
   merge to main
        |
        v
-  Build Images  (build.yml)
-       |
-       +--> build 11 images, Trivy scan + SBOM
+  Build Images  (build.yml; only when src/** changed -
+       |         chart-only merges go straight to Argo CD)
+       +--> build 12 images, Trivy scan + SBOM
        |
        +--> push images to ECR
        |
@@ -159,7 +159,7 @@ Image tags are immutable and traceable: `vYYYYMMDD-HHMMSS-<short-sha>`.
 | Workflow | Trigger | Does |
 |---|---|---|
 | `unit-test.yml` | PRs touching `src/**` or `helm/**` | Go, .NET, Jest, unittest, Gradle tests |
-| `build.yml` | push to `main`, or manual | Build 11 images, Trivy scan, SBOM, push to ECR, commit the tag |
+| `build.yml` | push to `main` touching `src/**`, or manual | Build 12 images, Trivy scan, SBOM, push to ECR, commit the tags |
 | `terraform-checks.yml` | PRs touching `terraform/**` | fmt, validate, tflint — no AWS access |
 | `terraform-plan.yml` | after Checks succeeds (`workflow_run`) | `terraform plan` to the job summary |
 | `terraform-apply.yml` | manual (`workflow_dispatch`) | Terraform plan + apply against AWS |

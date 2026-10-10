@@ -15,10 +15,15 @@ ingress:
   healthCheckPath: /_healthz
 
 # Service definitions
-# Every entry renders a Deployment (plus Service/HPA/PDB/ServiceMonitor unless
-# opted out with noService/noHpa/noPdb/noServiceMonitor). Set `enabled: false`
-# on a service to skip it entirely - no manifests of any kind are generated.
-# Omitting `enabled` means enabled.
+# Every entry renders a Deployment (plus Service/HPA/PDB unless opted out with
+# noService/noHpa/noPdb). Set `enabled: false` on a service to skip it
+# entirely - no manifests of any kind are generated. Omitting `enabled` means
+# enabled.
+# A ServiceMonitor is rendered only for a service with a `serviceMonitor:`
+# block (port, path). None has one: no service exposes Prometheus metrics
+# (they are instrumented for OpenTelemetry tracing only), so scraping them
+# only produced permanent TargetDown alerts. Add the block back for a service
+# once it serves /metrics.
 # `replicas` only applies to services without an HPA (noHpa: true). With an
 # HPA, the Deployment omits spec.replicas and hpa.minReplicas/maxReplicas
 # decide the count.
@@ -85,10 +90,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: http
-      path: /metrics
-
   cartservice:
     port: 7070
     protocol: grpc
@@ -121,10 +122,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   productcatalogservice:
     port: 3550
     protocol: grpc
@@ -154,10 +151,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   currencyservice:
     port: 7000
     protocol: grpc
@@ -189,10 +182,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   paymentservice:
     port: 50051
     protocol: grpc
@@ -224,10 +213,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   shippingservice:
     port: 50051
     protocol: grpc
@@ -257,10 +242,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   emailservice:
     port: 8080
     protocol: grpc
@@ -290,10 +271,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   checkoutservice:
     port: 5050
     protocol: grpc
@@ -335,10 +312,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   recommendationservice:
     port: 8080
     protocol: grpc
@@ -370,10 +343,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   adservice:
     port: 9555
     protocol: grpc
@@ -405,10 +374,6 @@ services:
       cpuUtilization: 70
     pdb:
       minAvailable: 1
-    serviceMonitor:
-      port: grpc
-      path: /metrics
-
   loadgenerator:
     replicas: 1
     containerName: main
@@ -430,6 +395,69 @@ services:
       limits:
         cpu: 500m
         memory: 512Mi
+
+  # SRE agent (src/sreagent). Investigates alerts with read-only tools and
+  # opens pull requests against values-dev.yaml for a human to merge; it
+  # never changes the cluster. One replica, no HPA or PDB: it is not on the
+  # request path. Reachable only inside the cluster (ClusterIP; the ingress
+  # routes to frontend alone). Its secrets come from the Secret "sreagent",
+  # created by hand - see src/sreagent/README.md.
+  sreagent:
+    port: 8080
+    protocol: http
+    replicas: 1
+    noHpa: true
+    noPdb: true
+    serviceAccount: true
+    rbac:
+      # Read-only, this namespace only. No Secrets.
+      rules:
+        - apiGroups: [""]
+          resources: ["pods", "pods/log", "events"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["apps"]
+          resources: ["deployments", "replicasets"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["autoscaling"]
+          resources: ["horizontalpodautoscalers"]
+          verbs: ["get", "list", "watch"]
+    env:
+      - name: PORT
+        value: "8080"
+      - name: GITHUB_REPO
+        value: "kolade86/online-boutique-aws-eks"  # change for a fork
+      # Validate proposed changes but open no PRs until this is "true"
+      - name: SREAGENT_OPEN_PRS
+        value: "false"
+    secretEnv:
+      - name: ANTHROPIC_API_KEY
+        secret: sreagent
+        key: anthropic-api-key
+      - name: GITHUB_TOKEN
+        secret: sreagent
+        key: github-token
+      - name: SREAGENT_API_TOKEN
+        secret: sreagent
+        key: api-token
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 384Mi
+    readinessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+      initialDelaySeconds: 5
+      timeoutSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+      initialDelaySeconds: 15
+      timeoutSeconds: 5
 
   # Disabled: the real assistant (src/shoppingassistantservice) needs Gemini
   # and an AlloyDB vector store that this AWS deployment does not provide.

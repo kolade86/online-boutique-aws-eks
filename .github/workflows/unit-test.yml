@@ -143,9 +143,43 @@ jobs:
           ./gradlew test
 
   # Summary job for branch protection rules
+  # SRE agent. Its tests skip themselves when a package is missing (so they
+  # run anywhere), which in CI would hide untested code: install everything
+  # and fail if anything was skipped.
+  test-sreagent:
+    name: "Test: sreagent"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: src/sreagent/requirements.txt
+
+      - name: Install dependencies
+        working-directory: src/sreagent
+        # httpx is only for FastAPI's TestClient, so not in requirements.txt
+        run: pip install -r requirements.txt httpx
+
+      - name: Run tests
+        working-directory: src/sreagent
+        run: |
+          set -o pipefail
+          python -m unittest discover -s . -p 'test_*.py' -v 2>&1 | tee test-output.txt
+          if grep -qE '^OK \(skipped=|skipped [0-9]+' test-output.txt; then
+            echo "::error::Some sreagent tests were skipped - a dependency is missing"
+            exit 1
+          fi
+
   test-summary:
     name: Tests Summary
-    needs: [test-go, test-dotnet, test-node, test-python, test-java]
+    needs: [test-go, test-dotnet, test-node, test-python, test-java, test-sreagent]
     runs-on: ubuntu-latest
     if: always()
     timeout-minutes: 5
@@ -159,7 +193,8 @@ jobs:
             "${{ needs.test-dotnet.result }}" \
             "${{ needs.test-node.result }}" \
             "${{ needs.test-python.result }}" \
-            "${{ needs.test-java.result }}"; do
+            "${{ needs.test-java.result }}" \
+            "${{ needs.test-sreagent.result }}"; do
             if [ "$result" = "failure" ]; then
               FAILED=true
             fi

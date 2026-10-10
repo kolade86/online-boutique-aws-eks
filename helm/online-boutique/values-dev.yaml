@@ -9,3 +9,8 @@ image:
 services:
   loadgenerator:
     replicas: 0
+  sreagent:
+    # The agent's own image tag. MANAGED BY CI together with image.tag, but
+    # kept separate so that rolling image.tag back never rolls the agent back
+    # to a tag that predates its first image. The agent may not change it.
+    imageTag: "v20261004-154933-68ac8238"

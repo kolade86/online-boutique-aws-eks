@@ -1,0 +1,44 @@
+ask: Is emailservice stable now? Are its pods still being replaced every few minutes?
+model: claude-sonnet-5-5   run at: 2026-10-04T16:01:32Z
+
+**No, emailservice is not stable yet. The replacement cycle was still running about 2 minutes ago, and the current single pod is probably just the low point of that cycle.**
+
+**Current state**
+- There is one pod, `emailservice-748b648c5f-4xtfc`. It is Running and ready, with 0 restarts and an age of 8 minutes.
+- The HPA shows 1 current and 1 desired replica, with CPU at 1% against a 70% target.
+
+**The cycle is still going**
+- The Deployment has been scaled up from 1 to 2 and back down 23 times in about 2 hours. The scale-ups happened as recently as 12 minutes ago, and the HPA rescale to size 1 ("All metrics below target") happened 2 minutes ago.
+- `emailservice-7959ddb655-*` pods were deleted roughly every 5 minutes for the last hour, at 59, 54, 49, 43, 38, 33, 28 and 22 minutes ago.
+- The most recent round was at 8 to 2 minutes ago:
+  - The Deployment scaled up to 2 and the new `748b648c5f` ReplicaSet created two pods.
+  - `qf7b8`, the newer of the two, was deleted 2 minutes ago when the Deployment scaled back down from 2 to 1.
+  - `4xtfc`, the older pod, survived.
+- Pod replacement is not caused by probe failures or crashes. These are controller scale-downs, and restarts are 0.
+
+**Why it scales down**
+- The HPA says "All metrics below target", with CPU at 1%. In `values.yaml` its range is `minReplicas: 1` and `maxReplicas: 3`.
+
+**Why it scales back up (probable cause, not confirmed)**
+- `values.yaml` sets `replicas: 2` for emailservice, while the HPA minimum is 1.
+- The scale-up to 2 also shows no HPA event asking for it. Your GitOps notes describe Argo CD restoring the chart's replica count after the HPA scales down. That fits the pattern, but Argo CD's actions don't appear in events, so I couldn't observe it directly.
+- To settle it, check the Argo CD sync history for the emailservice Deployment's `spec.replicas`. The fix is probably to remove `replicas: 2` from the chart's emailservice block, or to ignore the replicas field in Argo CD.
+
+**Other symptoms**
+- Readiness and liveness probes time out ("within 1s") on new pods just after they start, which is normal startup behaviour.
+- One scheduling warning appeared for the pod that was later deleted: `0/4 nodes are available: 4 Insufficient cpu`. Cluster CPU is tight, but this doesn't cause the cycle.
+
+**Image deploys**
+- The latest deploy, tag `v20261004-154933`, was committed at 15:52 UTC. The cycle was already running before it (the older `7959ddb655` ReplicaSet was cycling for over an hour), so it isn't caused by the deploy.
+
+Expect another scale-up to 2 pods, and another deletion of the newest pod, within the next few minutes.
+
+------------------------------------------------------------------------
+Outcome: answered   Tool calls: 7 of 15 allowed   Elapsed: 19.6s
+   1. [ok] list_pods {"app": "emailservice"}
+   2. [ok] list_events {"app": "emailservice"}
+   3. [ok] list_hpas {}
+   4. [ok] read_repo_file {"path": "helm/online-boutique/values.yaml", "search": "  emailservice:"}
+   5. [ok] recent_values_commits {"limit": 3}
+   6. [ok] read_repo_file {"path": "helm/online-boutique/values.yaml", "start_line": 264, "max_lines": 30}
+   7. [ok] prometheus_query_range {"query": "kube_deployment_spec_replicas{namespace=\"online-boutique-dev\",deployment=\"emailservice\"}", "minutes": 60, "step_seconds": 60}

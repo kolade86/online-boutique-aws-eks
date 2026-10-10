@@ -422,6 +422,9 @@ resource "helm_release" "kube_prometheus_stack" {
       environment           = var.environment
       environment_upper     = upper(var.environment)
       cluster_name          = var.cluster_name
+      # SRE agent webhook receiver and route (off by default)
+      app_namespace           = var.app_namespace
+      sreagent_alerts_enabled = var.sreagent_alerts_enabled
     })
   ]
 

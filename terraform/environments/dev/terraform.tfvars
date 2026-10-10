@@ -76,7 +76,7 @@ github_repo = "kolade86/online-boutique-aws-eks"
 # Observability Configuration
 # ============================================
 
-alert_email_address = "koladeodu20@gmail.com"
+alert_email_address = "koladeodusanya20@outlook.com"
 
 # NOTE: External metrics remote-write (SaaS Prometheus/Grafana) is not configured
 # in this environment. Observability runs entirely in-cluster via kube-prometheus-stack.

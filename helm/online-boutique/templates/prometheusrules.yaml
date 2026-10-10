@@ -146,17 +146,3 @@ spec:
           annotations:
             summary: "Frontend HTTP 5xx error rate above 5%"
             description: "The frontend service has had more than 5% HTTP 5xx errors for 5 minutes."
-
-    # ==========================================
-    # Redis (Cart Backend) Alerts
-    # ==========================================
-    - name: redis
-      rules:
-        - alert: RedisDown
-          expr: up{job="redis-exporter"} == 0
-          for: 2m
-          labels:
-            severity: critical
-          annotations:
-            summary: "Redis exporter is down"
-            description: "Redis exporter has been unreachable for 2 minutes. Cart service may be impacted."

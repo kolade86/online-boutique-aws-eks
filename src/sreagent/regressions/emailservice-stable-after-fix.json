@@ -1,0 +1,58 @@
+{
+  "id": "emailservice-stable-after-fix",
+  "mode": "ask",
+  "question": "Is emailservice stable now? Are its pods still being replaced every few minutes?",
+  "related_case": "emailservice-pod-replaced.json",
+  "situation": "The chart fix (omit spec.replicas when a service has an HPA) merged as PR #12 at 15:49:27 UTC. The merge triggered a build, and the image tag commit 20b4232 (v20261004-154933-68ac8238) landed at 15:52:14 UTC, so Argo CD synced both at once: the template change and an image rollout. The rollout created a new ReplicaSet (emailservice-748b648c5f) with two pods, replacing the cycling one (emailservice-7959ddb655). The HPA then scaled the new ReplicaSet 2 -> 1, and nothing scaled it back up.",
+  "operator_verified": [
+    "The applied emailservice Deployment manifest has no spec.replicas field.",
+    "The HPA is at 1 replica and one pod is running.",
+    "3m35s after the last 'Scaled down ... from 2 to 1' there was no scale-up. Before the fix the scale-up followed within 1-2 seconds."
+  ],
+  "key_evidence": [
+    "describe_deployment emailservice: spec.replicas absent from the last applied manifest; owned only by the HPA's scale subresource (kube-controller-manager)",
+    "recent_chart_commits: the template change (deployments.yaml, 'replicas' removed for HPA services) merged at 15:49, the image deploy at 15:52 - both after the last old-cycle events",
+    "list_events: the 7959ddb655 scale-up/scale-down events (x22/x23) stop at the rollout; after it, the new ReplicaSet 748b648c5f is scaled down 2 -> 1 once and is not scaled back up",
+    "The two new pods at 15:53 come from a new ReplicaSet hash: a rollout, not a round of the cycle"
+  ],
+  "expected_diagnosis": "The cycle appears to have stopped - or the evidence is still too short to be sure. The template change that removes spec.replicas for HPA-managed services was deployed at ~15:52; describe_deployment shows the field is no longer in the applied manifest, so Argo CD has nothing to restore. The two new pods were an image rollout (new ReplicaSet), not the cycle. Since the rollout the HPA scaled the new ReplicaSet to 1 and no scale-up followed, where the old cycle scaled back up within seconds. To confirm: no new 'Scaled up replica set ... from 1 to 2' on 748b648c5f over the next several cycle periods (~5 min each).",
+  "pass_criteria": {
+    "must_say_one_of": [
+      "the cycle appears to have stopped (with the evidence: no scale-up after the last scale-down, spec.replicas absent from the applied manifest, the template change deployed)",
+      "the evidence is not yet sufficient to tell, and what observation would settle it"
+    ],
+    "must_not": [
+      "say the cycle is still going or that the pod is 'not stable'",
+      "predict a future scale-up or deletion",
+      "count the image rollout (new ReplicaSet hash) as a round of the cycle",
+      "recommend removing replicas: 2 from values.yaml or the chart as if the conflict still existed"
+    ],
+    "expected_tool_calls": ["describe_deployment name=emailservice",
+                            "recent_chart_commits",
+                            "list_events app=emailservice"]
+  },
+  "runs": [
+    {
+      "date": "2026-10-04",
+      "run_at": "15:54:30 UTC",
+      "agent_version": "commit b4a6d04 (before describe_deployment, recent_chart_commits, rollout/prediction guidance, current time)",
+      "model": "claude-sonnet-5-5",
+      "tool_calls": 7,
+      "output_file": "emailservice-after-fix.txt",
+      "verdict": "fail",
+      "answer": "Not yet stable; the cycle has run for about 2 hours; nothing shows it has stopped. Correctly noticed the new ReplicaSet but marked whether it was the deploy as unknown because it could not see the current time.",
+      "why_wrong": "Concluded the conflict remains from values.yaml (still replicas: 2) - it could not see that the template now omits the field. Read history from before the fix as current. It did suggest a sensible check (re-read events in 10-15 minutes)."
+    },
+    {
+      "date": "2026-10-04",
+      "run_at": "16:01:32 UTC",
+      "agent_version": "commit b4a6d04",
+      "model": "claude-sonnet-5-5",
+      "tool_calls": 7,
+      "output_file": "emailservice-after-fix-confirmed.txt",
+      "verdict": "fail",
+      "answer": "No, not stable; the cycle was still running 2 minutes ago; the single pod is the low point of the cycle; expect another scale-up within minutes.",
+      "why_wrong": "Treated the image rollout (new ReplicaSet 748b648c5f, two pods) as 'the most recent round' of the cycle. Weighed aggregated counts (x23 over 2h, mostly before the fix) over the latest evidence (one scale-down, no scale-up since). Predicted a future event with confidence. Recommended removing replicas: 2 even though the deployed template already ignores it. Its own range query of kube_deployment_spec_replicas could have shown the value staying at 1."
+    }
+  ]
+}

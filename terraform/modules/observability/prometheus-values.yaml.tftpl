@@ -53,12 +53,10 @@ prometheus:
             replacement: $1:$2
             target_label: __address__
 
-      # Redis metrics scraping
-      - job_name: redis-exporter
-        static_configs:
-          - targets: ['redis-exporter:9121']
-        scrape_interval: 30s
-        metrics_path: /metrics
+      # No redis-exporter job: no exporter is deployed, so a static
+      # 'redis-exporter:9121' target was permanently down (TargetDown +
+      # RedisDown). Redis is ElastiCache; its CPU, memory and evictions are
+      # covered by CloudWatch alarms in main.tf.
 
   # Service account configuration
   serviceAccount:
@@ -76,6 +74,14 @@ alertmanager:
   alertmanagerSpec:
     # Use your existing IRSA role
     serviceAccountName: monitoring-kube-prometheus-alertmanager
+%{ if sreagent_alerts_enabled ~}
+
+    # Bearer token for the SRE agent's webhook, mounted at
+    # /etc/alertmanager/secrets/sreagent-webhook/token. The Secret is created
+    # by hand; without it Alertmanager cannot start.
+    secrets:
+      - sreagent-webhook
+%{ endif ~}
 
     # Storage
     storage:
@@ -128,21 +134,52 @@ alertmanager:
         - receiver: "null"
           matchers:
             - 'alertname =~ "Watchdog|InfoInhibitor"'
+%{ if sreagent_alerts_enabled ~}
+        # SRE agent: only the chart's workload-health alerts in the app
+        # namespace. Must match alerts.route_matchers() in src/sreagent
+        # (a test there checks it). `continue` so they are emailed as well.
+        - receiver: sre-agent
+          continue: true
+          matchers:
+            - 'namespace="${app_namespace}"'
+            - 'alertname=~"PodCrashLooping|PodNotReady|ContainerOOMKilled|HighCPUUsage|HighMemoryUsage|DeploymentReplicasMismatch|HpaMaxedOut"'
+            - 'severity=~"warning|critical"'
+        # A route that matched with `continue` stops the fall-back to the
+        # parent's receiver, so email needs an explicit catch-all here.
+        - receiver: web.hook
+%{ endif ~}
 
     receivers:
       # Discards what is routed to it (no integrations configured).
       - name: "null"
+%{ if sreagent_alerts_enabled ~}
+      - name: sre-agent
+        webhook_configs:
+          - url: "http://sreagent.${app_namespace}.svc.cluster.local:8080/alert"
+            send_resolved: false
+            max_alerts: 10
+            http_config:
+              authorization:
+                credentials_file: /etc/alertmanager/secrets/sreagent-webhook/token
+%{ endif ~}
       - name: web.hook
         sns_configs:
           - topic_arn: "${sns_topic_arn}"
-            subject: "[${environment_upper}] Alert: {{ .GroupLabels.alertname }}"
+            # Plain text: SNS email does not render Markdown, so the old
+            # "**Alert:**" markers arrived literally. One block per alert,
+            # with the target (service/job/pod) that the old template left out.
+            subject: "[${environment_upper}] {{ .Status | toUpper }}: {{ .GroupLabels.alertname }} ({{ len .Alerts }})"
             message: |
+              {{ .Status | toUpper }}: {{ .GroupLabels.alertname }}, {{ len .Alerts }} alert(s)
               {{ range .Alerts }}
-              **Alert:** {{ .Annotations.summary }}
-              **Description:** {{ .Annotations.description }}
-              **Severity:** {{ .Labels.severity }}
-              **Instance:** {{ .Labels.instance }}
-              **Time:** {{ .StartsAt }}
+              {{ .Annotations.summary }}
+                Status:    {{ .Status }}
+                Severity:  {{ .Labels.severity }}
+                Namespace: {{ or .Labels.namespace "-" }}
+                Target:    {{ with .Labels.service }}service={{ . }} {{ end }}{{ with .Labels.job }}job={{ . }} {{ end }}{{ with .Labels.pod }}pod={{ . }} {{ end }}{{ with .Labels.instance }}instance={{ . }}{{ end }}
+                Details:   {{ .Annotations.description }}
+                Started:   {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+                Runbook:   {{ or .Annotations.runbook_url "-" }}
               {{ end }}
             attributes:
               environment: "${environment}"
@@ -225,6 +262,17 @@ prometheusOperator:
       cpu: 100m
       memory: 256Mi
 
+# EKS runs the control plane: the scheduler, controller-manager and etcd are
+# not reachable from inside the cluster. Leaving these enabled creates
+# Services and ServiceMonitors with no endpoints, and the absent(up{...})
+# rules then fire forever (KubeSchedulerDown, KubeControllerManagerDown).
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
 # Default rules and alerts
 defaultRules:
   create: true
@@ -246,7 +294,12 @@ defaultRules:
     kubernetesResources: true
     kubernetesStorage: true
     kubernetesSystem: true
-    kubeScheduler: false  # Disable for managed EKS
+    # Not reachable on EKS (see above). The chart's keys are
+    # kubeSchedulerAlerting/kubeSchedulerRecording; a plain "kubeScheduler"
+    # key is ignored, which is why KubeSchedulerDown still fired.
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
     kubeStateMetrics: true
     network: true
     node: true

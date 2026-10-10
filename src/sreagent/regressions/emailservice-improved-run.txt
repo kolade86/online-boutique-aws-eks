@@ -1,0 +1,18 @@
+Based on the evidence, the newer emailservice pod (4 minutes old) was **replaced by the HPA (Horizontal Pod Autoscaler) scaling down**. Here's what happened:
+
+**Timeline of events 4 minutes ago:**
+1. HPA triggered "New size: 1; reason: All metrics below target" — scaling the deployment down from 2 to 1 replica
+2. The Deployment scaled down the ReplicaSet from 2 to 1
+3. Pod `emailservice-7959ddb655-bp9kx` was deleted by the replicaset-controller
+4. Pod `emailservice-7959ddb655-c5v9n` was created (the current 4-minute-old pod)
+
+**Why the replacement happened:** The pod that was deleted (`bp9kx`) had failing readiness probes (timeouts connecting to port 8080) about 10 minutes ago. When the HPA decided to scale down due to low metrics, it removed that unhealthy pod. The new pod was then created as part of the scaling process.
+
+The 1-hour-old pod (`emailservice-7959ddb655-s98dz`) survived because it's on a different node and hasn't had readiness issues. The HPA kept one replica running, which happened to be the healthy one.
+
+**The root cause is readiness probe timeouts** on emailservice—multiple pods over the last 30+ minutes have been failing to respond to health checks on port 8080. This indicates the emailservice container may be slow to start or having connectivity issues.
+
+------------------------------------------------------------------------
+Outcome: answered   Tool calls: 2 of 15 allowed   Elapsed: 7.3s
+   1. [ok] list_pods {"app": "emailservice"}
+   2. [ok] list_events {"app": "emailservice"}
