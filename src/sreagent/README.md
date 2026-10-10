@@ -49,6 +49,8 @@ Every tool call is recorded as evidence.
 | `alerts.py` | Alert identity (alertname + namespace + service) and deduplication |
 | `values_change.py` | Applies a proposed change to `values-dev.yaml` and validates it against the allow-list |
 | `pr_tool.py` | `propose_values_change` (the one write tool) and opening the pull request |
+| `confidence.py` | The evidence score: the scoring rule and `submit_assessment` |
+| `replay.py` | Re-runs a regression case through the model against its recorded tool outputs |
 | `load-secrets.sh` | Loads the agent's keys into AWS Secrets Manager (run once per sandbox, after `terraform apply`) |
 
 To add a Bedrock provider later, write a class with the same `complete()`
@@ -562,6 +564,118 @@ The synthetic alert also sends one email, because the route has
   - Until then, notifications sent with the old token get a 401 from the
     restarted agent, and are retried.
 
+## Evidence score
+
+Every investigation and every `/ask` answer ends with an **evidence score**
+from 0 to 100. It appears beside the agent's own plain-language "Confidence"
+section, in four places: the CLI output, the `/investigations` record, the
+pull request body, and the code's note when no change is proposed.
+
+**What the score is, and what it is not:**
+
+- It measures **how well the conclusion is supported by the evidence the
+  agent cited**. It is **not** a calibrated probability that the diagnosis
+  is right.
+- **The code checks that each citation exists and succeeded. It does not
+  check that the cited result proves the claim.** Whether a result "shows
+  the cause" is the model's judgement, made in a structured form the code
+  can score.
+- **Stage 6 evaluation is what checks whether scores track correctness.**
+  Until then, treat the score as a structured summary of the agent's
+  evidence, not as a measure of accuracy.
+
+### How it is produced
+
+Before its final answer, the model calls `submit_assessment`. This is a
+strict tool: the API guarantees the input matches its schema. Each tool
+result the model sees is numbered `[call #N]`, and the model cites those
+numbers.
+
+| Field | Values |
+|---|---|
+| `conclusion` | `cause_found`, `no_problem`, `inconclusive` |
+| `cause` | one sentence |
+| `cause_support` | `observed` (a cited result shows the cause itself) or `inferred` |
+| `cause_evidence` | call numbers |
+| `alternatives` | up to 5 × `{cause, result: ruled_out \| not_ruled_out, evidence}` |
+| `timing` | `matches`, `does_not_match`, `not_checked`, plus `timing_evidence` |
+| `unverified` | up to 5 × `{what, could_change_diagnosis}` |
+
+[confidence.py](confidence.py) turns the assessment into the score. The
+whole rule is the `POINTS` table at the top of that file:
+
+| Rule | Points |
+|---|---|
+| Cause observed, with at least one valid citation | +50 |
+| Cause inferred, or "observed" with no valid citation | +30 |
+| Cause cited from 2 or more different tools | +10 |
+| Each alternative ruled out with a citation (at most 2) | +10 |
+| Each alternative not ruled out | −15 |
+| Timing matches the alert, with a citation | +20 |
+| Timing does not match | −20 |
+| Each unverified item that could change the diagnosis | −15 |
+| Each detail-only unverified item | −2, at most −6 in total |
+| No alternative ruled out with evidence | capped at 55 |
+| `inconclusive` | 20 |
+
+- **Valid citations:** a citation counts only if it names a real tool call
+  that succeeded. An assessment can't cite another assessment.
+- **Every adjustment is a listed reason.** That includes dropped citations,
+  an empty cause, and trimmed lists.
+- **The score is deterministic.** The same assessment and the same tool
+  calls always give the same score.
+
+**Revisions.** The model may revise its assessment once, and only after
+making new tool calls. Every submission and its score is kept, both in
+`/investigations` (`confidence.submissions`) and in the pull request
+("Assessment history").
+
+### What the score gates
+
+| Setting | Default | |
+|---|---|---|
+| `SREAGENT_MIN_CONFIDENCE_FOR_PR` | `70` | Below this, `propose_values_change` refuses. The agent reports its diagnosis without a change, and the code adds a note saying why |
+| `SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK` | `85` | For a change to `image.tag`, which affects every service |
+
+- **No assessment, no change.** If the model never submits an assessment,
+  nothing can be proposed.
+- **The latest assessment decides.** Before a PR is opened, the score is
+  checked again against the latest assessment.
+
+### The regression cases
+
+`python cli.py scores` lists every scored run in [regressions/](regressions/).
+
+- **Hand-written assessments** are used only where no recorded tool output
+  exists, and are marked `hand-written`. They are deterministic, so
+  `test_regressions.py` holds the rule to them: every wrong answer below 70,
+  every correct one at 70 or above.
+- **Model replays.** Where tool output was recorded, the model produces
+  the assessment itself. A replay re-runs the case through the real model,
+  with the tools answering from the recording. Repository tools read git at
+  the commit that was deployed then. Any other call returns "no recorded
+  output".
+
+```bash
+cd src/sreagent
+export GITHUB_REPO=kolade86/online-boutique-aws-eks APP_NAMESPACE=online-boutique-dev
+read -rsp "Anthropic API key: " ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY; echo
+SREAGENT_MODEL=claude-haiku-4-5-20251001 python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
+SREAGENT_MODEL=claude-sonnet-5-5          python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
+python cli.py scores
+```
+
+Each replay run is graded by the case's keyword hints. That is a rough
+automatic check, not a review. If an answer that fails the check scores at
+or above the PR threshold, `replay` prints a WARNING.
+
+**Redaction.** Everything people read has node names, IP addresses and AWS
+account IDs (including inside ECR image URLs) replaced. That covers
+reports, PR bodies, `/investigations` and saved CLI output. The
+replacements are placeholders numbered consistently within a document:
+`<node-1>`, `<ip-2>`, `<account-id>`. The model still sees the real values,
+because which node something ran on can matter to a diagnosis.
+
 ## Model choice
 
 The default is **Claude Sonnet 5.5** (`claude-sonnet-5-5`), for both `/alert`
@@ -613,6 +727,8 @@ tool fixes that let Sonnet 5.5 pass.
 | `SREAGENT_TOOL_OUTPUT_MAX_CHARS` | `6000` | Each tool result is cut to this length |
 | `SREAGENT_API_TOKEN` | (none) | Required by the server: bearer token for `/alert`, `/ask`, `/investigations` |
 | `SREAGENT_DEDUP_MINUTES` | `30` | Skip an alert key investigated this recently |
+| `SREAGENT_MIN_CONFIDENCE_FOR_PR` | `70` | Evidence score a proposed change needs. See [Evidence score](#evidence-score) |
+| `SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK` | `85` | Evidence score an `image.tag` rollback needs |
 | `SREAGENT_OPEN_PRS` | `false` | Server only: open the PRs the agent proposes (otherwise `dry_run`) |
 | `PORT` | `8080` | Server port |
 | `GITHUB_BRANCH` | `main` | |

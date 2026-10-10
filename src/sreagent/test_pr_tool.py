@@ -222,6 +222,63 @@ class PullRequestTest(unittest.TestCase):
         self.assertEqual(timed_out["status"], "not_opened")
         self.assertEqual(self.gh.writes, [])
 
+    def assessed(self, *assessments):
+        """An AssessmentTool after submitting each assessment, one tool call apart."""
+        import confidence
+        ev = [Evidence("list_pods", {}, "out", False), Evidence("list_events", {}, "out", False)]
+        tool = confidence.AssessmentTool(70, 85)
+        tool.attach(lambda: ev)
+        for a in assessments:
+            ev.append(Evidence(confidence.TOOL_NAME, a, tool.handle(a), False))
+            ev.append(Evidence("list_hpas", {}, "out", False))
+        return tool
+
+    STRONG = {"conclusion": "cause_found", "cause": "limit below working set",
+              "cause_support": "observed", "cause_evidence": [1, 2],
+              "alternatives": [{"cause": "a leak", "result": "ruled_out", "evidence": [2]}],
+              "timing": "matches", "timing_evidence": [2], "unverified": []}
+
+    def test_body_records_every_assessment(self):
+        weak = dict(self.STRONG, alternatives=[], timing="not_checked", timing_evidence=[])
+        assessment = self.assessed(weak, self.STRONG)            # 55, then 90
+        self.tool.assessment = assessment
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+        report = "## Diagnosis\nx\n## Confidence\nHigh. The numbers fit.\n## Evidence\n- y"
+        result = pr_tool.finish(self.tool, Investigation(ANSWERED, report, evidence(), 9.0),
+                                KEY, "ab12cd34", open_prs=True, assessment=assessment)
+        self.assertEqual(result["status"], "opened")
+        body = self.gh.writes[2][2]["body"]
+        self.assertIn("**Evidence score: 90 / 100.**", body)
+        self.assertIn("A pull request needs at least 70.", body)
+        self.assertIn("Assessment history: first after 2 tool call(s): 55; "
+                      "revised after 3 tool call(s): 90.", body)
+        self.assertIn("> **Agent's own assessment:** High. The numbers fit.", body)
+
+    def test_finish_rechecks_the_latest_assessment(self):
+        weak = dict(self.STRONG, alternatives=[])
+        assessment = self.assessed(self.STRONG)
+        self.tool.assessment = assessment
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))   # allowed at 90
+        assessment = self.assessed(self.STRONG, weak)            # then revised down to 55
+        result = pr_tool.finish(self.tool, Investigation(ANSWERED, "r", [], 1.0), KEY,
+                                "ab12cd34", open_prs=True, assessment=assessment)
+        self.assertEqual(result["status"], "below_confidence")
+        self.assertIn("evidence score 55 is below the 70", result["why"])
+        self.assertEqual(self.gh.writes, [])
+
+    def test_body_hides_nodes_ips_and_account_ids(self):
+        ev = [Evidence("list_pods", {"app": "x"},
+                       "pod-a on ip-10-0-10-135.ec2.internal ip 10.0.10.135, image "
+                       "073759315444.dkr.ecr.us-east-1.amazonaws.com/x:v1", False)]
+        self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
+        pr_tool.finish(self.tool, Investigation(ANSWERED, "killed on ip-10-0-10-135.ec2.internal",
+                                                ev, 1.0), KEY, "ab12cd34", open_prs=True)
+        body = self.gh.writes[2][2]["body"]
+        for leaked in ("ip-10-0-10-135", "10.0.10.135", "073759315444"):
+            self.assertNotIn(leaked, body)
+        self.assertIn("killed on <node-1>", body)
+        self.assertIn("pod-a on <node-1> ip <ip-1>, image <account-id>.dkr.ecr", body)
+
     def test_github_failure_is_reported_not_raised(self):
         self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
 

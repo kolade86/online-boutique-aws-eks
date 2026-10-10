@@ -21,7 +21,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 
 import values_change as vc
-from redact import redact
+from redact import redact, redact_public
 from tools import Tool, ToolError, require_str
 
 BRANCH = re.compile(r"sre-agent/[a-z0-9]{8}")
@@ -116,7 +116,7 @@ class PullRequestOpener:
     # --- write -------------------------------------------------------------
 
     def open(self, proposal: Proposal, key: str, investigation_id: str,
-             diagnosis: str, evidence: list) -> dict:
+             diagnosis: str, evidence: list, confidence: dict = None) -> dict:
         """Re-validate against main as it is now, then branch, commit and open the PR."""
         fresh = self.check(proposal.changes, proposal.reason, key=key)
 
@@ -136,7 +136,8 @@ class PullRequestOpener:
             "title": title(fresh),
             "head": branch,
             "base": self.gh.branch,
-            "body": pr_body(fresh, key, investigation_id, diagnosis, evidence, self.values_file),
+            "body": pr_body(fresh, key, investigation_id, diagnosis, evidence, self.values_file,
+                            confidence),
         })
         try:
             self.gh.send("POST", f"/issues/{pr['number']}/labels", {"labels": [LABEL]})
@@ -156,7 +157,7 @@ def commit_message(p: Proposal, key: str) -> str:
 
 
 def pr_body(p: Proposal, key: str, investigation_id: str, diagnosis: str,
-            evidence: list, values_file: str) -> str:
+            evidence: list, values_file: str, confidence: dict = None) -> str:
     parts = [
         key_marker(key),
         "Opened by **sreagent**. Review before merging: Argo CD deploys whatever is merged.",
@@ -181,6 +182,7 @@ def pr_body(p: Proposal, key: str, investigation_id: str, diagnosis: str,
             "> offending commit as well. ECR keeps only the last 10 images per service.",
             "",
         ]
+    parts += confidence_section(confidence, diagnosis, ("image", "tag") in p.diff)
     parts += ["## Diagnosis", "", redact(diagnosis).strip() or "_(no report)_", "",
               "## Evidence", "",
               f"{len(evidence)} tool call(s) made by the agent, in order:", ""]
@@ -196,10 +198,51 @@ def pr_body(p: Proposal, key: str, investigation_id: str, diagnosis: str,
               "CPU/memory requests and limits; replicas only without an HPA; HPA min/max only "
               "with one), within bounds, and the file keeps its comments and single "
               "`  tag:` line."]
-    body = "\n".join(parts)
+    # The repository is public: no node names, IPs or account IDs in the body
+    body = redact_public("\n".join(parts))
     if len(body) > MAX_BODY_CHARS:
         body = body[:MAX_BODY_CHARS] + "\n\n_[body cut to fit GitHub's limit]_"
     return body
+
+
+_MODEL_CONFIDENCE = re.compile(r"^#+\s*Confidence\s*\n(.*?)(?=^#+\s|\Z)", re.MULTILINE | re.DOTALL)
+
+
+def model_confidence_text(report: str) -> str:
+    """The plain-language Confidence section the model wrote, if any."""
+    m = _MODEL_CONFIDENCE.search(report or "")
+    return " ".join(m.group(1).split()) if m else ""
+
+
+def confidence_section(confidence: dict, report: str, rollback: bool) -> list[str]:
+    """The PR body's Confidence section: score, reasons, every submission, the model's words."""
+    if not confidence or confidence.get("score") is None:
+        return []
+    needed = confidence["min_for_rollback"] if rollback else confidence["min_for_pr"]
+    kind = "an image.tag rollback" if rollback else "a pull request"
+    parts = ["## Confidence", "",
+             f"**Evidence score: {confidence['score']} / 100.** Computed in code from the agent's "
+             f"evidence assessment; it measures how well the conclusion is supported by the "
+             f"evidence it cited, not a probability. {kind[0].upper() + kind[1:]} needs at "
+             f"least {needed}.", "",
+             "| Points | Why |", "|---:|---|"]
+    for r in confidence["reasons"]:
+        parts.append(f"| {r['points']:+d} | {r['text'].replace('|', '/')} |" if r["points"]
+                     else f"| | {r['text'].replace('|', '/')} |")
+    submissions = confidence.get("submissions") or []
+    if len(submissions) > 1:
+        parts += ["", "Assessment history: " + "; ".join(
+            f"{'first' if i == 0 else 'revised'} after {s['after_calls']} tool call(s): {s['score']}"
+            for i, s in enumerate(submissions)) + "."]
+    words = model_confidence_text(report)
+    if words:
+        parts += ["", f"> **Agent's own assessment:** {words}"]
+    return parts + [""]
+
+
+def required_score(diff: dict, assessment) -> int:
+    """The evidence score a change needs: higher for an image.tag rollback."""
+    return assessment.min_for_rollback if ("image", "tag") in diff else assessment.min_for_pr
 
 
 def _inline(args: dict) -> str:
@@ -209,18 +252,31 @@ def _inline(args: dict) -> str:
 class ProposalTool:
     """The model-facing tool. Holds at most one accepted proposal per investigation."""
 
-    def __init__(self, opener: PullRequestOpener, key: str):
+    def __init__(self, opener: PullRequestOpener, key: str, assessment=None):
         self.opener = opener
         self.key = key
+        self.assessment = assessment   # confidence.AssessmentTool; None = no confidence gate
         self.proposal = None
 
     def handle(self, args: dict) -> str:
         reason = require_str(args, "reason")
+        if self.assessment is not None and self.assessment.latest is None:
+            raise ToolError("Not proposed: record your evidence assessment (submit_assessment) "
+                            "first; a change needs a sufficient evidence score.")
         try:
             changes = vc.parse_changes(args.get("changes"))
             proposal = self.opener.check(changes, reason, key=self.key)
         except vc.Rejected as e:
             raise ToolError("Rejected:\n" + "\n".join(f"- {r}" for r in e.reasons)) from None
+        if self.assessment is not None:
+            needed = required_score(proposal.diff, self.assessment)
+            got = self.assessment.latest.value
+            if got < needed:
+                what = ("an image.tag rollback (it affects every service)"
+                        if ("image", "tag") in proposal.diff else "a change")
+                raise ToolError(f"Not proposed: the evidence score is {got}/100 and {what} needs "
+                                f"{needed}. Report the diagnosis without proposing a change, and "
+                                "say what evidence would be needed.")
         replaced = " It replaces your earlier proposal." if self.proposal else ""
         self.proposal = proposal
         return ("Accepted." + replaced + " A pull request with this change will be opened for "
@@ -254,10 +310,12 @@ class ProposalTool:
             self.handle)
 
 
-def finish(tool, result, key: str, investigation_id: str, open_prs: bool):
+def finish(tool, result, key: str, investigation_id: str, open_prs: bool, assessment=None):
     """After an investigation: open the accepted proposal as a PR, or say why not.
 
     Returns None when nothing was proposed, else a dict for the result record.
+    The evidence score is checked again here against the LATEST assessment, in
+    case the model revised it downwards after proposing.
     """
     from agent import ANSWERED, ANSWERED_AT_LIMIT
 
@@ -268,11 +326,20 @@ def finish(tool, result, key: str, investigation_id: str, open_prs: bool):
     if result.outcome not in (ANSWERED, ANSWERED_AT_LIMIT):
         return {**summary, "status": "not_opened",
                 "why": f"the investigation ended with {result.outcome}, without a full report"}
+    confidence = None
+    if assessment is not None:
+        latest, needed = assessment.latest, required_score(p.diff, assessment)
+        if latest is None or latest.value < needed:
+            return {**summary, "status": "below_confidence",
+                    "why": f"evidence score {latest.value if latest else 'not assessed'} is below "
+                           f"the {needed} this change needs"}
+        confidence = assessment.summary()
     if not open_prs:
         return {**summary, "status": "dry_run",
                 "why": "SREAGENT_OPEN_PRS is off; the change was validated but not opened"}
     try:
         return {**summary, "status": "opened",
-                **tool.opener.open(p, key, investigation_id, result.answer, result.evidence)}
+                **tool.opener.open(p, key, investigation_id, result.answer, result.evidence,
+                                   confidence)}
     except (vc.Rejected, ToolError) as e:
         return {**summary, "status": "failed", "why": str(e)}

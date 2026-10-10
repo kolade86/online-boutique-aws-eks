@@ -24,6 +24,8 @@ class Tool:
     # Which end survives truncation: "head" for newest-first lists and query
     # results, "tail" for logs, whose latest lines are at the end.
     keep: str = "head"
+    # Ask the API to guarantee the input matches input_schema exactly
+    strict: bool = False
 
 
 class ToolRegistry:
@@ -33,7 +35,7 @@ class ToolRegistry:
 
     @property
     def specs(self) -> list[ToolSpec]:
-        return [ToolSpec(t.name, t.description, t.input_schema)
+        return [ToolSpec(t.name, t.description, t.input_schema, t.strict)
                 for t in self._tools.values()]
 
     def run(self, name: str, args: dict) -> tuple[str, bool]:

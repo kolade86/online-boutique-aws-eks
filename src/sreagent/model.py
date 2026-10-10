@@ -15,6 +15,7 @@ class ToolSpec:
     name: str
     description: str
     input_schema: dict
+    strict: bool = False
 
 
 @dataclass

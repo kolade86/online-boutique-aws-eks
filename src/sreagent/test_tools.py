@@ -50,6 +50,27 @@ class RedactTest(unittest.TestCase):
         text = 'max_tokens=100 grpc_code="Unavailable" memory=512Mi cpu: 100m'
         self.assertEqual(redact(text), text)
 
+    def test_infra_identifiers_get_numbered_placeholders(self):
+        from redact import redact_infra, redact_public
+        text = ("pods on ip-10-0-10-135.ec2.internal and ip-10-0-11-45.ec2.internal, again "
+                "ip-10-0-10-135.ec2.internal; node ip-10-0-1-5.us-east-1.compute.internal")
+        self.assertEqual(redact_infra(text), "pods on <node-1> and <node-2>, again <node-1>; "
+                                             "node <node-3>")
+        self.assertEqual(redact_infra('connect "10.0.11.207:8080"; dns 172.20.0.10:53; 10.0.11.207'),
+                         'connect "<ip-1>:8080"; dns <ip-2>:53; <ip-1>')
+        self.assertEqual(
+            redact_infra("073759315444.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-x:v20261004"),
+            "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-x:v20261004")
+        self.assertEqual(redact_infra("arn:aws:iam::073759315444:role/r arn:aws:sns:us-east-1:073759315444:t"),
+                         "arn:aws:iam::<account-id>:role/r arn:aws:sns:us-east-1:<account-id>:t")
+        self.assertEqual(redact_public("token=abcdef123456 on 10.1.2.3"), "token=[REDACTED] on <ip-1>")
+
+    def test_infra_redaction_leaves_ordinary_numbers(self):
+        from redact import redact_infra
+        text = ("v1.29.3 4.295e7 1.2.3 999.1.1.1 1.2.3.4.5 count 123456789012 "
+                "2026-10-04T15:45:34Z sha 20b4232a tag v20261004-134739-d34db63e 37.5%")
+        self.assertEqual(redact_infra(text), text)
+
     def test_truncate_tail_mode_keeps_head_and_tail(self):
         out = truncate("H" * 50 + "M" * 1000 + "T" * 50, 120, keep="tail")
         self.assertTrue(out.startswith("H"))
@@ -379,6 +400,29 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(report.startswith("ask: why?\n\nHPA → 1, then Argo CD → 2 — a cycle"))
         self.assertIn("Tool calls: 1 of 15 allowed", report)
         self.assertIn('[ok] list_events {"app": "emailservice"}', report)
+
+    def test_report_shows_score_revision_and_note_and_is_redacted(self):
+        import cli
+        import confidence
+        from agent import Evidence, Investigation
+        ev = [Evidence("list_pods", {}, "x", False), Evidence("list_events", {}, "x", False)]
+        tool = confidence.AssessmentTool(70, 85)
+        tool.attach(lambda: ev)
+        a = {"conclusion": "cause_found", "cause": "c", "cause_support": "observed",
+             "cause_evidence": [1], "alternatives": [], "timing": "not_checked",
+             "timing_evidence": [], "unverified": []}
+        tool.handle(a)
+        ev.append(Evidence("list_hpas", {}, "x", False))
+        tool.handle(dict(a, cause_support="inferred"))
+        result = Investigation("answered", "killed on ip-10-0-10-135.ec2.internal", ev, 2.0)
+        report = cli.format_report(result, 15, assessment=tool,
+                                   note=confidence.note_below_threshold(tool))
+        self.assertIn("Evidence score: 30/100 (PRs need 70, image.tag rollbacks 85) - an "
+                      "evidence score, not a probability", report)
+        self.assertIn(" +30  Cause inferred: list_pods (#1)", report)
+        self.assertIn("Revised: 50 (after 2 calls) -> 30 (after 3 calls)", report)
+        self.assertIn("No change proposed: the evidence score is 30/100, below the 70 needed", report)
+        self.assertIn("killed on <node-1>", report)
 
 
 class AlertTaskTest(unittest.TestCase):

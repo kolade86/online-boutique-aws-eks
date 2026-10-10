@@ -120,5 +120,1013 @@
       "answer": "Both halves of the cycle: HPA 'New size: 1' (x21) and the Deployment scaled back to 2 (x22) with no HPA event asking for it; replicas: 2 vs minReplicas: 1 confirmed at values.yaml line 261 via read_repo_file search then start_line, and no override in values-dev.yaml; the ReplicaSet deletes its newest pod; readiness failures are normal startup; the Argo CD step explicitly flagged as inferred.",
       "notes": "Suggested fix (align emailservice replicas with minReplicas) treats the symptom; see full_fix."
     }
+  ],
+  "replay": {
+    "question": "Why was the emailservice pod replaced?",
+    "now": "2026-10-04T15:32:00Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "f124e61",
+    "recorded": [
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "emailservice"
+        },
+        "file": "emailservice-events-raw.txt"
+      }
+    ],
+    "note": "The only tool output recorded on 2026-10-04 was list_events app=emailservice (captured about 15:32 UTC). Repository tools read git at f124e61, main at that time. Every other call returns 'no recorded output'. Run with `python cli.py replay regressions/emailservice-pod-replaced.json --record`, once with SREAGENT_MODEL=claude-haiku-4-5-20251001 and once with claude-sonnet-5-5."
+  },
+  "replay_runs": [
+    {
+      "date": "2026-10-10",
+      "model": "claude-haiku-4-5-20251001",
+      "agent_commit": "e5b7e83",
+      "outcome": "answered",
+      "score": null,
+      "reasons": [],
+      "submissions": [],
+      "keyword_check": {
+        "passed": false,
+        "missing_any_of": [
+          [
+            "Argo CD",
+            "self-heal",
+            "selfHeal",
+            "GitOps"
+          ],
+          [
+            "values.yaml",
+            "chart",
+            "replicas: 2",
+            "replica count"
+          ]
+        ],
+        "contains_forbidden": []
+      },
+      "tool_calls": [
+        {
+          "tool": "list_events",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "list_pods",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "get_pod_logs",
+          "input": {
+            "pod": "emailservice-7959ddb655-c5v9n",
+            "tail_lines": 100
+          },
+          "is_error": true
+        },
+        {
+          "tool": "recent_chart_commits",
+          "input": {
+            "limit": 5
+          },
+          "is_error": false
+        }
+      ],
+      "answer": "Now I have enough evidence. The events clearly show a pattern of pod replacements driven by readiness probe failures. Let me document the findings:\n\nBased on the events in call #1, the emailservice pod has been replaced repeatedly over the past ~36 minutes. Here's what happened:\n\n**Pattern: Repeated pod replacement cycle**\n- The same ReplicaSet hash (`emailservice-7959ddb655`) is used throughout, showing this is not a rollout (new image) but a cycle within one deployment\n- Multiple pods have been killed and replaced: `4md4b` (31m ago), `8rhk2` (25m ago), `snnf8` (20m ago), `zn8tx` (15m ago), `bp9kx` (10m ago), and `c5v9n` (4m ago)\n- Each pod shows the same pattern: readiness probe failures after startup, followed by pod deletion and replacement\n\n**Root cause: Readiness probe timeouts**\nEach pod logs `Readiness probe failed: timeout: failed to connect service \"<pod-ip>:8080\" within 1s: context deadline exceeded` shortly after starting. These failures occur 2-3 times per pod before it is killed.\n\nA failing readiness probe does not normally kill a pod—it only removes it from Service endpoints. However, in this case, the pods are being deleted (you see \"Killing Pod...\" and \"Deleted pod\" events), which indicates that **the HPA or a controller is treating the repeated readiness failures as a signal to scale down or replace pods**.\n\n**The deployment is also experiencing HPA scaling cycles:**\n- 4m ago: HPA scaled up from 1 to 2 replicas (\"Scaled up replica set emailservice-7959ddb655 from 1 to 2\"), then immediately scaled down from 2 to 1 (x18 and x19 occurrences respectively), likely because new pods were failing readiness probes and metrics remained below target.\n\n**Latest status (4m ago):**\n- Pod `emailservice-7959ddb655-c5v9n` was created and has already experienced 2 readiness probe failures, following the same pattern as its predecessors.\n\n**Summary:** The emailservice pod is being replaced repeatedly because the service is consistently failing its readiness probe (timing out on port 8080 within 1 second of the container starting). The underlying cause is that the emailservice is not becoming ready quickly enough or at all. A new image was deployed at 2026-10-04T13:51:10Z (call #5), and this problem has persisted since then or shortly after, suggesting the new build may have introduced the startup delay or connectivity issue."
+    },
+    {
+      "date": "2026-10-10",
+      "model": "claude-haiku-4-5-20251001",
+      "agent_commit": "e5b7e83",
+      "outcome": "answered",
+      "score": null,
+      "reasons": [],
+      "submissions": [],
+      "keyword_check": {
+        "passed": false,
+        "missing_any_of": [
+          [
+            "Argo CD",
+            "self-heal",
+            "selfHeal",
+            "GitOps"
+          ],
+          [
+            "values.yaml",
+            "chart",
+            "replicas: 2",
+            "replica count"
+          ]
+        ],
+        "contains_forbidden": []
+      },
+      "tool_calls": [
+        {
+          "tool": "list_pods",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "list_events",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "get_pod_logs",
+          "input": {
+            "pod": "emailservice-7959ddb655-c5v9n",
+            "tail_lines": 100
+          },
+          "is_error": true
+        }
+      ],
+      "answer": "Based on the events from call #2, I have sufficient evidence to answer the question:\n\n**The emailservice pod was replaced repeatedly due to failing readiness probes.** \n\nThe evidence shows a repeating cycle over the past ~36 minutes:\n\n1. **Root cause**: Readiness probe failures with \"timeout: failed to connect service on port 8080 within 1s: context deadline exceeded\"\n   - Multiple pods show this pattern (emailservice-7959ddb655-4md4b, -snnf8, -zn8tx, -bp9kx, -c5v9n)\n   - Each pod showed 2-3 readiness probe failures before being killed\n   - The failures occurred shortly after pod startup (within seconds)\n\n2. **How pods were replaced**: The HPA (Horizontal Pod Autoscaler) and Deployment controller orchestrated this cycle:\n   - The HPA would scale up from 1 to 2 replicas when the pod became not-ready\n   - A short time later, the HPA would scale down from 2 to 1 replica when \"all metrics below target\"\n   - This repeated ~18-19 times in the past 36 minutes (shown as \"x18\" and \"x19\" on the events)\n\n3. **Why the timing matters**: Each pod was killed immediately after the readiness probe failures began, and a new pod was scheduled. This is the expected Kubernetes behavior: a failing readiness probe removes the pod from the Service endpoint, and when it doesn't recover, the pod is eventually replaced.\n\nThe issue is not with the pod being killed (the Deployment is working correctly), but with the **underlying application health**: the emailservice is failing to respond to readiness probes on port 8080 within the 1-second timeout."
+    },
+    {
+      "date": "2026-10-10",
+      "model": "claude-haiku-4-5-20251001",
+      "agent_commit": "e5b7e83",
+      "outcome": "answered",
+      "score": null,
+      "reasons": [],
+      "submissions": [],
+      "keyword_check": {
+        "passed": false,
+        "missing_any_of": [
+          [
+            "Argo CD",
+            "self-heal",
+            "selfHeal",
+            "GitOps"
+          ],
+          [
+            "values.yaml",
+            "chart",
+            "replicas: 2",
+            "replica count"
+          ]
+        ],
+        "contains_forbidden": []
+      },
+      "tool_calls": [
+        {
+          "tool": "list_events",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "list_pods",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "get_pod_logs",
+          "input": {
+            "pod": "emailservice-7959ddb655-c5v9n",
+            "tail_lines": 100
+          },
+          "is_error": true
+        }
+      ],
+      "answer": "Based on the events from call #1, I can provide a comprehensive answer about why the emailservice pod was replaced:\n\n## Answer\n\nThe emailservice pod was replaced due to **failing readiness probes**. However, it's important to clarify: the failing readiness probe itself did not directly kill the pod. Rather, it triggered a cascade of events:\n\n**The cycle:**\n\n1. **Readiness probe failures**: The kubelet detected that the readiness probe was timing out when trying to connect to the service on port 8080 (warning events occurred ~31m ago, 25m ago, 20m ago, 10m ago, and 4m ago: \"timeout: failed to connect service *:8080 within 1s\").\n\n2. **Pod removal by HPA**: When pods became unready, the HPA detected that metrics fell below target and initiated a scale-down. The events show \"SuccessfulRescale\" events from the HPA and corresponding \"ScalingReplicaSet\" scale-downs from the deployment controller, which selected the unhealthy (not-ready) pods for deletion.\n\n3. **New pods created and replaced**: The HPA then scaled back up, and new pods were scheduled and created, but they also encountered the same readiness probe failures, creating a repeating cycle. This has happened at least 11 times based on the \"SuccessfulCreate\" event count.\n\n**Evidence:**\n- [Call #1] shows a repeating pattern of readiness probe failures across multiple pod instances (emailservice-7959ddb655-8rhk2, 4md4b, snnf8, zn8tx, bp9kx, c5v9n)\n- [Call #1] shows HPA scaling down (\"All metrics below target\") after unready pods caused metrics to drop\n- [Call #1] shows pods being killed and deleted from the ReplicaSet following the scale-down decisions\n\nThe root cause is that the emailservice is unable to pass its readiness probe (connection to port 8080 timing out), which the HPA interprets as unhealthy and repeatedly cycles."
+    },
+    {
+      "date": "2026-10-10",
+      "model": "claude-sonnet-5-5",
+      "agent_commit": "e5b7e83",
+      "outcome": "answered",
+      "score": 33,
+      "reasons": [
+        {
+          "points": 30,
+          "text": "Cause inferred: list_events (#1), read_repo_file (#7), read_repo_file (#8)"
+        },
+        {
+          "points": 10,
+          "text": "Corroborated by 2 different tools"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Rollout / new image tag replaced the pod (list_events (#1), recent_chart_commits (#4))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Liveness/readiness probe killed the pod (list_events (#1))"
+        },
+        {
+          "points": -15,
+          "text": "Not ruled out: Node drain/eviction or OOM"
+        },
+        {
+          "points": 20,
+          "text": "Timing matches the alert (list_events (#1), recent_chart_commits (#4))"
+        },
+        {
+          "points": -15,
+          "text": "Not verified, could change the diagnosis: Live Deployment spec.replicas and field managers (describe_deployment unavailable)"
+        },
+        {
+          "points": -2,
+          "text": "Not verified (detail only): HPA current/target CPU (list_hpas unavailable)"
+        },
+        {
+          "points": -15,
+          "text": "Not verified, could change the diagnosis: What exactly scales the Deployment back to 2 (no event shows the actor)"
+        }
+      ],
+      "submissions": [
+        {
+          "after_calls": 10,
+          "score": 33,
+          "reasons": [
+            {
+              "points": 30,
+              "text": "Cause inferred: list_events (#1), read_repo_file (#7), read_repo_file (#8)"
+            },
+            {
+              "points": 10,
+              "text": "Corroborated by 2 different tools"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Rollout / new image tag replaced the pod (list_events (#1), recent_chart_commits (#4))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Liveness/readiness probe killed the pod (list_events (#1))"
+            },
+            {
+              "points": -15,
+              "text": "Not ruled out: Node drain/eviction or OOM"
+            },
+            {
+              "points": 20,
+              "text": "Timing matches the alert (list_events (#1), recent_chart_commits (#4))"
+            },
+            {
+              "points": -15,
+              "text": "Not verified, could change the diagnosis: Live Deployment spec.replicas and field managers (describe_deployment unavailable)"
+            },
+            {
+              "points": -2,
+              "text": "Not verified (detail only): HPA current/target CPU (list_hpas unavailable)"
+            },
+            {
+              "points": -15,
+              "text": "Not verified, could change the diagnosis: What exactly scales the Deployment back to 2 (no event shows the actor)"
+            }
+          ],
+          "assessment": {
+            "conclusion": "cause_found",
+            "cause": "The HPA scales emailservice from 2 to 1 (\"All metrics below target\"), and the ReplicaSet deletes the newest pod. The chart renders spec.replicas: 2 and Argo CD self-heal, which I did not see act, is the likely cause of the scale-up back to 2. This repeats about every 5 minutes.",
+            "cause_support": "inferred",
+            "cause_evidence": [
+              1,
+              7,
+              8
+            ],
+            "alternatives": [
+              {
+                "cause": "Rollout / new image tag replaced the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  4
+                ]
+              },
+              {
+                "cause": "Liveness/readiness probe killed the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              },
+              {
+                "cause": "Node drain/eviction or OOM",
+                "result": "not_ruled_out",
+                "evidence": [
+                  1
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              1,
+              4
+            ],
+            "unverified": [
+              {
+                "what": "Live Deployment spec.replicas and field managers (describe_deployment unavailable)",
+                "could_change_diagnosis": true
+              },
+              {
+                "what": "HPA current/target CPU (list_hpas unavailable)",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "What exactly scales the Deployment back to 2 (no event shows the actor)",
+                "could_change_diagnosis": true
+              }
+            ]
+          }
+        }
+      ],
+      "keyword_check": {
+        "passed": true,
+        "missing_any_of": [],
+        "contains_forbidden": []
+      },
+      "tool_calls": [
+        {
+          "tool": "list_events",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "list_pods",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "recent_chart_commits",
+          "input": {},
+          "is_error": false
+        },
+        {
+          "tool": "list_hpas",
+          "input": {},
+          "is_error": true
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/values.yaml",
+            "search": "  emailservice:"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/templates/deployments.yaml"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/values.yaml",
+            "start_line": 261,
+            "max_lines": 40
+          },
+          "is_error": false
+        },
+        {
+          "tool": "prometheus_query_range",
+          "input": {
+            "query": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"online-boutique-dev\",horizontalpodautoscaler=\"emailservice\"}",
+            "minutes": 30
+          },
+          "is_error": true
+        },
+        {
+          "tool": "prometheus_query_range",
+          "input": {
+            "query": "kube_deployment_spec_replicas{namespace=\"online-boutique-dev\",deployment=\"emailservice\"}",
+            "minutes": 30
+          },
+          "is_error": true
+        },
+        {
+          "tool": "submit_assessment",
+          "input": {
+            "conclusion": "cause_found",
+            "cause": "The HPA scales emailservice from 2 to 1 (\"All metrics below target\"), and the ReplicaSet deletes the newest pod. The chart renders spec.replicas: 2 and Argo CD self-heal, which I did not see act, is the likely cause of the scale-up back to 2. This repeats about every 5 minutes.",
+            "cause_support": "inferred",
+            "cause_evidence": [
+              1,
+              7,
+              8
+            ],
+            "alternatives": [
+              {
+                "cause": "Rollout / new image tag replaced the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  4
+                ]
+              },
+              {
+                "cause": "Liveness/readiness probe killed the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              },
+              {
+                "cause": "Node drain/eviction or OOM",
+                "result": "not_ruled_out",
+                "evidence": [
+                  1
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              1,
+              4
+            ],
+            "unverified": [
+              {
+                "what": "Live Deployment spec.replicas and field managers (describe_deployment unavailable)",
+                "could_change_diagnosis": true
+              },
+              {
+                "what": "HPA current/target CPU (list_hpas unavailable)",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "What exactly scales the Deployment back to 2 (no event shows the actor)",
+                "could_change_diagnosis": true
+              }
+            ]
+          },
+          "is_error": false
+        }
+      ],
+      "answer": "**Likely cause (inferred, evidence score 33/100):** the HPA scaled emailservice down, and the ReplicaSet deleted the newest pod. I couldn't see what scaled it back up, so that half is unconfirmed.\n\n**What the evidence shows**\n- **Scale-down:** the HPA logged `SuccessfulRescale … New size: 1; reason: All metrics below target` (x18). The Deployment then logged `Scaled down replica set emailservice-7959ddb655 from 2 to 1` (x18), and the ReplicaSet logged `SuccessfulDelete`. For example, `emailservice-7959ddb655-bp9kx` was deleted about 4 minutes ago, with a `Killing` event for its container (call #1).\n- **Scale-up:** the Deployment logged `Scaled up replica set emailservice-7959ddb655 from 1 to 2` (x19). This is the same ReplicaSet each time. The replacement pod, `-c5v9n`, started 4 minutes ago.\n- **Cycle:** the same pattern shows at about 36, 31, 25, 20, 15, 10 and 4 minutes ago, roughly every 5 minutes. Each round deletes a pod and creates a new name (`4md4b`, `8rhk2`, `snnf8`, `zn8tx`, `bp9kx`, `c5v9n`).\n- **Why it goes back to 2:** the chart's Deployment template always renders `spec.replicas: {{ $svc.replicas }}` (call #7). `values.yaml` sets emailservice `replicas: 2` with HPA `minReplicas: 1` and `maxReplicas: 3` (call #8). So the Git-rendered state is 2, while the HPA keeps asking for 1. Argo CD self-heal restoring 2 would fit, but no event shows Argo CD doing it. That is an inference.\n\n**What I ruled out**\n- **Rollout:** the ReplicaSet hash (`7959ddb655`) stays the same throughout. The last chart commit, the image bump to `v20261004-134739-d34db63e`, landed at 13:51, well before these events (call #4).\n- **Probes:** the readiness failures (`failed to connect … within 1s`) appear only in the first seconds after each pod starts, which is normal startup. A readiness failure never deletes a pod, and the pods were replaced under new names, so this wasn't a liveness restart.\n\n**What I couldn't check**\n- `describe_deployment` and `list_hpas` returned nothing, so I haven't confirmed the live `spec.replicas`, which field managers own it, or the HPA's current CPU against target.\n- I didn't rule out a node drain, eviction or OOM kill. No evidence points to one, but I didn't check for it directly.\n\nTo settle it, run `describe_deployment emailservice` and look at whether the applied manifest sets `spec.replicas` and which manager last wrote it. Because the score is below 70, I'm not proposing a config change yet."
+    },
+    {
+      "date": "2026-10-10",
+      "model": "claude-sonnet-5-5",
+      "agent_commit": "e5b7e83",
+      "outcome": "answered",
+      "score": 46,
+      "reasons": [
+        {
+          "points": 30,
+          "text": "Cause inferred: list_events (#1), read_repo_file (#7), read_repo_file (#8)"
+        },
+        {
+          "points": 10,
+          "text": "Corroborated by 2 different tools"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Rollout from new image tag (list_events (#1), recent_chart_commits (#4))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Liveness/readiness probe killing the pod (list_events (#1))"
+        },
+        {
+          "points": -15,
+          "text": "Not ruled out: OOM/node eviction"
+        },
+        {
+          "points": 20,
+          "text": "Timing matches the alert (list_events (#1), recent_chart_commits (#4))"
+        },
+        {
+          "points": -15,
+          "text": "Not verified, could change the diagnosis: Live Deployment field ownership and whether Argo CD performs the scale-up (describe_deployment unavailable)"
+        },
+        {
+          "points": -2,
+          "text": "Not verified (detail only): Current HPA status (list_hpas unavailable)"
+        },
+        {
+          "points": -2,
+          "text": "Not verified (detail only): Whether the cycle is still running after the last event"
+        }
+      ],
+      "submissions": [
+        {
+          "after_calls": 9,
+          "score": 46,
+          "reasons": [
+            {
+              "points": 30,
+              "text": "Cause inferred: list_events (#1), read_repo_file (#7), read_repo_file (#8)"
+            },
+            {
+              "points": 10,
+              "text": "Corroborated by 2 different tools"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Rollout from new image tag (list_events (#1), recent_chart_commits (#4))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Liveness/readiness probe killing the pod (list_events (#1))"
+            },
+            {
+              "points": -15,
+              "text": "Not ruled out: OOM/node eviction"
+            },
+            {
+              "points": 20,
+              "text": "Timing matches the alert (list_events (#1), recent_chart_commits (#4))"
+            },
+            {
+              "points": -15,
+              "text": "Not verified, could change the diagnosis: Live Deployment field ownership and whether Argo CD performs the scale-up (describe_deployment unavailable)"
+            },
+            {
+              "points": -2,
+              "text": "Not verified (detail only): Current HPA status (list_hpas unavailable)"
+            },
+            {
+              "points": -2,
+              "text": "Not verified (detail only): Whether the cycle is still running after the last event"
+            }
+          ],
+          "assessment": {
+            "conclusion": "cause_found",
+            "cause": "A repeating cycle: the HPA scales emailservice 2→1 (\"All metrics below target\"), the ReplicaSet deletes the newest pod, and the scale back to 2 is most likely Argo CD re-applying the chart's hardcoded replicas: 2, which the Deployment template always renders and which conflicts with the HPA (min 1).",
+            "cause_support": "inferred",
+            "cause_evidence": [
+              1,
+              7,
+              8
+            ],
+            "alternatives": [
+              {
+                "cause": "Rollout from new image tag",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  4
+                ]
+              },
+              {
+                "cause": "Liveness/readiness probe killing the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              },
+              {
+                "cause": "OOM/node eviction",
+                "result": "not_ruled_out",
+                "evidence": [
+                  1
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              1,
+              4
+            ],
+            "unverified": [
+              {
+                "what": "Live Deployment field ownership and whether Argo CD performs the scale-up (describe_deployment unavailable)",
+                "could_change_diagnosis": true
+              },
+              {
+                "what": "Current HPA status (list_hpas unavailable)",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "Whether the cycle is still running after the last event",
+                "could_change_diagnosis": false
+              }
+            ]
+          }
+        }
+      ],
+      "keyword_check": {
+        "passed": true,
+        "missing_any_of": [],
+        "contains_forbidden": []
+      },
+      "tool_calls": [
+        {
+          "tool": "list_events",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "list_pods",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "recent_chart_commits",
+          "input": {},
+          "is_error": false
+        },
+        {
+          "tool": "list_hpas",
+          "input": {},
+          "is_error": true
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/values.yaml",
+            "search": "  emailservice:"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/templates/deployments.yaml"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/values.yaml",
+            "start_line": 261,
+            "max_lines": 40
+          },
+          "is_error": false
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "submit_assessment",
+          "input": {
+            "conclusion": "cause_found",
+            "cause": "A repeating cycle: the HPA scales emailservice 2→1 (\"All metrics below target\"), the ReplicaSet deletes the newest pod, and the scale back to 2 is most likely Argo CD re-applying the chart's hardcoded replicas: 2, which the Deployment template always renders and which conflicts with the HPA (min 1).",
+            "cause_support": "inferred",
+            "cause_evidence": [
+              1,
+              7,
+              8
+            ],
+            "alternatives": [
+              {
+                "cause": "Rollout from new image tag",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  4
+                ]
+              },
+              {
+                "cause": "Liveness/readiness probe killing the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              },
+              {
+                "cause": "OOM/node eviction",
+                "result": "not_ruled_out",
+                "evidence": [
+                  1
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              1,
+              4
+            ],
+            "unverified": [
+              {
+                "what": "Live Deployment field ownership and whether Argo CD performs the scale-up (describe_deployment unavailable)",
+                "could_change_diagnosis": true
+              },
+              {
+                "what": "Current HPA status (list_hpas unavailable)",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "Whether the cycle is still running after the last event",
+                "could_change_diagnosis": false
+              }
+            ]
+          },
+          "is_error": false
+        }
+      ],
+      "answer": "**The emailservice pod was replaced by a controller, not by a probe.** The HPA scaling down is directly visible in the events. What scales it back up is inferred, not seen, and my confidence is moderate (evidence score 46/100).\n\n**What the events show (call #1):**\n- Every replaced pod belongs to the same ReplicaSet, `emailservice-7959ddb655`.\n- The newest replacement was `bp9kx`. It got a `Killing` event and a `SuccessfulDelete` from the ReplicaSet about 4 minutes ago, and `c5v9n` took its place.\n- The HPA logged `SuccessfulRescale … New size: 1; reason: All metrics below target` (x18).\n- The Deployment logged `Scaled down replica set emailservice-7959ddb655 from 2 to 1` (x18).\n- The Deployment also logged `Scaled up replica set emailservice-7959ddb655 from 1 to 2` (x19). I saw no HPA event asking for these scale-ups.\n- This has repeated roughly every 5–6 minutes. The pods `4md4b`, `8rhk2`, `snnf8`, `zn8tx`, `bp9kx` and `c5v9n` are consecutive replacements.\n- The ReplicaSet removes the newest pod when scaling down, which fits what I see.\n\n**This is not a rollout or a probe kill:**\n- The ReplicaSet hash never changes, so it is a replica-count change, not a rollout.\n- The last chart commit changed the image tag at 13:51 (call #4). The pods already run that tag, and no new ReplicaSet appeared.\n- Readiness failures such as `timeout … within 1s` appear right after each start. Those are startup noise, and a readiness failure never kills a pod. I saw no restarts or `OOMKilled` events, but I could not list the pods to confirm the restart counts.\n\n**Why it scales back up (inferred):**\n- `values.yaml` sets `replicas: 2` for emailservice, with an HPA of min 1, max 3 and a 70% CPU target (call #8).\n- `templates/deployments.yaml` always renders `replicas: {{ $svc.replicas }}` (call #7).\n- Argo CD has automated sync and self-heal. So the likely loop is that the HPA scales the Deployment to 1 and Argo CD restores 2. This matches the scale-ups that have no HPA event.\n\n**What I could not check:**\n- `describe_deployment` and `list_hpas` returned no data, so I could not confirm that Argo CD owns `spec.replicas` or that it performs the scale-up.\n- I did not rule out OOM or node eviction directly. The events show no such signs.\n- I only have events up to 4 minutes ago, so I can't say whether the cycle is still running.\n\nTo confirm, run `describe_deployment emailservice` and check which field manager owns `spec.replicas`. Because the evidence is incomplete, I'm not proposing a configuration change yet."
+    },
+    {
+      "date": "2026-10-10",
+      "model": "claude-sonnet-5-5",
+      "agent_commit": "e5b7e83",
+      "outcome": "answered",
+      "score": 48,
+      "reasons": [
+        {
+          "points": 30,
+          "text": "Cause inferred: list_events (#1), read_repo_file (#7), read_repo_file (#8)"
+        },
+        {
+          "points": 10,
+          "text": "Corroborated by 2 different tools"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Liveness/readiness probe killed the pod (list_events (#1))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Rollout from new image tag (list_events (#1), recent_chart_commits (#4))"
+        },
+        {
+          "points": -15,
+          "text": "Not ruled out: Argo CD is what scales back up (no direct event/field-manager evidence)"
+        },
+        {
+          "points": 20,
+          "text": "Timing matches the alert (list_events (#1), recent_chart_commits (#4))"
+        },
+        {
+          "points": -15,
+          "text": "Not verified, could change the diagnosis: describe_deployment field managers / live replicas showing Argo CD sets replicas"
+        },
+        {
+          "points": -2,
+          "text": "Not verified (detail only): list_hpas current vs target CPU"
+        }
+      ],
+      "submissions": [
+        {
+          "after_calls": 9,
+          "score": 48,
+          "reasons": [
+            {
+              "points": 30,
+              "text": "Cause inferred: list_events (#1), read_repo_file (#7), read_repo_file (#8)"
+            },
+            {
+              "points": 10,
+              "text": "Corroborated by 2 different tools"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Liveness/readiness probe killed the pod (list_events (#1))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Rollout from new image tag (list_events (#1), recent_chart_commits (#4))"
+            },
+            {
+              "points": -15,
+              "text": "Not ruled out: Argo CD is what scales back up (no direct event/field-manager evidence)"
+            },
+            {
+              "points": 20,
+              "text": "Timing matches the alert (list_events (#1), recent_chart_commits (#4))"
+            },
+            {
+              "points": -15,
+              "text": "Not verified, could change the diagnosis: describe_deployment field managers / live replicas showing Argo CD sets replicas"
+            },
+            {
+              "points": -2,
+              "text": "Not verified (detail only): list_hpas current vs target CPU"
+            }
+          ],
+          "assessment": {
+            "conclusion": "cause_found",
+            "cause": "HPA (min 1) scales emailservice 2→1 because CPU is below target, then the Deployment goes back to 2 because the chart hard-codes replicas: 2 and Argo CD self-heal restores it; each scale-down deletes the newest pod, so pods are replaced about every 5-6 minutes.",
+            "cause_support": "inferred",
+            "cause_evidence": [
+              1,
+              7,
+              8
+            ],
+            "alternatives": [
+              {
+                "cause": "Liveness/readiness probe killed the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              },
+              {
+                "cause": "Rollout from new image tag",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  4
+                ]
+              },
+              {
+                "cause": "Argo CD is what scales back up (no direct event/field-manager evidence)",
+                "result": "not_ruled_out",
+                "evidence": [
+                  1,
+                  7,
+                  8
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              1,
+              4
+            ],
+            "unverified": [
+              {
+                "what": "describe_deployment field managers / live replicas showing Argo CD sets replicas",
+                "could_change_diagnosis": true
+              },
+              {
+                "what": "list_hpas current vs target CPU",
+                "could_change_diagnosis": false
+              }
+            ]
+          }
+        }
+      ],
+      "keyword_check": {
+        "passed": true,
+        "missing_any_of": [],
+        "contains_forbidden": []
+      },
+      "tool_calls": [
+        {
+          "tool": "list_events",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "describe_deployment",
+          "input": {
+            "name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "list_pods",
+          "input": {
+            "app": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "recent_chart_commits",
+          "input": {
+            "limit": 5
+          },
+          "is_error": false
+        },
+        {
+          "tool": "list_hpas",
+          "input": {},
+          "is_error": true
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/values.yaml",
+            "search": "  emailservice:"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/templates/deployments.yaml"
+          },
+          "is_error": false
+        },
+        {
+          "tool": "read_repo_file",
+          "input": {
+            "path": "helm/online-boutique/values.yaml",
+            "start_line": 261,
+            "max_lines": 40
+          },
+          "is_error": false
+        },
+        {
+          "tool": "list_events",
+          "input": {
+            "object_name": "emailservice"
+          },
+          "is_error": true
+        },
+        {
+          "tool": "submit_assessment",
+          "input": {
+            "conclusion": "cause_found",
+            "cause": "HPA (min 1) scales emailservice 2→1 because CPU is below target, then the Deployment goes back to 2 because the chart hard-codes replicas: 2 and Argo CD self-heal restores it; each scale-down deletes the newest pod, so pods are replaced about every 5-6 minutes.",
+            "cause_support": "inferred",
+            "cause_evidence": [
+              1,
+              7,
+              8
+            ],
+            "alternatives": [
+              {
+                "cause": "Liveness/readiness probe killed the pod",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              },
+              {
+                "cause": "Rollout from new image tag",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  4
+                ]
+              },
+              {
+                "cause": "Argo CD is what scales back up (no direct event/field-manager evidence)",
+                "result": "not_ruled_out",
+                "evidence": [
+                  1,
+                  7,
+                  8
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              1,
+              4
+            ],
+            "unverified": [
+              {
+                "what": "describe_deployment field managers / live replicas showing Argo CD sets replicas",
+                "could_change_diagnosis": true
+              },
+              {
+                "what": "list_hpas current vs target CPU",
+                "could_change_diagnosis": false
+              }
+            ]
+          },
+          "is_error": false
+        }
+      ],
+      "answer": "**Likely cause:** the pod was deleted by the ReplicaSet controller during an HPA scale-down. It was not a probe kill or a rollout. This is inferred, not directly observed. The evidence score is 48/100, so I'm not proposing a config change.\n\n**Evidence**\n- **Scale-down:** the events show a repeating cycle on the same ReplicaSet, `emailservice-7959ddb655`.\n  - The HPA reports `SuccessfulRescale … New size: 1; reason: All metrics below target` (x18).\n  - The Deployment logs `Scaled down replica set emailservice-7959ddb655 from 2 to 1` (x18).\n  - `SuccessfulDelete` and `Killing … Stopping container server` follow. The most recent case was `emailservice-7959ddb655-bp9kx`, about 4 minutes ago.\n- **Scale-up:** the Deployment then logs `Scaled up replica set emailservice-7959ddb655 from 1 to 2` (x19), and a new pod such as `-c5v9n` appears.\n  - Earlier replacements (`4md4b`, `8rhk2`, `snnf8`, `zn8tx`, `bp9kx`) were spaced about 5–6 minutes apart.\n- **Not a probe kill:** the readiness probe failures (`timeout … within 1s`) happen in the first seconds after each start. Readiness failures only remove a pod from Service endpoints and never delete it.\n- **Not a rollout:** every pod belongs to the same ReplicaSet hash. The last chart commit, `f124e613`, changed the image tag at 13:51 UTC, long before the cycle I'm looking at.\n- **Why it goes back to 2 (inferred):**\n  - `values.yaml` sets `replicas: 2` for emailservice, with an HPA of min 1 and max 3 at 70% CPU.\n  - `templates/deployments.yaml` renders `replicas: {{ $svc.replicas }}` unconditionally.\n  - With Argo CD self-heal on, that would reset the Deployment to 2 after each HPA scale-down.\n\n**Unverified**\n- I could not confirm that Argo CD does the scale-up. `describe_deployment` and `list_hpas` returned no recorded output.\n- I have no evidence of which field manager sets `spec.replicas`.\n- I haven't seen the HPA's current CPU against its target.\n\n**What would settle it:** `describe_deployment emailservice` showing that the applied manifest sets `replicas` and that Argo CD owns it. If it does, the fix would be to drop `replicas` from the template for HPA-managed services. Do that only after that check."
+    }
   ]
 }

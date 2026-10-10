@@ -1,0 +1,83 @@
+{
+  "id": "recommendationservice-oomkilled",
+  "mode": "alert",
+  "alert": "ContainerOOMKilled/online-boutique-dev/recommendationservice",
+  "source": "Live incident on 2026-10-10: PR #18 (deliberate fault) and the agent's PR #19 (merged; the service recovered)",
+  "situation": "PR #18 (commit b3980348, 14:03:10Z) cut recommendationservice memory to 40Mi request and limit, below its ~43 MB steady working set. The rollout's new pods were OOMKilled. The agent (Sonnet 5.5) found the commit as the cause in 22s and opened PR #19 restoring 220Mi/450Mi.",
+  "expected_diagnosis": "Commit b3980348 set the memory limit to 40Mi, below the ~43 MB steady-state working set, so the new pods are OOMKilled; restore the chart defaults (220Mi request, 450Mi limit).",
+  "verdict": "correct",
+  "report": "## Summary\nThe recommendationservice container is being OOM-killed because a commit at 14:03Z cut its memory request and limit to 40Mi, which is below what the service normally uses. The rollout to the 40Mi pods is in progress. One new pod has already been OOM-killed and restarted, and the other new pod's readiness probe is failing.\n\n## Diagnosis\nCommit b3980348 (\"Reduce recommendationservice memory to save cost\", 14:03:10Z) set `services.recommendationservice.resources.requests.memory` and `limits.memory` to 40Mi in values-dev.yaml. The chart default was 220Mi request and 450Mi limit.\n\nThis changed the pod template, so Argo CD rolled out a new ReplicaSet, 57b68b4c9c. Its pods start with a 40Mi limit (about 41.9 MB). The previous pods, with the 450Mi limit, held a steady working set of about 43 MB (4.295e7 to 4.31e7 bytes) for 45 minutes or more. That is above 40Mi, so the container is killed as soon as it loads its normal footprint.\n\nThis is a rollout, not a replica-count cycle. The events show the new ReplicaSet scaling up while the old ReplicaSet 7466cdcbfb scales down. The image tag is unchanged, v20261010-131716-f7f702fa.\n\n## Evidence\n- `list_pods`: pod `recommendationservice-57b68b4c9c-9ng4m` is 47s old with 1 restart. Its last exit was OOMKilled, code 137, 36s ago. This matches the alert.\n- `list_deployments`: recommendationservice now shows req mem=40Mi and lim mem=40Mi. Every other service has a limit of at least 128Mi.\n- `recent_chart_commits`: b3980348 at 14:03:10Z is the only change to this service's resources. It came 4 minutes before the alert.\n- `list_events`:\n  - The new pod had a liveness probe failure (EOF) and then a container restart, consistent with the OOM kill.\n  - Readiness probes timed out on both new pods.\n  - The old ReplicaSet was scaled down as the new one scaled up.\n  - The HPA is logging \"did not receive metrics for targeted pods\".\n- Prometheus `container_memory_working_set_bytes`:\n  - Old pods stayed at about 4.3e7 bytes with no growth.\n  - New pods read about 4.15e7 bytes (about 39.6Mi) at 14:07, right at the 40Mi limit.\n- values.yaml line 315 onward: the chart defaults are 220Mi request and 450Mi limit, so the 40Mi value is a dev override.\n\n## Recommended change\nSet the recommendationservice memory request from 40Mi to 220Mi and the limit from 40Mi to 450Mi. This removes the override and restores the chart defaults. I proposed this as a pull request.\n\nA smaller memory saving could be tried later, but the limit would need clear headroom above the ~43 MB steady state. Do not set it to 40Mi.\n\n## Confidence\nHigh. The alert, the timing and the numbers all fit: the limit was set below the steady-state memory the old pods showed. Application logs from the killed container would show the exact point of death, but they are not needed to reach this conclusion.",
+  "tool_calls": [
+    "list_pods",
+    "list_deployments",
+    "recent_chart_commits",
+    "list_events",
+    "prometheus_query_range",
+    "read_repo_file",
+    "read_repo_file",
+    "propose_values_change"
+  ],
+  "tool_calls_ok": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "hand_assessments": [
+    {
+      "run": "PR #19",
+      "verdict": "correct",
+      "method": "Hand-written from the report in PR #19 and its eight tool calls. The PR body keeps only 1200-character excerpts of each tool output, not the full recording, so the case cannot be replayed through the model.",
+      "tool_calls": [
+        "list_pods",
+        "list_deployments",
+        "recent_chart_commits",
+        "list_events",
+        "prometheus_query_range",
+        "read_repo_file",
+        "read_repo_file",
+        "propose_values_change"
+      ],
+      "assessment": {
+        "conclusion": "cause_found",
+        "cause": "Commit b3980348 set the memory limit to 40Mi, below the ~43 MB steady working set",
+        "cause_support": "observed",
+        "cause_evidence": [
+          1,
+          3,
+          5
+        ],
+        "alternatives": [
+          {
+            "cause": "memory growth or a leak in the service",
+            "result": "ruled_out",
+            "evidence": [
+              5
+            ]
+          },
+          {
+            "cause": "a new image",
+            "result": "ruled_out",
+            "evidence": [
+              2
+            ]
+          }
+        ],
+        "timing": "matches",
+        "timing_evidence": [
+          3
+        ],
+        "unverified": [
+          {
+            "what": "logs from the killed container",
+            "could_change_diagnosis": false
+          }
+        ]
+      }
+    }
+  ]
+}

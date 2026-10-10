@@ -76,7 +76,9 @@ class AgentLoopTest(unittest.TestCase):
         second = provider.requests[1]
         self.assertIsInstance(second[2], ToolResultsTurn)
         self.assertEqual(second[2].results[0].call_id, "c1")
-        self.assertEqual(second[2].results[0].content, "pods for cartservice")
+        # numbered, so the model can cite it in submit_assessment
+        self.assertEqual(second[2].results[0].content, "[call #1]\npods for cartservice")
+        self.assertEqual(result.evidence[0].output, "pods for cartservice")   # evidence stays raw
         self.assertFalse(second[2].results[0].is_error)
 
     def test_parallel_tool_calls_return_in_one_turn(self):
@@ -86,7 +88,8 @@ class AgentLoopTest(unittest.TestCase):
         make_agent(provider, tools).run("sys", "task")
 
         results = provider.requests[1][-1].results
-        self.assertEqual([(r.call_id, r.content) for r in results], [("id-a", "A"), ("id-b", "B")])
+        self.assertEqual([(r.call_id, r.content) for r in results],
+                         [("id-a", "[call #1]\nA"), ("id-b", "[call #2]\nB")])
 
     def test_tool_errors_are_returned_to_the_model_not_raised(self):
         def bad_input(args):
@@ -105,9 +108,8 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual(result.outcome, agent.ANSWERED)
         results = provider.requests[1][-1].results
         self.assertTrue(all(r.is_error for r in results))
-        self.assertEqual(results[0].content, "'pod' is required")
-        self.assertEqual(results[1].content, "RuntimeError: boom")
-        self.assertEqual(results[2].content, "Unknown tool: missing")
+        self.assertEqual([r.content.split("\n", 1)[1] for r in results],
+                         ["'pod' is required", "RuntimeError: boom", "Unknown tool: missing"])
 
     def test_budget_exhausted_gives_model_one_chance_to_answer(self):
         provider = FakeProvider([

@@ -53,11 +53,13 @@ class Agent:
         self.max_tool_calls = max_tool_calls
         self.timeout_seconds = timeout_seconds
         self.clock = clock
+        self.evidence: list[Evidence] = []
 
     def run(self, system: str, task: str) -> Investigation:
         started = self.clock()
         messages = [UserTurn(task)]
         evidence: list[Evidence] = []
+        self.evidence = evidence   # visible to tools during the run (submit_assessment cites it)
         refused_last_round = False
 
         def finish(outcome: str, answer: str) -> Investigation:
@@ -95,6 +97,7 @@ class Agent:
                     continue
                 output, is_error = self.tools.run(call.name, call.input)
                 evidence.append(Evidence(call.name, call.input, output, is_error))
-                results.append(ToolResult(call.id, output, is_error))
+                # Numbered so the model can cite it in submit_assessment
+                results.append(ToolResult(call.id, f"[call #{len(evidence)}]\n{output}", is_error))
 
             messages.append(ToolResultsTurn(results))

@@ -28,8 +28,7 @@ class AnthropicProvider:
             model=self._model,
             max_tokens=self._max_tokens,
             system=system,
-            tools=[{"name": t.name, "description": t.description,
-                    "input_schema": t.input_schema} for t in tools],
+            tools=[_tool(t) for t in tools],
             messages=[_to_api(m) for m in messages],
             # Each loop iteration resends the whole conversation; caching the
             # prefix makes the repeats cheaper. Prefixes below the model's
@@ -53,6 +52,13 @@ class AnthropicProvider:
             stop_reason=stop_reason,
             provider_data=response.content,
         )
+
+
+def _tool(t: ToolSpec) -> dict:
+    tool = {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+    if t.strict:
+        tool["strict"] = True   # the API guarantees schema-valid input
+    return tool
 
 
 def _to_api(message: Message) -> dict:

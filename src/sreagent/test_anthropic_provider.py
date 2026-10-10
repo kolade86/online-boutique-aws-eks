@@ -95,9 +95,16 @@ class AnthropicProviderTest(unittest.TestCase):
 
         client = anthropic_provider.anthropic.Anthropic(
             api_key="test", http_client=httpx2.Client(transport=httpx2.MockTransport(handler)))
+        import confidence
         turn = anthropic_provider.AnthropicProvider("claude-sonnet-5-5", 16000, 30, client=client) \
-            .complete("sys", [UserTurn("task")], [ToolSpec("list_pods", "d", {"type": "object"})])
+            .complete("sys", [UserTurn("task")],
+                      [ToolSpec("list_pods", "d", {"type": "object"}),
+                       ToolSpec(confidence.TOOL_NAME, "d", confidence.SCHEMA, strict=True)])
 
+        # strict reaches the wire for the assessment tool only
+        self.assertNotIn("strict", seen["body"]["tools"][0])
+        self.assertIs(seen["body"]["tools"][1]["strict"], True)
+        self.assertEqual(seen["body"]["tools"][1]["input_schema"], confidence.SCHEMA)
         self.assertEqual(seen["path"], "/v1/messages")
         self.assertIn(anthropic_provider.FALLBACK_BETA, seen["beta"])
         self.assertEqual(seen["body"]["fallbacks"], "default")

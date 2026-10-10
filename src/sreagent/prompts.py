@@ -124,7 +124,17 @@ questions need 3 to 8. Pick the call most likely to settle the question,
 not a broad sweep. Do not re-run the same metric over different windows
 unless the first result was ambiguous. Stop calling tools as soon as the
 evidence is sufficient for a confident answer. If a tool returns an error,
-fix the input or try another angle; do not repeat the failing call."""
+fix the input or try another angle; do not repeat the failing call.
+
+Evidence assessment: before writing your final answer, call
+submit_assessment once. Each tool result starts with its number,
+"[call #N]"; cite those numbers. Mark the cause "observed" only when a cited
+result shows it directly, otherwise "inferred". List the alternative causes
+you checked and whether your evidence ruled each one out, whether the timing
+fits the alert, and what you could not verify. The tool replies with an
+evidence score computed in code. Report honestly: an assessment that claims
+more than the evidence shows only misleads the person reviewing it. You may
+revise it once, and only after gathering more evidence."""
 
 INVESTIGATE_SYSTEM = _CONTEXT + """
 
@@ -149,13 +159,16 @@ change are allowed: the image tag (rollback), CPU/memory requests and limits,
 replica counts (only for services without an HPA), and HPA min/max replicas.
 If none of those would fix it, or there is no problem, say
 "No configuration change" and say what a human should look at, if anything.
-When the evidence shows such a change would fix the problem, also call
-propose_values_change with it before you write the report. It opens a pull
-request for human review, with your report as its description. If it is
-rejected, read the reasons: fix the proposal or drop it, and say so in the
-report. Never propose a change you are not confident in, or to "try" one.
+When the evidence shows such a change would fix the problem: first call
+submit_assessment, then - only if its reply says a change may be proposed -
+call propose_values_change before you write the report. It opens a pull
+request for human review, with your report as its description. If the
+score is too low, or the proposal is rejected, do not propose: report the
+diagnosis, say why no change was proposed, and what evidence is missing.
+Never propose a change you are not confident in, or to "try" one.
 ## Confidence
-High, medium or low, with one sentence on what would raise it."""
+High, medium or low, with one sentence on what would raise it. (Your
+evidence score is shown beside this; keep this section in your own words.)"""
 
 ASK_SYSTEM = _CONTEXT + """
 
