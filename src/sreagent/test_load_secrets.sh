@@ -160,8 +160,13 @@ SM_EXISTS=1
 # 7. --from-cluster: copies the live Secret, keeping a padded legacy api-token as is
 LEGACY="AbCd+/EfGh1234567890abcdefghijklmnopqrstuvw="
 kubectl() {
+  echo "kubectl $*" >> "$WORK/kubectl.log"
   case "$*" in
     "config current-context") echo "test-cluster" ;;
+    "get ns online-boutique-dev") echo "namespace/online-boutique-dev" ;;
+    "get deploy sreagent -n online-boutique-dev") echo "deployment/sreagent" ;;
+    get\ externalsecret*|annotate\ externalsecret*|wait\ externalsecret*) : ;;
+    rollout*) : ;;
     *anthropic-api-key*) printf '%s\n' "$ANTHROPIC" ;;
     *github-token*) printf '%s' "$GITHUB" ;;
     *api-token*) printf '%s' "$LEGACY" ;;
@@ -175,6 +180,20 @@ eq "$rc" 0 "--from-cluster succeeds"
 eq "$(json_get "$(cat "$WORK/stored.json")" api-token)" "$LEGACY" "legacy api-token kept unchanged"
 eq "$(json_get "$(cat "$WORK/stored.json")" github-token)" "$GITHUB" "github token copied"
 hasnt "$(cat "$WORK/out")" "$LEGACY" "copied token never printed"
+
+# 8. Syncing (kubectl present): both ExternalSecrets are force-synced; the
+#    agent restarts after a real change but not after --from-cluster
+rm -f "$WORK/kubectl.log"; SM_VALUE=""
+rc=$(run --from-cluster </dev/null)
+eq "$rc" 0 "--from-cluster with sync succeeds"
+klog=$(cat "$WORK/kubectl.log")
+has "$klog" "annotate externalsecret sreagent -n online-boutique-dev force-sync=" "app ExternalSecret force-synced"
+has "$klog" "annotate externalsecret sreagent-webhook -n monitoring force-sync=" "webhook ExternalSecret force-synced"
+hasnt "$klog" "rollout restart" "no restart after --from-cluster (same values)"
+rm -f "$WORK/kubectl.log"; SM_VALUE=""
+rc=$(printf '%s\n%s\n' "$ANTHROPIC" "$GITHUB" | run)
+eq "$rc" 0 "new keys with sync succeed"
+has "$(cat "$WORK/kubectl.log")" "rollout restart deploy/sreagent -n online-boutique-dev" "agent restarted after a change"
 
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

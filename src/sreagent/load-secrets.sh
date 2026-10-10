@@ -359,8 +359,10 @@ main() {
     fi
   done
 
-  if (( changed )) && kubectl get deploy sreagent -n "$app_ns" >/dev/null 2>&1; then
-    # The agent reads its secrets as environment variables at start-up
+  # The agent reads its secrets as environment variables at start-up, so a
+  # changed value needs a restart. Not after --from-cluster: those are the
+  # values the running agent already has.
+  if (( changed && ! from_cluster )) && kubectl get deploy sreagent -n "$app_ns" >/dev/null 2>&1; then
     kubectl rollout restart deploy/sreagent -n "$app_ns" >/dev/null
     kubectl rollout status deploy/sreagent -n "$app_ns" --timeout=180s >&2 \
       || log "WARNING: the agent did not become ready - kubectl logs -n $app_ns deploy/sreagent"
