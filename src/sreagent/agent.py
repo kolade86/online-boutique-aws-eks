@@ -53,11 +53,13 @@ class Agent:
         self.max_tool_calls = max_tool_calls
         self.timeout_seconds = timeout_seconds
         self.clock = clock
+        self.evidence: list[Evidence] = []
 
     def run(self, system: str, task: str) -> Investigation:
         started = self.clock()
         messages = [UserTurn(task)]
         evidence: list[Evidence] = []
+        self.evidence = evidence   # visible to tools during the run (submit_assessment cites it)
         refused_last_round = False
 
         def finish(outcome: str, answer: str) -> Investigation:
