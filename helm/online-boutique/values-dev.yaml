@@ -14,3 +14,9 @@ services:
     # kept separate so that rolling image.tag back never rolls the agent back
     # to a tag that predates its first image. The agent may not change it.
     imageTag: "v20261010-131716-f7f702fa"
+  recommendationservice:
+    resources:
+      requests:
+        memory: 40Mi
+      limits:
+        memory: 40Mi
