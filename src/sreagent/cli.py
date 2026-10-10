@@ -258,7 +258,7 @@ def main(argv=None) -> int:
     if opts.command == "ask":
         # scored, but no proposal tool: /ask never opens a PR
         agent = wiring.build_agent(config, [assessment.tool()])
-        assessment.attach(lambda: agent.evidence)
+        assessment.attach_to(agent)
         system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(opts.question))
     else:
@@ -272,7 +272,7 @@ def main(argv=None) -> int:
         key = str(alerts.key_of(firing[0])) if firing else "manual/cli/investigate"
         proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment)
         agent = wiring.build_agent(config, [assessment.tool(), proposal.tool()])
-        assessment.attach(lambda: agent.evidence)
+        assessment.attach_to(agent)
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
         pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr, assessment)

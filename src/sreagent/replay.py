@@ -138,7 +138,7 @@ def run_case(case_path: str, config, provider, now=None) -> dict:
     registry = replay_registry(spec, os.path.dirname(os.path.abspath(case_path)),
                                config.tool_output_max_chars, [assessment.tool()])
     agent = Agent(provider, registry, config.max_tool_calls, config.investigation_timeout_seconds)
-    assessment.attach(lambda: agent.evidence)
+    assessment.attach_to(agent)
     recorded_at = datetime.fromisoformat(spec["now"].replace("Z", "+00:00"))
     system = prompts.system_prompt("ask", spec.get("namespace", "online-boutique-dev"),
                                    config.max_tool_calls)

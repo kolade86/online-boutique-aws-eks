@@ -6,6 +6,10 @@
 
 Two limits stop a runaway investigation: a maximum number of tool calls, and
 a wall-clock timeout. Every tool call is recorded as evidence.
+
+One optional hook: before_finish() may return a reminder when the model
+answers too early (it never submitted its evidence assessment). The loop
+sends it once and continues; the report kept is the one already written.
 """
 
 import logging
@@ -54,6 +58,11 @@ class Agent:
         self.timeout_seconds = timeout_seconds
         self.clock = clock
         self.evidence: list[Evidence] = []
+        # Set by confidence.AssessmentTool.attach_to(): a reminder to send once
+        # if the model finishes without an assessment, and the tools that do
+        # not count against max_tool_calls.
+        self.before_finish = None
+        self.unbudgeted: set = set()
 
     def run(self, system: str, task: str) -> Investigation:
         started = self.clock()
@@ -61,6 +70,7 @@ class Agent:
         evidence: list[Evidence] = []
         self.evidence = evidence   # visible to tools during the run (submit_assessment cites it)
         refused_last_round = False
+        report = None   # the final answer written before a reminder, if one was sent
 
         def finish(outcome: str, answer: str) -> Investigation:
             elapsed = self.clock() - started
@@ -81,17 +91,26 @@ class Agent:
             # No tool calls: the model is done.
             if not turn.tool_calls:
                 if turn.stop_reason in ("end_turn", "stop_sequence"):
-                    return finish(ANSWERED_AT_LIMIT if refused_last_round else ANSWERED, turn.text)
-                return finish(MODEL_STOPPED, f"[stop_reason={turn.stop_reason}] {turn.text}")
+                    reminder = self.before_finish() if report is None and self.before_finish else None
+                    if reminder:
+                        report = turn.text
+                        messages.append(UserTurn(reminder))
+                        continue
+                    return finish(ANSWERED_AT_LIMIT if refused_last_round else ANSWERED,
+                                  report if report is not None else turn.text)
+                return finish(MODEL_STOPPED, report if report is not None
+                              else f"[stop_reason={turn.stop_reason}] {turn.text}")
 
             # It was told the budget is spent and asked for more tools anyway.
             if refused_last_round:
-                return finish(TOOL_LIMIT, turn.text or "Tool-call limit reached without a final answer.")
+                return finish(TOOL_LIMIT, report or turn.text
+                              or "Tool-call limit reached without a final answer.")
 
             # Run each requested tool, or refuse it once the budget is spent.
             results = []
             for call in turn.tool_calls:
-                if len(evidence) >= self.max_tool_calls:
+                used = sum(1 for e in evidence if e.tool not in self.unbudgeted)
+                if call.name not in self.unbudgeted and used >= self.max_tool_calls:
                     results.append(ToolResult(call.id, BUDGET_EXHAUSTED, is_error=True))
                     refused_last_round = True
                     continue

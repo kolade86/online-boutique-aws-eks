@@ -68,7 +68,7 @@ class Runner:
                     proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment)
                 agent = self._agent_factory([assessment.tool()]
                                             + ([proposal.tool()] if proposal else []))
-                assessment.attach(lambda: agent.evidence)
+                assessment.attach_to(agent)
                 system = prompts.system_prompt("investigate", self._config.app_namespace,
                                                self._config.max_tool_calls)
                 result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
@@ -94,7 +94,7 @@ class Runner:
         try:
             assessment = self._assessment_tool()   # scored, but /ask never proposes a change
             agent = self._agent_factory([assessment.tool()])
-            assessment.attach(lambda: agent.evidence)
+            assessment.attach_to(agent)
             system = prompts.system_prompt("ask", self._config.app_namespace,
                                            self._config.max_tool_calls)
             result = agent.run(system, prompts.with_current_time(question))

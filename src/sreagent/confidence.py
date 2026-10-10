@@ -331,6 +331,21 @@ class AssessmentTool:
     def attach(self, get_evidence) -> None:
         self._evidence = get_evidence
 
+    def attach_to(self, agent) -> None:
+        """Wire into an agent.Agent: citations check its tool calls; if it finishes
+        without an assessment it is reminded once; assessing never uses up the
+        tool-call budget."""
+        self.attach(lambda: agent.evidence)
+        agent.before_finish = self.reminder
+        agent.unbudgeted = {TOOL_NAME}
+
+    def reminder(self):
+        if self.submissions:
+            return None
+        return ("You have not called submit_assessment. Call it now for the report you just "
+                "wrote, citing your tool calls by number. Do not rewrite the report: after the "
+                "tool call, reply with one word, done.")
+
     @property
     def latest(self):
         return self.submissions[-1].score if self.submissions else None
