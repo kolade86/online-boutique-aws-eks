@@ -61,6 +61,17 @@ def key_of(alert: dict) -> AlertKey:
                     service_of(labels))
 
 
+def incident_of(alert: dict) -> str:
+    """The incident an alert belongs to: "<namespace>/<service>".
+
+    One fault usually fires several alerts (HighMemoryUsage, then
+    ContainerOOMKilled, then PodNotReady). Within the dedup window they are
+    one incident: investigated once, with at most one open agent PR.
+    """
+    labels = alert.get("labels", {})
+    return f"{labels.get('namespace', '')}/{service_of(labels) or '-'}"
+
+
 def firing(payload: dict) -> list[dict]:
     return [a for a in payload.get("alerts", []) if a.get("status", "firing") == "firing"]
 
@@ -116,20 +127,27 @@ def worth_investigating(alert: dict, app_namespace: str):
 
 
 class Deduplicator:
-    """Remembers when each AlertKey was last investigated (in memory only)."""
+    """Remembers when each key (an incident, or an incident + alert name) was last
+    seen. In memory only: a restart forgets it."""
 
     def __init__(self, window_seconds: float, clock=time.monotonic):
         self._window = window_seconds
         self._clock = clock
-        self._seen: dict[AlertKey, float] = {}
+        self._seen: dict = {}
         self._lock = threading.Lock()
 
-    def is_recent(self, key: AlertKey) -> bool:
+    def is_recent(self, key) -> bool:
+        return self.age(key) is not None
+
+    def age(self, key):
+        """Seconds since the key was marked, or None if not within the window."""
         with self._lock:
             seen = self._seen.get(key)
-            return seen is not None and self._clock() - seen < self._window
+            if seen is None or self._clock() - seen >= self._window:
+                return None
+            return self._clock() - seen
 
-    def mark(self, key: AlertKey) -> None:
+    def mark(self, key) -> None:
         with self._lock:
             now = self._clock()
             self._seen[key] = now

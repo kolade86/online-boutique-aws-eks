@@ -155,6 +155,50 @@ class ScoreTest(unittest.TestCase):
         self.assertEqual(c.score(a, ev).value, 0)
 
 
+class ChangeBlockedTest(unittest.TestCase):
+    """The rule for proposing a change: an observed cause AND the threshold."""
+
+    EV = calls("list_pods", "list_events", "recent_chart_commits")
+    ALTS = [{"cause": "a", "result": "ruled_out", "evidence": [2]},
+            {"cause": "b", "result": "ruled_out", "evidence": [3]}]
+
+    def test_observed_and_above_threshold_is_allowed(self):
+        s = c.score(assessment(cause_evidence=[1, 3], alternatives=self.ALTS,
+                               timing="matches", timing_evidence=[3]), self.EV)
+        self.assertTrue(s.observed)
+        self.assertEqual(s.value, 100)
+        self.assertEqual(c.change_blocked(s, 70), "")
+
+    def test_inferred_cause_never_allows_a_change_whatever_the_score(self):
+        # Opus run 1 on the emailservice replay: inferred, yet above 70
+        s = c.score(assessment(cause_support="inferred", cause_evidence=[1, 3],
+                               alternatives=self.ALTS, timing="matches", timing_evidence=[3]), self.EV)
+        self.assertEqual(s.value, 80)
+        self.assertFalse(s.observed)
+        self.assertIn("the cause is inferred, not directly observed", c.change_blocked(s, 70))
+
+    def test_observed_without_valid_citation_counts_as_inferred(self):
+        s = c.score(assessment(cause_evidence=[9], alternatives=self.ALTS), self.EV)
+        self.assertFalse(s.observed)
+        self.assertIn("inferred", c.change_blocked(s, 0))
+
+    def test_no_problem_is_not_a_cause_to_fix(self):
+        s = c.score(assessment(conclusion="no_problem", cause="stopped", cause_evidence=[1],
+                               alternatives=self.ALTS), self.EV)
+        self.assertFalse(s.observed)
+        self.assertIn("not a cause that a change could fix", c.change_blocked(s, 0))
+
+    def test_threshold_still_applies(self):
+        s = c.score(assessment(cause_evidence=[1], alternatives=self.ALTS[:1]), self.EV)  # 60
+        self.assertIn("the evidence score is 60/100, below the 70 needed", c.change_blocked(s, 70))
+        self.assertEqual(c.change_blocked(s, 60), "")
+
+    def test_not_assessed(self):
+        self.assertIn("no evidence assessment was submitted", c.change_blocked(None, 70))
+        self.assertEqual(c.display(None), "not assessed")
+        self.assertEqual(c.display(c.score(assessment(), self.EV)), "50/100")
+
+
 class StrictSchemaTest(unittest.TestCase):
     UNSUPPORTED = {"minLength", "maxLength", "minimum", "maximum", "multipleOf", "minItems", "maxItems"}
 
@@ -188,7 +232,8 @@ class AssessmentToolTest(unittest.TestCase):
     def test_records_and_reports_the_score(self):
         out = self.submit(assessment(cause_evidence=[1, 2]))
         self.assertTrue(out.startswith("Recorded. Evidence score: 55/100."))
-        self.assertIn("Below 70: do not propose a configuration change", out)
+        self.assertIn("Do not propose a configuration change: the evidence score is 55/100, "
+                      "below the 70 needed", out)
         self.assertEqual(self.tool.latest.value, 55)
         self.assertTrue(self.tool.tool().strict)
 

@@ -178,6 +178,60 @@ class AgentLoopTest(unittest.TestCase):
         self.assertEqual(result.outcome, agent.MODEL_STOPPED)
         self.assertIn("max_tokens", result.answer)
 
+    def test_reminded_once_to_assess_and_report_is_kept(self):
+        import confidence
+        assessment = {"conclusion": "inconclusive", "cause": "", "cause_support": "inferred",
+                      "cause_evidence": [], "alternatives": [], "timing": "not_checked",
+                      "timing_evidence": [], "unverified": []}
+        provider = FakeProvider([tool_turn(call("t", "1")),
+                                 answer("## Diagnosis\nthe full report"),       # forgot to assess
+                                 tool_turn(call(confidence.TOOL_NAME, "2", **assessment)),
+                                 answer("done")])
+        tool = confidence.AssessmentTool(70, 85)
+        a = make_agent(provider, ToolRegistry([Tool("t", "", {}, lambda args: "ok"), tool.tool()], 1000))
+        tool.attach_to(a)
+
+        result = a.run("sys", "task")
+
+        self.assertEqual(result.outcome, agent.ANSWERED)
+        self.assertEqual(result.answer, "## Diagnosis\nthe full report")   # not "done"
+        reminder = provider.requests[2][-1]
+        self.assertIsInstance(reminder, UserTurn)
+        self.assertIn("You have not called submit_assessment", reminder.text)
+        self.assertEqual(tool.latest.value, confidence.INCONCLUSIVE_SCORE)
+
+    def test_reminder_is_sent_only_once(self):
+        import confidence
+        provider = FakeProvider([answer("report"), answer("still no assessment")])
+        tool = confidence.AssessmentTool(70, 85)
+        a = make_agent(provider, ToolRegistry([tool.tool()], 1000))
+        tool.attach_to(a)
+
+        result = a.run("sys", "task")
+
+        self.assertEqual(result.answer, "report")
+        self.assertEqual(len(provider.requests), 2)
+        self.assertIsNone(tool.latest)
+
+    def test_assessment_does_not_use_up_the_tool_budget(self):
+        import confidence
+        assessment = {"conclusion": "cause_found", "cause": "x", "cause_support": "observed",
+                      "cause_evidence": [1], "alternatives": [], "timing": "not_checked",
+                      "timing_evidence": [], "unverified": []}
+        provider = FakeProvider([tool_turn(call("t", "1")),
+                                 tool_turn(call(confidence.TOOL_NAME, "2", **assessment)),
+                                 answer("report")])
+        tool = confidence.AssessmentTool(70, 85)
+        a = make_agent(provider, ToolRegistry([Tool("t", "", {}, lambda args: "ok"), tool.tool()],
+                                              1000), max_tool_calls=1)
+        tool.attach_to(a)
+
+        result = a.run("sys", "task")
+
+        self.assertEqual(result.outcome, agent.ANSWERED)
+        self.assertEqual(tool.latest.value, 50)
+        self.assertEqual([e.tool for e in result.evidence], ["t", confidence.TOOL_NAME])
+
     def test_tool_output_is_redacted_and_truncated_before_the_model_sees_it(self):
         token = "ghp_" + "a" * 36
         provider = FakeProvider([tool_turn(call("logs")), answer("ok")])

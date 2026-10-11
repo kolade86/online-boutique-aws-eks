@@ -19,7 +19,9 @@ import base64
 import re
 import urllib.parse
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
+import confidence
 import values_change as vc
 from redact import redact, redact_public
 from tools import Tool, ToolError, require_str
@@ -32,9 +34,29 @@ MAX_BODY_CHARS = 60000          # GitHub's limit is 65536
 EVIDENCE_EXCERPT_CHARS = 1200
 
 
-def key_marker(key: str) -> str:
-    """Hidden in the PR body; finds an open PR for the same alert."""
-    return f"<!-- sre-agent-key: {key} -->"
+def incident_marker(incident: str) -> str:
+    """Hidden in the PR body; finds agent PRs for the same incident (namespace/service)."""
+    return f"<!-- sre-agent-incident: {incident} -->"
+
+
+# Also reads the older per-alert marker "sre-agent-key: <alert>/<ns>/<service>",
+# so PRs opened before incidents existed are still found.
+_MARKER = re.compile(r"<!-- sre-agent-(?:incident|key): (?:[^/\s]+/)?([^/\s]+/[^/\s]+) -->")
+
+
+def incident_in(body: str):
+    m = _MARKER.search(body or "")
+    return m.group(1) if m else None
+
+
+def incident_from_key(key: str) -> str:
+    """The incident of an alert key "<alertname>/<namespace>/<service>"."""
+    parts = key.split("/")
+    return "/".join(parts[1:]) if len(parts) == 3 else key
+
+
+def _parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 @dataclass
@@ -91,22 +113,37 @@ class PullRequestOpener:
                 tags.append(m.group(1))
         return tags
 
-    def open_pr_for(self, key: str):
-        """The open agent PR for this alert key, if any."""
+    def open_pr_for(self, incident: str):
+        """The open agent PR for this incident, if any."""
         for pr in self.gh.get("/pulls", {"state": "open", "per_page": 100}):
-            if pr["head"]["ref"].startswith("sre-agent/") and key_marker(key) in (pr.get("body") or ""):
+            if pr["head"]["ref"].startswith("sre-agent/") and incident_in(pr.get("body")) == incident:
                 return pr
         return None
 
+    def merged_recently(self, incident: str, minutes: int, now=None):
+        """The agent PR for this incident merged within the last `minutes`, if any."""
+        now = now or datetime.now(timezone.utc)
+        for pr in self.gh.get("/pulls", {"state": "closed", "sort": "updated",
+                                         "direction": "desc", "per_page": 50}):
+            if (pr.get("merged_at") and pr["head"]["ref"].startswith("sre-agent/")
+                    and incident_in(pr.get("body")) == incident
+                    and (now - _parse_time(pr["merged_at"])).total_seconds() <= minutes * 60):
+                return pr
+        return None
+
+    def comment(self, number: int, body: str) -> dict:
+        """Add a comment to an agent PR (redacted: the repository is public)."""
+        return self.gh.send("POST", f"/issues/{number}/comments", {"body": redact_public(body)})
+
     # --- validate ----------------------------------------------------------
 
-    def check(self, changes, reason: str, key: str = None, context: Context = None) -> Proposal:
+    def check(self, changes, reason: str, incident: str = None, context: Context = None) -> Proposal:
         """Apply and validate against main. Raises vc.Rejected."""
-        if key is not None:
-            existing = self.open_pr_for(key)
+        if incident is not None:
+            existing = self.open_pr_for(incident)
             if existing:
                 raise vc.Rejected([f"pull request #{existing['number']} is already open for "
-                                   f"this alert ({existing['html_url']})"])
+                                   f"{incident} ({existing['html_url']})"])
         context = context or self.load_context()
         new_text = vc.apply_changes(context.dev_text, changes)
         diff = vc.validate(context.dev_text, new_text, context.base_values, context.recent_tags)
@@ -118,7 +155,7 @@ class PullRequestOpener:
     def open(self, proposal: Proposal, key: str, investigation_id: str,
              diagnosis: str, evidence: list, confidence: dict = None) -> dict:
         """Re-validate against main as it is now, then branch, commit and open the PR."""
-        fresh = self.check(proposal.changes, proposal.reason, key=key)
+        fresh = self.check(proposal.changes, proposal.reason, incident=incident_from_key(key))
 
         branch = f"sre-agent/{investigation_id}"
         if not BRANCH.fullmatch(branch) or branch == self.gh.branch:
@@ -159,10 +196,11 @@ def commit_message(p: Proposal, key: str) -> str:
 def pr_body(p: Proposal, key: str, investigation_id: str, diagnosis: str,
             evidence: list, values_file: str, confidence: dict = None) -> str:
     parts = [
-        key_marker(key),
+        incident_marker(incident_from_key(key)),
         "Opened by **sreagent**. Review before merging: Argo CD deploys whatever is merged.",
         "",
         f"**Alert:** `{key}`  ",
+        f"**Incident:** `{incident_from_key(key)}` (later alerts for it are added as comments)  ",
         f"**Investigation:** `{investigation_id}`  ",
         f"**Why this change:** {redact(p.reason)}",
         "",
@@ -223,8 +261,8 @@ def confidence_section(confidence: dict, report: str, rollback: bool) -> list[st
     parts = ["## Confidence", "",
              f"**Evidence score: {confidence['score']} / 100.** Computed in code from the agent's "
              f"evidence assessment; it measures how well the conclusion is supported by the "
-             f"evidence it cited, not a probability. {kind[0].upper() + kind[1:]} needs at "
-             f"least {needed}.", "",
+             f"evidence it cited, not a probability. {kind[0].upper() + kind[1:]} needs a "
+             f"directly observed cause and a score of at least {needed}.", "",
              "| Points | Why |", "|---:|---|"]
     for r in confidence["reasons"]:
         parts.append(f"| {r['points']:+d} | {r['text'].replace('|', '/')} |" if r["points"]
@@ -252,31 +290,49 @@ def _inline(args: dict) -> str:
 class ProposalTool:
     """The model-facing tool. Holds at most one accepted proposal per investigation."""
 
-    def __init__(self, opener: PullRequestOpener, key: str, assessment=None):
+    def __init__(self, opener: PullRequestOpener, key: str, assessment=None,
+                 recent_merge_minutes: int = 60):
         self.opener = opener
-        self.key = key
+        self.key = key                                 # this alert
+        self.incident = incident_from_key(key)         # namespace/service
         self.assessment = assessment   # confidence.AssessmentTool; None = no confidence gate
+        self.recent_merge_minutes = recent_merge_minutes
         self.proposal = None
+        self.existing_pr = None        # an open agent PR for this incident, if one was found
+        self.recent_merge = None       # an agent PR for it merged within recent_merge_minutes
 
     def handle(self, args: dict) -> str:
         reason = require_str(args, "reason")
+        # One incident, one PR: never a second PR, and never re-propose a fix just merged
+        existing = self.opener.open_pr_for(self.incident)
+        if existing:
+            self.existing_pr = existing
+            raise ToolError(f"Not proposed: pull request #{existing['number']} is already open for "
+                            f"{self.incident}. Do not propose another change: your report and "
+                            "evidence will be added to that pull request as a comment.")
+        merged = self.opener.merged_recently(self.incident, self.recent_merge_minutes)
+        if merged:
+            self.recent_merge = merged
+            raise ToolError(f"Not proposed: pull request #{merged['number']} for {self.incident} was "
+                            f"merged at {merged['merged_at']} ({merged['title']}). Check whether "
+                            "that change has rolled out (describe_deployment) before anything else; "
+                            "if it has not taken effect yet, report that instead of proposing.")
         if self.assessment is not None and self.assessment.latest is None:
             raise ToolError("Not proposed: record your evidence assessment (submit_assessment) "
                             "first; a change needs a sufficient evidence score.")
         try:
             changes = vc.parse_changes(args.get("changes"))
-            proposal = self.opener.check(changes, reason, key=self.key)
+            proposal = self.opener.check(changes, reason, incident=self.incident)
         except vc.Rejected as e:
             raise ToolError("Rejected:\n" + "\n".join(f"- {r}" for r in e.reasons)) from None
         if self.assessment is not None:
-            needed = required_score(proposal.diff, self.assessment)
-            got = self.assessment.latest.value
-            if got < needed:
-                what = ("an image.tag rollback (it affects every service)"
-                        if ("image", "tag") in proposal.diff else "a change")
-                raise ToolError(f"Not proposed: the evidence score is {got}/100 and {what} needs "
-                                f"{needed}. Report the diagnosis without proposing a change, and "
-                                "say what evidence would be needed.")
+            blocked = confidence.change_blocked(self.assessment.latest,
+                                                required_score(proposal.diff, self.assessment))
+            if blocked:
+                rollback = (" An image.tag rollback affects every service, so it needs more."
+                            if ("image", "tag") in proposal.diff else "")
+                raise ToolError(f"Not proposed: {blocked}.{rollback} Report the diagnosis "
+                                "without proposing a change, and say what evidence would be needed.")
         replaced = " It replaces your earlier proposal." if self.proposal else ""
         self.proposal = proposal
         return ("Accepted." + replaced + " A pull request with this change will be opened for "
@@ -310,6 +366,32 @@ class ProposalTool:
             self.handle)
 
 
+def followup_comment(alert_key: str, *, investigation_id: str = None, report: str = None,
+                     score: str = None, alert: dict = None, evidence: list = None) -> str:
+    """A comment for an open agent PR when another alert arrives for its incident."""
+    lines = ["<!-- sre-agent-followup -->", f"**Another alert for this incident:** `{alert_key}`", ""]
+    if alert:
+        ann = alert.get("annotations", {})
+        lines += [f"- Started: {alert.get('startsAt', '?')}",
+                  f"- Severity: {alert.get('labels', {}).get('severity', '?')}"]
+        if ann.get("summary"):
+            lines.append(f"- Summary: {ann['summary']}")
+        lines.append("")
+    if investigation_id:
+        lines += [f"It was investigated (`{investigation_id}`); evidence score: {score or 'not assessed'}. "
+                  "No second pull request was opened.", "",
+                  "<details><summary>The agent's report for this alert</summary>", "",
+                  redact(report or "").strip() or "_(no report)_", "", "</details>"]
+    else:
+        lines += ["Not investigated separately: this incident was investigated recently. "
+                  "The current state, collected by code:", ""]
+        for label, output in evidence or []:
+            lines += [f"<details><summary><code>{label}</code></summary>", "", "```",
+                      redact(output).replace("```", "'''")[:3000], "```", "</details>", ""]
+    lines += ["", "_Added by sreagent instead of opening a second pull request._"]
+    return "\n".join(lines)
+
+
 def finish(tool, result, key: str, investigation_id: str, open_prs: bool, assessment=None):
     """After an investigation: open the accepted proposal as a PR, or say why not.
 
@@ -319,27 +401,50 @@ def finish(tool, result, key: str, investigation_id: str, open_prs: bool, assess
     """
     from agent import ANSWERED, ANSWERED_AT_LIMIT
 
-    if tool is None or tool.proposal is None:
+    if tool is None:
+        return None
+    # One incident, one PR: if an agent PR is already open for this incident,
+    # add this alert's findings to it instead of opening another.
+    if tool.proposal is None:
+        try:
+            existing = tool.existing_pr or tool.opener.open_pr_for(tool.incident)
+        except ToolError:
+            existing = None
+        if existing:
+            body = followup_comment(tool.key, investigation_id=investigation_id, report=result.answer,
+                                    score=confidence.display(assessment.latest) if assessment else None)
+            where = {"number": existing["number"], "url": existing["html_url"]}
+            if not open_prs:
+                return {"status": "comment_dry_run", **where,
+                        "why": "SREAGENT_OPEN_PRS is off; the comment was not posted"}
+            try:
+                tool.opener.comment(existing["number"], body)
+                return {"status": "commented", **where}
+            except ToolError as e:
+                return {"status": "failed", **where, "why": str(e)}
+        if tool.recent_merge:
+            m = tool.recent_merge
+            return {"status": "recently_merged", "number": m["number"], "url": m["html_url"],
+                    "why": f"pull request #{m['number']} for {tool.incident} was merged at "
+                           f"{m['merged_at']}; no new change was proposed"}
         return None
     p = tool.proposal
     summary = {"changes": vc.describe(p.diff), "reason": p.reason, "diff": p.diff_text}
     if result.outcome not in (ANSWERED, ANSWERED_AT_LIMIT):
         return {**summary, "status": "not_opened",
                 "why": f"the investigation ended with {result.outcome}, without a full report"}
-    confidence = None
+    conf = None
     if assessment is not None:
-        latest, needed = assessment.latest, required_score(p.diff, assessment)
-        if latest is None or latest.value < needed:
-            return {**summary, "status": "below_confidence",
-                    "why": f"evidence score {latest.value if latest else 'not assessed'} is below "
-                           f"the {needed} this change needs"}
-        confidence = assessment.summary()
+        blocked = confidence.change_blocked(assessment.latest, required_score(p.diff, assessment))
+        if blocked:
+            return {**summary, "status": "below_confidence", "why": blocked}
+        conf = assessment.summary()
     if not open_prs:
         return {**summary, "status": "dry_run",
                 "why": "SREAGENT_OPEN_PRS is off; the change was validated but not opened"}
     try:
         return {**summary, "status": "opened",
                 **tool.opener.open(p, key, investigation_id, result.answer, result.evidence,
-                                   confidence)}
+                                   conf)}
     except (vc.Rejected, ToolError) as e:
         return {**summary, "status": "failed", "why": str(e)}

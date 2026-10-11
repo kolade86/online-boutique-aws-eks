@@ -416,12 +416,12 @@ class ReportTest(unittest.TestCase):
         tool.handle(dict(a, cause_support="inferred"))
         result = Investigation("answered", "killed on ip-10-0-10-135.ec2.internal", ev, 2.0)
         report = cli.format_report(result, 15, assessment=tool,
-                                   note=confidence.note_below_threshold(tool))
+                                   note=confidence.note_no_change(tool))
         self.assertIn("Evidence score: 30/100 (PRs need 70, image.tag rollbacks 85) - an "
                       "evidence score, not a probability", report)
         self.assertIn(" +30  Cause inferred: list_pods (#1)", report)
         self.assertIn("Revised: 50 (after 2 calls) -> 30 (after 3 calls)", report)
-        self.assertIn("No change proposed: the evidence score is 30/100, below the 70 needed", report)
+        self.assertIn("No change proposed: the cause is inferred, not directly observed", report)
         self.assertIn("killed on <node-1>", report)
 
 

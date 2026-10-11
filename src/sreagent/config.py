@@ -35,6 +35,7 @@ class Config:
     open_prs: bool
     min_confidence_for_pr: int
     min_confidence_for_rollback: int
+    recent_merge_minutes: int
     dedup_minutes: int
     port: int
 
@@ -80,6 +81,9 @@ class Config:
             # image.tag rollback affects every service, so it needs more
             min_confidence_for_pr=percent("SREAGENT_MIN_CONFIDENCE_FOR_PR", 70),
             min_confidence_for_rollback=percent("SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK", 85),
+            # An agent PR merged this recently for the same service blocks a new
+            # proposal for it (the fix may still be rolling out)
+            recent_merge_minutes=integer("SREAGENT_RECENT_MERGE_MINUTES", 60),
             dedup_minutes=integer("SREAGENT_DEDUP_MINUTES", 30),
             port=integer("PORT", 8080),
         )

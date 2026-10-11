@@ -148,8 +148,12 @@ def _replay(config, opts) -> int:
         run = replay.run_case(opts.case, config, provider)
         grade = run["keyword_check"]
         verdict = "passes" if grade["passed"] else "FAILS"
+        shown = "not assessed" if run["score"] is None else f"{run['score']}/100"
         print(f"run {i}: model {run['model']}  outcome {run['outcome']}  "
-              f"evidence score {run['score']}  keyword check {verdict}")
+              f"evidence score {shown}  keyword check {verdict}  "
+              f"unavailable in the recording: {len(run['unavailable'])}")
+        if run["unavailable"]:
+            print("    no recording for: " + "; ".join(run["unavailable"]))
         for r in run["reasons"]:
             print(f"    {r['points']:+4d}  {r['text']}" if r["points"] else f"       .  {r['text']}")
         if not grade["passed"]:
@@ -208,6 +212,12 @@ def main(argv=None) -> int:
     p_rep.add_argument("--record", action="store_true",
                        help="Append each run (assessment, score, keyword check) to the case file")
 
+    p_cap = sub.add_parser("capture", help="Record the standard evidence pack for a service from "
+                                           "the live cluster into a regression case, for replays")
+    p_cap.add_argument("case", help="Case file to create or update, e.g. regressions/my-incident.json")
+    p_cap.add_argument("--service", required=True, help="e.g. recommendationservice")
+    p_cap.add_argument("--question", required=True, help="The question a replay asks the agent")
+
     sub.add_parser("scores", help="Show the evidence score of every scored run in regressions/")
 
     opts = parser.parse_args(argv)
@@ -219,7 +229,8 @@ def main(argv=None) -> int:
                                                "regressions"))
         print(f"{'case':34} {'run':42} {'source':13} {'verdict':22} score")
         for r in rows:
-            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {r['score']}")
+            shown = "not assessed" if r["score"] is None else r["score"]
+            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {shown}")
         return 0
     # Log lines can hold characters a Windows console code page cannot print
     sys.stdout.reconfigure(errors="replace")
@@ -248,6 +259,15 @@ def main(argv=None) -> int:
         return _propose(config, wiring, opts)
     if opts.command == "replay":
         return _replay(config, opts)
+    if opts.command == "capture":
+        import replay
+        gh = wiring._github(config)
+        ref = gh.get(f"/git/ref/heads/{config.github_branch}")["object"]["sha"][:12]
+        spec = replay.capture(wiring.build_registry(config), opts.case, opts.service,
+                              config.app_namespace, opts.question, ref)
+        print(f"recorded {len(spec['recorded'])} of {len(replay.standard_pack(opts.service, ''))} "
+              f"calls into {opts.case} (repo at {ref}; `git fetch` before replaying it)")
+        return 0
 
     import confidence
     pr, note = None, ""
@@ -256,7 +276,7 @@ def main(argv=None) -> int:
     if opts.command == "ask":
         # scored, but no proposal tool: /ask never opens a PR
         agent = wiring.build_agent(config, [assessment.tool()])
-        assessment.attach(lambda: agent.evidence)
+        assessment.attach_to(agent)
         system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(opts.question))
     else:
@@ -268,13 +288,15 @@ def main(argv=None) -> int:
             refresh_starts_at(payload, opts.started_minutes_ago)
         firing = alerts.firing(payload)
         key = str(alerts.key_of(firing[0])) if firing else "manual/cli/investigate"
-        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment)
+        proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment,
+                                        config.recent_merge_minutes)
         agent = wiring.build_agent(config, [assessment.tool(), proposal.tool()])
-        assessment.attach(lambda: agent.evidence)
+        assessment.attach_to(agent)
         system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
         pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr, assessment)
-        note = confidence.note_below_threshold(assessment)
+        proposed = pr is not None and pr.get("status") in ("opened", "dry_run")
+        note = confidence.note_no_change(assessment, proposed)
 
     print(format_report(result, config.max_tool_calls, assessment=assessment, note=note), end="")
     if pr is not None:
