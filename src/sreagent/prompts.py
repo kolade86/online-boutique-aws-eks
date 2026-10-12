@@ -157,7 +157,9 @@ The root cause the evidence supports, and the evidence it rests on. If the
 evidence is inconclusive, say what is known, what is not, and which check
 would settle it.
 ## Evidence
-Bullet points: each query or check you ran and what it showed.
+Bullet points: each query or check you ran and what it showed. Refer to a
+tool call as "call 3", never "#3": the report goes into a pull request,
+where "#3" becomes a link to pull request 3.
 ## Recommended change
 If a configuration change in values-dev.yaml would fix it, state it exactly
 (for example: "cartservice memory limit 512Mi -> 768Mi"). Only these kinds of

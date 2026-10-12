@@ -67,14 +67,14 @@ class ScoreTest(unittest.TestCase):
         self.assertEqual(s.value, 100)
         self.assertTrue(s.observed)
         self.assertEqual([(r.points, r.text) for r in s.reasons], [
-            (50, "Cause directly observed: list_pods (#1), recent_chart_commits (#3), "
-                 "prometheus_query_range (#5)"),
+            (50, "Cause directly observed: list_pods (call 1), recent_chart_commits (call 3), "
+                 "prometheus_query_range (call 5)"),
             (10, "Corroborated by 3 different tools"),
             (10, "Decisive check: the limit was cut to 40Mi while the working set stayed at 43 MB "
-                 "(recent_chart_commits (#3), prometheus_query_range (#5))"),
-            (10, "Ruled out: memory growth or a leak in the service (prometheus_query_range (#5))"),
-            (10, "Ruled out: a new image (list_deployments (#2))"),
-            (20, "Timing matches the alert (recent_chart_commits (#3))"),
+                 "(recent_chart_commits (call 3), prometheus_query_range (call 5))"),
+            (10, "Ruled out: memory growth or a leak in the service (prometheus_query_range (call 5))"),
+            (10, "Ruled out: a new image (list_deployments (call 2))"),
+            (20, "Timing matches the alert (recent_chart_commits (call 3))"),
             (-10, "The score stops at 100"),
         ])
         self.assertEqual(s.open_questions, ["Not verified (detail only): logs from the killed container"])
@@ -87,7 +87,7 @@ class ScoreTest(unittest.TestCase):
 
     def test_observed_needs_a_valid_citation(self):
         ev = calls("list_pods", "list_events", errors=(2,))
-        for cited, reason in (([9], "#9 does not exist"), ([2], "#2 (list_events) failed"), ([], None)):
+        for cited, reason in (([9], "call 9 does not exist"), ([2], "call 2 (list_events) failed"), ([], None)):
             with self.subTest(cited=cited):
                 s = c.score(assessment(cause_evidence=cited), ev)
                 self.assertEqual(s.reasons[0].points, c.POINTS["cause_inferred"])
@@ -99,7 +99,7 @@ class ScoreTest(unittest.TestCase):
         ev = calls("list_pods", c.TOOL_NAME)
         s = c.score(assessment(cause_evidence=[2]), ev)
         self.assertEqual(s.reasons[0].points, c.POINTS["cause_inferred"])
-        self.assertIn("#2 is an assessment, not evidence", s.reasons[-1].text)
+        self.assertIn("call 2 is an assessment, not evidence", s.reasons[-1].text)
 
     def test_corroboration_needs_different_tools(self):
         ev = calls("read_repo_file", "read_repo_file", "list_pods")
@@ -114,11 +114,20 @@ class ScoreTest(unittest.TestCase):
         failed = c.score(assessment(cause_support="inferred", decisive_check=check("limit 40Mi", 2)), ev)
         none = c.score(assessment(cause_support="inferred"), ev)
         self.assertEqual((cited.value, failed.value, none.value), (40, 30, 30))
-        self.assertIn((10, "Decisive check: limit 40Mi (list_pods (#1))"),
+        self.assertIn((10, "Decisive check: limit 40Mi (list_pods (call 1))"),
                       [(r.points, r.text) for r in cited.reasons])
         self.assertIn("Decisive check claimed without a valid citation: limit 40Mi",
                       [r.text for r in failed.reasons])
         self.assertIn("No decisive check named", [r.text for r in none.reasons])
+
+    def test_decisive_check_text_is_not_cut_at_the_short_limit(self):
+        # PR #32's was 242 characters; a longer one was cut mid-sentence at 300
+        long = "The healthy pods use 43MB while the limit is 24Mi. " * 10        # 510 characters
+        s = c.score(assessment(decisive_check=check(long, 1)), calls("list_deployments"))
+        self.assertEqual(s.assessment["decisive_check"]["what"], long.strip())
+        self.assertIn(long.strip(), s.reasons[1].text)
+        s = c.score(assessment(decisive_check=check("x" * 2000, 1)), calls("list_deployments"))
+        self.assertEqual(len(s.assessment["decisive_check"]["what"]), c.MAX_DECISIVE_TEXT)
 
     def test_cap_without_an_alternative_ruled_out(self):
         ev = calls("list_pods", "list_events", "recent_chart_commits")
@@ -174,7 +183,7 @@ class ScoreTest(unittest.TestCase):
     def test_failed_calls_are_listed_by_the_code(self):
         s = c.score(assessment(), HAIKU_CALLS)
         self.assertEqual(s.open_questions,
-                         ["Calls that failed or returned nothing: list_pods (#2), describe_deployment (#3)"])
+                         ["Calls that failed or returned nothing: list_pods (call 2), describe_deployment (call 3)"])
         inconclusive = c.score(assessment(conclusion="inconclusive"), HAIKU_CALLS)
         self.assertEqual(inconclusive.open_questions, s.open_questions)
 
@@ -243,7 +252,7 @@ class ObservedRuleTest(unittest.TestCase):
         s = c.score(a, HAIKU_CALLS)
         self.assertFalse(s.observed)
         self.assertEqual(s.not_observed,
-                         "the decisive check cites only list_events (#1), which shows what happened "
+                         "the decisive check cites only list_events (call 1), which shows what happened "
                          "to the pods, not the setting or change that explains it")
         self.assertEqual(s.value, c.CAP_INFERRED)
         self.assertTrue(s.reasons[0].text.startswith("Cause inferred (claimed observed, but the decisive"))
