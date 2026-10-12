@@ -1,0 +1,104 @@
+{
+  "id": "healthy-checkoutservice",
+  "format": 2,
+  "mode": "ask",
+  "expected": {
+    "kind": "no_problem",
+    "must_mention_any": [
+      [
+        "healthy",
+        "no problem",
+        "nothing wrong",
+        "no issues",
+        "working normally"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": null
+  },
+  "replay": {
+    "question": "Is checkoutservice healthy, or is anything wrong with it?",
+    "now": "2026-10-12T18:37:16Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "2cafc5a59b17",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "checkoutservice"
+        },
+        "file": "healthy-checkoutservice-recorded/01-list_pods.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "healthy-checkoutservice-recorded/02-list_pods.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "checkoutservice"
+        },
+        "file": "healthy-checkoutservice-recorded/03-list_events.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "healthy-checkoutservice-recorded/04-list_events.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "healthy-checkoutservice-recorded/05-list_deployments.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "checkoutservice"
+        },
+        "file": "healthy-checkoutservice-recorded/06-describe_deployment.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "healthy-checkoutservice-recorded/07-list_hpas.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"checkoutservice-.*\",container!=\"\"})",
+          "minutes": 60
+        },
+        "file": "healthy-checkoutservice-recorded/08-prometheus_query_range.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"online-boutique-dev\",pod=~\"checkoutservice-.*\",container!=\"\"}[5m]))",
+          "minutes": 60
+        },
+        "file": "healthy-checkoutservice-recorded/09-prometheus_query_range.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"online-boutique-dev\",pod=~\"checkoutservice-.*\"})"
+        },
+        "file": "healthy-checkoutservice-recorded/10-prometheus_query.txt",
+        "source": "standard pack"
+      }
+    ],
+    "note": "Captured with `cli.py capture` on 2026-10-12: 0 call(s) the agent made, 10 from the standard pack. Redacted."
+  }
+}
