@@ -1,0 +1,3 @@
+2 series
+{pod="checkoutservice-79bf8b9cbd-2wb5q"} = 0
+{pod="checkoutservice-79bf8b9cbd-8vgwt"} = 0

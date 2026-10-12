@@ -1,0 +1,578 @@
+{
+  "id": "paymentservice-memory-24mi",
+  "format": 2,
+  "mode": "alert",
+  "expected": {
+    "kind": "config_fault",
+    "must_mention_any": [
+      [
+        "24Mi"
+      ],
+      [
+        "commit",
+        "Reduce paymentservice memory"
+      ],
+      [
+        "limit"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": {
+      "paths": [
+        "services.paymentservice.resources.requests.memory",
+        "services.paymentservice.resources.limits.memory"
+      ],
+      "min": {
+        "services.paymentservice.resources.limits.memory": "48Mi"
+      },
+      "note": "Idle working set is about 22Mi against a 24Mi limit, and the pods were later OOMKilled. A right change lifts the limit clear of it; the chart default is 64Mi request, 128Mi limit."
+    }
+  },
+  "replay": {
+    "question": null,
+    "now": "2026-10-12T19:05:51Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "b3b717e14e1d",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "paymentservice"
+        },
+        "file": "paymentservice-memory-24mi-recorded/01-list_pods.txt",
+        "source": "agent"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"paymentservice.*\",container!=\"\"}",
+          "minutes": 120,
+          "step_seconds": 300
+        },
+        "file": "paymentservice-memory-24mi-recorded/02-prometheus_query_range.txt",
+        "source": "agent"
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "kube_pod_container_resource_limits{namespace=\"online-boutique-dev\",pod=~\"paymentservice.*\",resource=\"memory\"}"
+        },
+        "file": "paymentservice-memory-24mi-recorded/03-prometheus_query.txt",
+        "source": "agent"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "paymentservice"
+        },
+        "file": "paymentservice-memory-24mi-recorded/04-list_events.txt",
+        "source": "agent"
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"paymentservice-79c77b7d78.*\",container=\"server\"} / on(pod) group_left() kube_pod_container_resource_limits{namespace=\"online-boutique-dev\",resource=\"memory\",container=\"server\"}"
+        },
+        "file": "paymentservice-memory-24mi-recorded/05-prometheus_query.txt",
+        "source": "agent"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "paymentservice"
+        },
+        "file": "paymentservice-memory-24mi-recorded/06-describe_deployment.txt",
+        "source": "agent"
+      },
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "paymentservice-memory-24mi-recorded/07-list_pods.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "paymentservice-memory-24mi-recorded/08-list_events.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "paymentservice-memory-24mi-recorded/09-list_deployments.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "paymentservice-memory-24mi-recorded/10-list_hpas.txt",
+        "source": "standard pack"
+      }
+    ],
+    "note": "Captured with `cli.py capture` on 2026-10-12: 6 call(s) the agent made (with the outputs the agent saw), 4 from the standard pack. Redacted."
+  },
+  "alert": {
+    "version": "4",
+    "status": "firing",
+    "receiver": "sre-agent",
+    "alerts": [
+      {
+        "status": "firing",
+        "labels": {
+          "alertname": "HighMemoryUsage",
+          "namespace": "online-boutique-dev",
+          "pod": "paymentservice-79c77b7d78-xwvd8",
+          "prometheus": "monitoring/monitoring-kube-prometheus-prometheus",
+          "severity": "warning"
+        },
+        "annotations": {
+          "description": "Pod paymentservice-79c77b7d78-xwvd8 is using more than 90% of its memory limit for 5 minutes.",
+          "summary": "Pod paymentservice-79c77b7d78-xwvd8 memory usage above 90%"
+        },
+        "startsAt": "2026-10-12T19:05:41.437Z"
+      }
+    ]
+  },
+  "live_run": {
+    "id": "92b5268c",
+    "kind": "alert",
+    "subject": "HighMemoryUsage/online-boutique-dev/paymentservice",
+    "started_at": "2026-10-12T19:05:51Z",
+    "finished_at": "2026-10-12T19:06:37Z",
+    "model": "claude-sonnet-5-5",
+    "outcome": "answered",
+    "answer": "## Summary\nBoth paymentservice pods are at 94–96% of their memory limit because a cost-cutting commit lowered the limit to 24Mi, which is about what the service normally uses. Neither pod has restarted or been OOM-killed so far.\n\n## Diagnosis\nCommit 2bd0caf1 (18:54Z, \"Reduce paymentservice memory to save cost\") set paymentservice memory requests and limits to 24Mi in values-dev.yaml. The chart defaults are 64Mi requests and 128Mi limits. Argo CD rolled the change out as a new ReplicaSet, `79c77b7d78`, which has the same image tag as the previous one. So this is a resource change, not a code deploy.\n\nThe live limit is 25.17 MB (24Mi). Working set is 23–26 MB, which is 94–96% of that. Earlier paymentservice pods ran at 21–29 MB for hours under the 128Mi limit. That includes pods on this same image, so memory use is unchanged and only the limit shrank. A pod at 29 MB would exceed the new limit, so an OOM kill is possible.\n\n## Evidence\n- **Pods (call 1):** `paymentservice-79c77b7d78-xwvd8` and `-t4nwj` are 5–6 minutes old, ready, with 0 restarts.\n- **Memory history (call 2):** earlier pods stayed between 21 and 29 MB, with a slow rise over each hour. There is no sign of a leak or a regression in the new image.\n- **Live limits (call 3):** both pods have a memory limit of 2.517e7 bytes (24Mi).\n- **Usage against limit (call 7):** usage is at 0.9585 and 0.9438 of the limit.\n- **Chart commits (call 4):** commit 2bd0caf1 at 18:54Z set paymentservice memory request and limit to 24Mi. The pods were replaced about 6 minutes before the alert.\n- **Chart defaults (calls 5, 8):** values.yaml has paymentservice at 64Mi requests and 128Mi limits.\n- **Deployment (call 10):** revision 6 (`79c77b7d78`) has the same image tag as revision 5 (`774cbb9cf9`). It is a pod-template change, not a new build.\n- **Events (call 6):** the old ReplicaSet was scaled down and the new one scaled up about 6 minutes before the alert. The readiness-probe timeouts at startup are normal and the pods became ready. The HPA warnings about missing metrics date from before this rollout.\n\n## Recommended change\nRestore paymentservice memory in values-dev.yaml: limit 24Mi -> 128Mi, request 24Mi -> 64Mi. A pull request has been proposed with this change.\n\n## Confidence\nHigh. The commit, the live limit and the usage ratio all line up in time. Confidence would be higher if the pods' working-set trend showed whether they stay under the 25.17 MB limit, but I did not check that.",
+    "note": "",
+    "confidence": {
+      "score": 100,
+      "display": "100/100",
+      "observed": true,
+      "min_for_pr": 70,
+      "min_for_rollback": 85,
+      "reasons": [
+        {
+          "points": 50,
+          "text": "Cause directly observed: prometheus_query (call 3), recent_chart_commits (call 4), read_repo_file (call 5), prometheus_query (call 7), describe_deployment (call 10)"
+        },
+        {
+          "points": 10,
+          "text": "Corroborated by 4 different tools"
+        },
+        {
+          "points": 10,
+          "text": "Decisive check: Revision 6 ReplicaSet has the same image tag as revision 5 (so the rollout is the resource change from commit 2bd0caf1, not a code deploy); live limit is 24Mi and usage/limit is 0.94-0.96, while earlier pods with the 128Mi limit used 21-29 MB on that same image. (prometheus_query_range (call 2), prometheus_query (call 3), recent_chart_commits (call 4), prometheus_query (call 7), describe_deployment (call 10))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Memory leak / new image regression (prometheus_query_range (call 2), describe_deployment (call 10))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: OOM kills/restarts already occurring (list_pods (call 1))"
+        },
+        {
+          "points": 20,
+          "text": "Timing matches the alert (recent_chart_commits (call 4), list_events (call 6), describe_deployment (call 10))"
+        },
+        {
+          "points": -10,
+          "text": "The score stops at 100"
+        }
+      ],
+      "open_questions": [
+        "Not verified (detail only): Whether pods will be OOMKilled at 24Mi (none so far, restarts 0)"
+      ],
+      "submissions": [
+        {
+          "after_calls": 8,
+          "score": 60,
+          "observed": false,
+          "reasons": [
+            {
+              "points": 30,
+              "text": "Cause inferred (claimed observed, but the decisive check cites only prometheus_query_range (call 2), prometheus_query (call 3), prometheus_query (call 7), which shows what happened to the pods, not the setting or change that explains it)"
+            },
+            {
+              "points": 10,
+              "text": "Corroborated by 3 different tools"
+            },
+            {
+              "points": 10,
+              "text": "Decisive check: Live memory limit of both new pods is 2.517e7 bytes (24Mi) and usage/limit ratio is 0.9585 and 0.9438; prior pods on the same image tag with the 128Mi limit used 21-29 MB, so usage is unchanged and only the limit shrank. (prometheus_query_range (call 2), prometheus_query (call 3), prometheus_query (call 7))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Memory leak / new image regression (prometheus_query_range (call 2))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: OOM kills/restarts already occurring (list_pods (call 1))"
+            },
+            {
+              "points": 20,
+              "text": "Timing matches the alert (recent_chart_commits (call 4), list_events (call 6))"
+            },
+            {
+              "points": -30,
+              "text": "Capped at 60: the cause is inferred, not observed"
+            }
+          ],
+          "open_questions": [
+            "Not verified (detail only): Whether the pods will be OOMKilled at 24Mi (none so far, restarts 0)",
+            "Not verified (detail only): Readiness probe timeouts at startup seen in events, deemed normal startup"
+          ],
+          "assessment": {
+            "conclusion": "cause_found",
+            "cause": "Commit 2bd0caf1 cut paymentservice memory request/limit from 64Mi/128Mi to 24Mi/24Mi, and the pods' normal working set (~21-29 MB) is at or above the new 25.17 MB limit, so they sit at ~94-96% of the limit.",
+            "cause_support": "observed",
+            "cause_evidence": [
+              3,
+              4,
+              5,
+              7
+            ],
+            "decisive_check": {
+              "what": "Live memory limit of both new pods is 2.517e7 bytes (24Mi) and usage/limit ratio is 0.9585 and 0.9438; prior pods on the same image tag with the 128Mi limit used 21-29 MB, so usage is unchanged and only the limit shrank.",
+              "evidence": [
+                2,
+                3,
+                7
+              ]
+            },
+            "alternatives": [
+              {
+                "cause": "Memory leak / new image regression",
+                "result": "ruled_out",
+                "evidence": [
+                  2
+                ]
+              },
+              {
+                "cause": "OOM kills/restarts already occurring",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              4,
+              6
+            ],
+            "unverified": [
+              {
+                "what": "Whether the pods will be OOMKilled at 24Mi (none so far, restarts 0)",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "Readiness probe timeouts at startup seen in events, deemed normal startup",
+                "could_change_diagnosis": false
+              }
+            ]
+          }
+        },
+        {
+          "after_calls": 9,
+          "score": 100,
+          "observed": true,
+          "reasons": [
+            {
+              "points": 50,
+              "text": "Cause directly observed: prometheus_query (call 3), recent_chart_commits (call 4), read_repo_file (call 5), prometheus_query (call 7), describe_deployment (call 10)"
+            },
+            {
+              "points": 10,
+              "text": "Corroborated by 4 different tools"
+            },
+            {
+              "points": 10,
+              "text": "Decisive check: Revision 6 ReplicaSet has the same image tag as revision 5 (so the rollout is the resource change from commit 2bd0caf1, not a code deploy); live limit is 24Mi and usage/limit is 0.94-0.96, while earlier pods with the 128Mi limit used 21-29 MB on that same image. (prometheus_query_range (call 2), prometheus_query (call 3), recent_chart_commits (call 4), prometheus_query (call 7), describe_deployment (call 10))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Memory leak / new image regression (prometheus_query_range (call 2), describe_deployment (call 10))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: OOM kills/restarts already occurring (list_pods (call 1))"
+            },
+            {
+              "points": 20,
+              "text": "Timing matches the alert (recent_chart_commits (call 4), list_events (call 6), describe_deployment (call 10))"
+            },
+            {
+              "points": -10,
+              "text": "The score stops at 100"
+            }
+          ],
+          "open_questions": [
+            "Not verified (detail only): Whether pods will be OOMKilled at 24Mi (none so far, restarts 0)"
+          ],
+          "assessment": {
+            "conclusion": "cause_found",
+            "cause": "Commit 2bd0caf1 (18:54Z) cut paymentservice memory request/limit from 64Mi/128Mi to 24Mi/24Mi; this rolled out a new ReplicaSet with the same image, and normal working set (~21-29 MB) is now ~94-96% of the 25.17 MB limit.",
+            "cause_support": "observed",
+            "cause_evidence": [
+              3,
+              4,
+              5,
+              7,
+              10
+            ],
+            "decisive_check": {
+              "what": "Revision 6 ReplicaSet has the same image tag as revision 5 (so the rollout is the resource change from commit 2bd0caf1, not a code deploy); live limit is 24Mi and usage/limit is 0.94-0.96, while earlier pods with the 128Mi limit used 21-29 MB on that same image.",
+              "evidence": [
+                2,
+                3,
+                4,
+                7,
+                10
+              ]
+            },
+            "alternatives": [
+              {
+                "cause": "Memory leak / new image regression",
+                "result": "ruled_out",
+                "evidence": [
+                  2,
+                  10
+                ]
+              },
+              {
+                "cause": "OOM kills/restarts already occurring",
+                "result": "ruled_out",
+                "evidence": [
+                  1
+                ]
+              }
+            ],
+            "timing": "matches",
+            "timing_evidence": [
+              4,
+              6,
+              10
+            ],
+            "unverified": [
+              {
+                "what": "Whether pods will be OOMKilled at 24Mi (none so far, restarts 0)",
+                "could_change_diagnosis": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "pull_request": {
+      "changes": [
+        "services.paymentservice.resources.limits.memory: 24Mi -> 128Mi",
+        "services.paymentservice.resources.requests.memory: 24Mi -> 64Mi"
+      ],
+      "reason": "Commit 2bd0caf1 lowered paymentservice memory to 24Mi, which is about its normal working set (21-29 MB), so pods sit at 94-96% of the limit. Restoring the chart defaults 64Mi/128Mi, which the service ran under without trouble, removes the alert and the OOM risk.",
+      "diff": "--- a/helm/online-boutique/values-dev.yaml\n+++ b/helm/online-boutique/values-dev.yaml\n@@ -23,6 +23,6 @@\n   paymentservice:\n     resources:\n       requests:\n-        memory: 24Mi\n+        memory: 64Mi\n       limits:\n-        memory: 24Mi\n+        memory: 128Mi\n",
+      "status": "opened",
+      "number": 36,
+      "url": "https://github.com/kolade86/online-boutique-aws-eks/pull/36",
+      "branch": "sre-agent/92b5268c"
+    },
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "paymentservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"paymentservice.*\",container!=\"\"}",
+          "minutes": 120,
+          "step_seconds": 300
+        },
+        "is_error": false
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "kube_pod_container_resource_limits{namespace=\"online-boutique-dev\",pod=~\"paymentservice.*\",resource=\"memory\"}"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "recent_chart_commits",
+        "input": {
+          "limit": 5
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/values.yaml",
+          "search": "  paymentservice:"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "paymentservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"paymentservice-79c77b7d78.*\",container=\"server\"} / on(pod) group_left() kube_pod_container_resource_limits{namespace=\"online-boutique-dev\",resource=\"memory\",container=\"server\"}"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/values.yaml",
+          "start_line": 193,
+          "max_lines": 20
+        },
+        "is_error": false
+      },
+      {
+        "tool": "submit_assessment",
+        "input": {
+          "conclusion": "cause_found",
+          "cause": "Commit 2bd0caf1 cut paymentservice memory request/limit from 64Mi/128Mi to 24Mi/24Mi, and the pods' normal working set (~21-29 MB) is at or above the new 25.17 MB limit, so they sit at ~94-96% of the limit.",
+          "cause_support": "observed",
+          "cause_evidence": [
+            3,
+            4,
+            5,
+            7
+          ],
+          "decisive_check": {
+            "what": "Live memory limit of both new pods is 2.517e7 bytes (24Mi) and usage/limit ratio is 0.9585 and 0.9438; prior pods on the same image tag with the 128Mi limit used 21-29 MB, so usage is unchanged and only the limit shrank.",
+            "evidence": [
+              2,
+              3,
+              7
+            ]
+          },
+          "alternatives": [
+            {
+              "cause": "Memory leak / new image regression",
+              "result": "ruled_out",
+              "evidence": [
+                2
+              ]
+            },
+            {
+              "cause": "OOM kills/restarts already occurring",
+              "result": "ruled_out",
+              "evidence": [
+                1
+              ]
+            }
+          ],
+          "timing": "matches",
+          "timing_evidence": [
+            4,
+            6
+          ],
+          "unverified": [
+            {
+              "what": "Whether the pods will be OOMKilled at 24Mi (none so far, restarts 0)",
+              "could_change_diagnosis": false
+            },
+            {
+              "what": "Readiness probe timeouts at startup seen in events, deemed normal startup",
+              "could_change_diagnosis": false
+            }
+          ]
+        },
+        "is_error": false
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "paymentservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "submit_assessment",
+        "input": {
+          "conclusion": "cause_found",
+          "cause": "Commit 2bd0caf1 (18:54Z) cut paymentservice memory request/limit from 64Mi/128Mi to 24Mi/24Mi; this rolled out a new ReplicaSet with the same image, and normal working set (~21-29 MB) is now ~94-96% of the 25.17 MB limit.",
+          "cause_support": "observed",
+          "cause_evidence": [
+            3,
+            4,
+            5,
+            7,
+            10
+          ],
+          "decisive_check": {
+            "what": "Revision 6 ReplicaSet has the same image tag as revision 5 (so the rollout is the resource change from commit 2bd0caf1, not a code deploy); live limit is 24Mi and usage/limit is 0.94-0.96, while earlier pods with the 128Mi limit used 21-29 MB on that same image.",
+            "evidence": [
+              2,
+              3,
+              4,
+              7,
+              10
+            ]
+          },
+          "alternatives": [
+            {
+              "cause": "Memory leak / new image regression",
+              "result": "ruled_out",
+              "evidence": [
+                2,
+                10
+              ]
+            },
+            {
+              "cause": "OOM kills/restarts already occurring",
+              "result": "ruled_out",
+              "evidence": [
+                1
+              ]
+            }
+          ],
+          "timing": "matches",
+          "timing_evidence": [
+            4,
+            6,
+            10
+          ],
+          "unverified": [
+            {
+              "what": "Whether pods will be OOMKilled at 24Mi (none so far, restarts 0)",
+              "could_change_diagnosis": false
+            }
+          ]
+        },
+        "is_error": false
+      },
+      {
+        "tool": "propose_values_change",
+        "input": {
+          "changes": [
+            {
+              "path": "services.paymentservice.resources.limits.memory",
+              "value": "128Mi"
+            },
+            {
+              "path": "services.paymentservice.resources.requests.memory",
+              "value": "64Mi"
+            }
+          ],
+          "reason": "Commit 2bd0caf1 lowered paymentservice memory to 24Mi, which is about its normal working set (21-29 MB), so pods sit at 94-96% of the limit. Restoring the chart defaults 64Mi/128Mi, which the service ran under without trouble, removes the alert and the OOM risk."
+        },
+        "is_error": false
+      }
+    ]
+  },
+  "expected_diagnosis": "A commit set paymentservice memory request and limit to 24Mi, at or below its ~22Mi working set, so it runs above 90% of its limit and is OOMKilled; raise the limit clear of the working set (chart default 64Mi/128Mi)."
+}

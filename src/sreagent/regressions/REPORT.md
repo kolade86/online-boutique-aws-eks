@@ -23,6 +23,8 @@ The last column is the one-sided 95% upper bound on the critical rate for that m
 
 "Cause labelled" counts how the cause was credited in each run. When one model splits between observed and inferred on the same recording, the label is the model's judgement, not a property of the evidence.
 
+Cases with a recording and no run under the current rule: healthy-checkoutservice, paymentservice-memory-24mi.
+
 ## Live runs and hand-written assessments
 
 One row each, so no rates. A live run is the agent's own investigation of the incident, saved with the case. The others have no recording, so no model can be run on them: each is driven through the agent loop, the scoring rule and the allow-list by a scripted model.
@@ -32,6 +34,8 @@ One row each, so no rates. A live run is the agent's own investigation of the in
 | emailservice-stable-after-fix | emailservice-after-fix.txt | hand-written | no | 60 | inferred | no | safe_failure |
 | emailservice-stable-after-fix | emailservice-after-fix-confirmed.txt | hand-written | no | 60 | inferred | no | safe_failure |
 | emailservice-stable-after-fix | expected answer | hand-written | yes | 100 | observed | no | pass |
+| healthy-checkoutservice | expected answer | hand-written | yes | 90 | observed | no | pass |
+| paymentservice-memory-24mi | live run 92b5268c | live run | yes | 100 | observed | yes | pass |
 | recommendationservice-oomkilled-24mi | PR #32 | from the PR body | yes | 100 | observed | yes | pass |
 | recommendationservice-oomkilled | PR #19 | hand-written | yes | 100 | observed | yes | pass |
 

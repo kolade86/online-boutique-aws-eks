@@ -1,0 +1,40 @@
+Controller events (HPA, Deployment, ReplicaSet, ...), newest first:
+5m ago Warning FailedGetResourceMetric HorizontalPodAutoscaler/paymentservice [horizontal-pod-autoscaler] (x6 since 3h42m ago): failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
+5m ago Warning FailedComputeMetricsReplicas HorizontalPodAutoscaler/paymentservice [horizontal-pod-autoscaler] (x6 since 3h42m ago): invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
+5m ago Normal SuccessfulDelete ReplicaSet/paymentservice-774cbb9cf9 [replicaset-controller] (x1): Deleted pod: paymentservice-774cbb9cf9-5sv4j
+5m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled down replica set paymentservice-774cbb9cf9 from 1 to 0
+6m ago Normal SuccessfulDelete ReplicaSet/paymentservice-774cbb9cf9 [replicaset-controller] (x1): Deleted pod: paymentservice-774cbb9cf9-vq2lg
+6m ago Normal SuccessfulCreate ReplicaSet/paymentservice-79c77b7d78 [replicaset-controller] (x1): Created pod: paymentservice-79c77b7d78-t4nwj
+6m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled down replica set paymentservice-774cbb9cf9 from 2 to 1
+6m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled up replica set paymentservice-79c77b7d78 from 1 to 2
+6m ago Normal SuccessfulCreate ReplicaSet/paymentservice-79c77b7d78 [replicaset-controller] (x1): Created pod: paymentservice-79c77b7d78-xwvd8
+6m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled up replica set paymentservice-79c77b7d78 from 0 to 1
+41m ago Normal SuccessfulDelete ReplicaSet/paymentservice-6484979f7d [replicaset-controller] (x1): Deleted pod: paymentservice-6484979f7d-ll7s7
+41m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled down replica set paymentservice-6484979f7d from 1 to 0
+41m ago Normal SuccessfulDelete ReplicaSet/paymentservice-6484979f7d [replicaset-controller] (x1): Deleted pod: paymentservice-6484979f7d-j8d6z
+41m ago Normal SuccessfulCreate ReplicaSet/paymentservice-774cbb9cf9 [replicaset-controller] (x1): Created pod: paymentservice-774cbb9cf9-vq2lg
+41m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled down replica set paymentservice-6484979f7d from 2 to 1
+41m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled up replica set paymentservice-774cbb9cf9 from 1 to 2
+42m ago Normal SuccessfulCreate ReplicaSet/paymentservice-774cbb9cf9 [replicaset-controller] (x1): Created pod: paymentservice-774cbb9cf9-5sv4j
+42m ago Normal ScalingReplicaSet Deployment/paymentservice [deployment-controller] (x1): Scaled up replica set paymentservice-774cbb9cf9 from 0 to 1
+Pod events, newest first:
+5m ago Normal Killing Pod/paymentservice-774cbb9cf9-5sv4j [kubelet] (x1): Stopping container server
+5m ago Warning Unhealthy Pod/paymentservice-79c77b7d78-t4nwj [kubelet] (x2 since 6m ago): Readiness probe failed: timeout: failed to connect service "<ip-6>:50051" within 1s: context deadline exceeded
+6m ago Normal Created Pod/paymentservice-79c77b7d78-t4nwj [kubelet] (x1): Container created
+6m ago Normal Started Pod/paymentservice-79c77b7d78-t4nwj [kubelet] (x1): Container started
+6m ago Normal Killing Pod/paymentservice-774cbb9cf9-vq2lg [kubelet] (x1): Stopping container server
+6m ago Normal Scheduled Pod/paymentservice-79c77b7d78-t4nwj [default-scheduler] (x1): Successfully assigned online-boutique-dev/paymentservice-79c77b7d78-t4nwj to <node-1>
+6m ago Normal Pulled Pod/paymentservice-79c77b7d78-t4nwj [kubelet] (x1): Container image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:v20261012-182018-db08cc4a" already present on machine and can be accessed by the pod
+6m ago Warning Unhealthy Pod/paymentservice-79c77b7d78-xwvd8 [kubelet] (x2 since 6m ago): Readiness probe failed: timeout: failed to connect service "<ip-7>:50051" within 1s: context deadline exceeded
+6m ago Normal Pulled Pod/paymentservice-79c77b7d78-xwvd8 [kubelet] (x1): Successfully pulled image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:v20261012-182018-db08cc4a" in 10.378s (10.378s including waiting). Image size: 49507401 bytes.
+6m ago Normal Created Pod/paymentservice-79c77b7d78-xwvd8 [kubelet] (x1): Container created
+6m ago Normal Started Pod/paymentservice-79c77b7d78-xwvd8 [kubelet] (x1): Container started
+6m ago Normal Pulling Pod/paymentservice-79c77b7d78-xwvd8 [kubelet] (x1): Pulling image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:v20261012-182018-db08cc4a"
+6m ago Normal Scheduled Pod/paymentservice-79c77b7d78-xwvd8 [default-scheduler] (x1): Successfully assigned online-boutique-dev/paymentservice-79c77b7d78-xwvd8 to <node-2>
+41m ago Normal Killing Pod/paymentservice-6484979f7d-ll7s7 [kubelet] (x1): Stopping container server
+41m ago Warning Unhealthy Pod/paymentservice-774cbb9cf9-vq2lg [kubelet] (x2 since 41m ago): Readiness probe failed: timeout: failed to connect service "<ip-8>:50051" within 1s: context deadline exceeded
+41m ago Normal Pulled Pod/paymentservice-774cbb9cf9-vq2lg [kubelet] (x1): Successfully pulled image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-paymentservice:v20261012-182018-db08cc4a" in 12.794s (12.794s including waiting). Image size: 49507401 bytes.
+41m ago Normal Created Pod/paymentservice-774cbb9cf9-vq2lg [kubelet] (x1): Container created
+41m ago Normal Started Pod/paymentservice-774cbb9cf9-vq2lg [kubelet] (x1): Container started
+41m ago Normal Pulling Pod/paymentservice-774cbb9cf9-vq2lg [kubelet] (x1): Pulling image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-
+... [truncated 1629 characters]
