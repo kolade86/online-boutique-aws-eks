@@ -92,13 +92,17 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
     recorded = {}
     for item in spec.get("recorded", []):
         with open(os.path.join(case_dir, item["file"]), encoding="utf-8") as f:
-            recorded[(item["tool"], _normalise(item.get("input")))] = f.read()
+            recorded[(item["tool"], _normalise(item.get("input")))] = (f.read(),
+                                                                      item.get("is_error", False))
 
     def from_recording(name):
         def handler(args):
             key = (name, _normalise(args))
             if key in recorded:
-                return recorded[key]
+                output, is_error = recorded[key]
+                if is_error:      # the call failed when it was recorded: fail the same way
+                    raise ToolError(output)
+                return output
             raise ToolError(f"{UNAVAILABLE} for {name} {key[1]} in this replay: the call was "
                             "not made when the case was recorded. Treat it as unavailable.")
         return handler
@@ -110,8 +114,26 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
              for t in live]
     git = LocalGit(spec["repo_ref"], spec.get("values_file", "helm/online-boutique/values-dev.yaml"),
                    repo_root)
+    recorded_tools = {t.name for t in tools}
     tools += github_tools.make_tools(git)
-    return ToolRegistry(tools + list(extra_tools), max_chars)
+    return _ReplayRegistry(tools + list(extra_tools), max_chars, recorded_tools)
+
+
+class _ReplayRegistry(ToolRegistry):
+    """Recorded outputs were redacted and cut to length when the agent first saw
+    them; they are returned as recorded, not cut a second time."""
+
+    def __init__(self, tools, max_chars, recorded_tools):
+        super().__init__(tools, max_chars)
+        self._recorded_tools = recorded_tools
+
+    def run(self, name: str, args: dict):
+        if name not in self._recorded_tools:
+            return super().run(name, args)
+        try:
+            return self._tools[name].handler(args), False
+        except ToolError as e:
+            return str(e), True
 
 
 def keyword_check(answer: str, hints: dict) -> dict:
@@ -252,41 +274,150 @@ def standard_pack(service: str, namespace: str) -> list:
     ]
 
 
+# Calls capture does not record: the agent's own bookkeeping, and the repository
+# tools, which a replay answers from git at the case's commit
+NOT_RECORDED = frozenset({"submit_assessment", "propose_values_change",
+                          "read_repo_file", "recent_chart_commits"})
+
+
+def pick_investigation(data, service: str, investigation_id: str = None) -> dict:
+    """The record to capture from: a saved GET /investigations list (newest first),
+    one record of it, or a GET /investigations/<id>/recording."""
+    records = data if isinstance(data, list) else [data]
+    if investigation_id:
+        found = [r for r in records if r.get("id") == investigation_id]
+    else:
+        found = [r for r in records if r.get("kind") == "alert"
+                 and str(r.get("subject", "")).endswith("/" + service)]
+    if not found:
+        have = ", ".join(f"{r.get('id')} ({r.get('subject')})" for r in records) or "none"
+        raise ValueError(f"no investigation {investigation_id or 'of an alert for ' + service} "
+                         f"in the file; it holds: {have}")
+    return found[0]
+
+
+def alert_payload(data, service: str, namespace: str, alertname: str = None) -> dict:
+    """An AlertManager webhook payload with only this service's firing alerts.
+
+    Accepts a saved webhook payload, or the list GET /api/v2/alerts returns
+    (the same labels, annotations and startsAt, with a different wrapper).
+    """
+    import alerts
+
+    def is_firing(a):
+        status = a.get("status", "firing")
+        return status == "firing" or (isinstance(status, dict) and status.get("state") == "active")
+
+    kept = []
+    for a in (data if isinstance(data, list) else data.get("alerts", [])):
+        labels = a.get("labels", {})
+        if (is_firing(a) and labels.get("namespace") == namespace
+                and alerts.service_of(labels) == service
+                and alertname in (None, labels.get("alertname"))):
+            kept.append({"status": "firing", "labels": labels,
+                         "annotations": a.get("annotations", {}), "startsAt": a.get("startsAt")})
+    if not kept:
+        what = f"{alertname} alert" if alertname else "alert"
+        raise ValueError(f"no firing {what} for {namespace}/{service} in the alert file")
+    return {"version": "4", "status": "firing", "receiver": "sre-agent", "alerts": kept}
+
+
+def _redact_tree(value, names: dict):
+    from redact import redact_public
+    if isinstance(value, str):
+        return redact_public(value, names)
+    if isinstance(value, list):
+        return [_redact_tree(v, names) for v in value]
+    if isinstance(value, dict):
+        return {k: _redact_tree(v, names) for k, v in value.items()}
+    return value
+
+
 def capture(registry, case_path: str, service: str, namespace: str, question: str,
-            repo_ref: str, now=None) -> dict:
-    """Record the standard pack from the live system into files beside the case,
-    and write the case's replay spec. Outputs are redacted: they go into Git."""
+            repo_ref: str, now=None, investigation: dict = None, alert: dict = None) -> dict:
+    """Record a case from the live system into files beside the case file.
+
+    Recorded, in this order:
+    - the calls the agent made in `investigation` (a /investigations record),
+      except repository reads, which a replay takes from git at `repo_ref`.
+      With a recording (the record carries each output), the output is the
+      one the agent saw. Without, the same call is run again now, so capture
+      while the cluster still shows the problem. A call that fails is recorded
+      as a failure, and fails the same way in a replay.
+    - the standard pack, for the calls a later run may make instead.
+    `alert` (a webhook payload) is saved with the case so a replay can run it
+    as an alert, with the proposal tool. Everything is redacted with one set
+    of placeholders, because it goes into Git: <node-1> is the same node in
+    every file of the case.
+    """
     from redact import redact_public
 
-    now = now or datetime.now(timezone.utc)
+    captured_at = now or datetime.now(timezone.utc)
     case_dir = os.path.dirname(os.path.abspath(case_path))
     case_id = os.path.splitext(os.path.basename(case_path))[0]
     out_dir = os.path.join(case_dir, f"{case_id}-recorded")
     os.makedirs(out_dir, exist_ok=True)
+    names: dict = {}
+
+    calls, seen = [], set()          # (tool, input, output, is_error, source)
+    for e in (investigation or {}).get("evidence", []):
+        key = (e["tool"], _normalise(e.get("input")))
+        if e["tool"] in NOT_RECORDED or key in seen:
+            continue
+        seen.add(key)
+        if "output" in e:
+            calls.append((e["tool"], e.get("input") or {}, e["output"], e["is_error"], "agent"))
+        else:
+            output, is_error = registry.run(e["tool"], e.get("input") or {})
+            calls.append((e["tool"], e.get("input") or {}, output, is_error, "agent call, run again"))
+    agent_calls = len(calls)
+    for tool, args in standard_pack(service, namespace):
+        if (tool, _normalise(args)) in seen:
+            continue
+        output, is_error = registry.run(tool, args)
+        if not is_error:   # not recorded: a replay will say it is unavailable, which is true
+            calls.append((tool, args, output, False, "standard pack"))
 
     recorded = []
-    for i, (tool, args) in enumerate(standard_pack(service, namespace), 1):
-        output, is_error = registry.run(tool, args)
-        if is_error:
-            continue   # not recorded: a replay will say it is unavailable, which is true
+    for i, (tool, args, output, is_error, source) in enumerate(calls, 1):
         name = f"{i:02d}-{tool}.txt"
         with open(os.path.join(out_dir, name), "w", encoding="utf-8", newline="\n") as f:
-            f.write(redact_public(output))
-        recorded.append({"tool": tool, "input": args, "file": f"{case_id}-recorded/{name}"})
+            f.write(redact_public(output, names))
+        item = {"tool": tool, "input": _redact_tree(args, names),
+                "file": f"{case_id}-recorded/{name}", "source": source}
+        if is_error:
+            item["is_error"] = True
+        recorded.append(item)
 
     if os.path.exists(case_path):
         with open(case_path, encoding="utf-8") as f:
             case = json.load(f)
     else:
-        case = {"id": case_id, "mode": "ask"}
+        case = {"id": case_id}
+    case["mode"] = "alert" if alert else case.get("mode", "ask")
+    # With a recording the outputs date from the investigation; otherwise from now
+    exact = bool(investigation) and all(s == "agent" for *_, s in calls[:agent_calls])
+    at = (investigation or {}).get("started_at") if exact else None
+    how = ("with the outputs the agent saw" if exact else "run again at capture time")
     case["replay"] = {
         "question": question,
-        "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "now": at or captured_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "namespace": namespace,
         "repo_ref": repo_ref,
         "recorded": recorded,
-        "note": f"Captured with `cli.py capture` ({len(recorded)} calls recorded, redacted).",
+        "note": (f"Captured with `cli.py capture` on {captured_at:%Y-%m-%d}: {agent_calls} call(s) "
+                 f"the agent made" + (f" ({how})" if agent_calls else "")
+                 + f", {len(calls) - agent_calls} from the standard pack. Redacted."),
     }
+    if alert:
+        case["alert"] = _redact_tree(alert, names)
+    if investigation:
+        keep = ("id", "kind", "subject", "started_at", "finished_at", "model", "outcome",
+                "answer", "note", "confidence", "pull_request")
+        live = {k: investigation[k] for k in keep if k in investigation}
+        live["tool_calls"] = [{"tool": e["tool"], "input": e.get("input"), "is_error": e["is_error"]}
+                              for e in investigation.get("evidence", [])]
+        case["live_run"] = _redact_tree(live, names)
     with open(case_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(case, f, indent=2, ensure_ascii=False)
         f.write("\n")

@@ -393,6 +393,28 @@ class ServerPullRequestTest(unittest.TestCase):
         self.assertEqual(record["note"], "")
         self.assertIn("## Confidence\nHigh. It all fits.", record["answer"])   # model's words kept
 
+    def test_recording_has_the_alert_and_the_outputs_for_capture(self):
+        client = self.make_client()
+        record = self.run_alert(client, STRONG)
+        self.assertNotIn("output", record["evidence"][0])        # the list stays small
+        self.assertEqual(record["model"], "claude-sonnet-5-5")
+        self.assertTrue(record["started_at"] <= record["finished_at"])
+
+        url = f"/investigations/{record['id']}/recording"
+        self.assertEqual(client.get(url).status_code, 401)
+        full = client.get(url, headers=AUTH).json()
+        self.assertEqual(full["evidence"][0], {"tool": "list_pods", "input": {}, "is_error": False,
+                                               "output": "output"})
+        self.assertEqual(full["alert"]["alerts"][0]["labels"]["alertname"],
+                         self.emailservice_alert()["alerts"][0]["labels"]["alertname"])
+        self.assertEqual(client.get("/investigations/nope/recording", headers=AUTH).status_code, 404)
+
+        # and capture accepts it as it is
+        import replay
+        picked = replay.pick_investigation(full, "emailservice")
+        alert = replay.alert_payload(picked["alert"], "emailservice", "online-boutique-dev")
+        self.assertEqual(len(alert["alerts"]), 1)
+
     def test_below_threshold_reports_but_proposes_nothing(self):
         client = self.make_client(SREAGENT_OPEN_PRS="true")
         record = self.run_alert(client, WEAK)

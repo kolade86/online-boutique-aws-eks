@@ -804,6 +804,46 @@ python cli.py capture regressions/my-incident.json --service recommendationservi
   --question "Why is recommendationservice being OOMKilled?"
 ```
 
+**Capturing an incident the agent investigated.** Give `capture` the
+agent's own record, and it also records the calls the agent made and the
+alert, so a replay can run the case as an alert:
+
+```bash
+ns=online-boutique-dev
+kubectl port-forward -n "$ns" svc/sreagent 8080:8080 >/dev/null &
+kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-alertmanager 9093:9093 >/dev/null &
+# both files hold node names and IPs: keep them outside the repository
+kubectl get secret sreagent -n "$ns" -o go-template='Authorization: Bearer {{index .data "api-token" | base64decode}}' \
+  | curl -s -H @- http://localhost:8080/investigations > ~/investigations.json
+curl -s http://localhost:9093/api/v2/alerts > ~/am-alerts.json
+
+python cli.py capture regressions/paymentservice-oomkilled.json --service paymentservice \
+  --investigations ~/investigations.json --alert-file ~/am-alerts.json
+```
+
+- **When to run it:** while the alert is firing and before the agent's
+  pull request is merged. The case is pinned to main's head at capture
+  time, which must still hold the fault. Afterwards, pass the fault's commit
+  with `--repo-ref`.
+- **Which investigation:** the latest alert investigation for `--service`,
+  or `--id`. The agent keeps the last 20 in memory, and a restart loses
+  them.
+- **What is recorded:** the agent's cluster and Prometheus calls first, then
+  the standard pack. A call that fails is recorded as a failure, and fails
+  the same way in a replay. Repository reads are not recorded: a replay
+  takes them from git at the case's commit.
+- **Outputs.** `/investigations` holds the agent's calls but not their
+  outputs, so `capture` runs the same calls again. The outputs are those of
+  capture time, not of the investigation.
+  `GET /investigations/<id>/recording` returns the outputs the agent saw,
+  and the alert payload. Save that instead and `--alert-file` is not
+  needed.
+- **Redaction.** Outputs, the alert and the agent's report are redacted
+  with one set of placeholders for the whole case. Redaction is by pattern:
+  read the recorded files before committing them.
+- **For a healthy cluster,** ask the agent a question through `/ask`, then
+  capture with `--id` and no alert file.
+
 **Redaction.** Everything people read has node names, IP addresses and AWS
 account IDs (including inside ECR image URLs) replaced. That covers
 reports, PR bodies, `/investigations` and saved CLI output. The

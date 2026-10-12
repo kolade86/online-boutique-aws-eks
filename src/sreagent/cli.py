@@ -137,6 +137,59 @@ def _propose(config, wiring, opts) -> int:
     return 0 if pr["status"] == "opened" else 1
 
 
+def _capture(config, wiring, opts) -> int:
+    """Record an incident into a regression case. Reads the cluster; calls no model."""
+    import replay
+
+    def load(path):
+        with open(path, encoding="utf-8-sig") as f:   # PowerShell redirection writes a BOM
+            return json.load(f)
+
+    investigation = alert = None
+    try:
+        if opts.investigations:
+            investigation = replay.pick_investigation(load(opts.investigations), opts.service, opts.id)
+        alertname = investigation["subject"].split("/")[0] if investigation else None
+        if opts.alert_file:
+            alert = replay.alert_payload(load(opts.alert_file), opts.service,
+                                         config.app_namespace, alertname)
+        elif investigation and investigation.get("alert"):
+            alert = replay.alert_payload(investigation["alert"], opts.service, config.app_namespace)
+    except (OSError, ValueError) as e:
+        print(f"capture: {e}", file=sys.stderr)
+        return 2
+    question = opts.question
+    if not question and investigation and investigation.get("kind") == "ask":
+        question = investigation["subject"]      # an /ask record: its subject is the question
+    if not question and not alert:
+        print("capture: give --question, or the alert (--alert-file, or a recording)", file=sys.stderr)
+        return 2
+
+    ref = opts.repo_ref or wiring._github(config).get(
+        f"/git/ref/heads/{config.github_branch}")["object"]["sha"][:12]
+    spec = replay.capture(wiring.build_registry(config), opts.case, opts.service,
+                          config.app_namespace, question, ref,
+                          investigation=investigation, alert=alert)
+    by_source = {}
+    for item in spec["recorded"]:
+        by_source[item["source"]] = by_source.get(item["source"], 0) + 1
+    print(f"{opts.case}: recorded {len(spec['recorded'])} call(s) - "
+          + ", ".join(f"{n} {s}" for s, n in by_source.items()))
+    failed = [i["tool"] for i in spec["recorded"] if i.get("is_error")]
+    if failed:
+        print(f"  recorded as failures: {', '.join(failed)}")
+    if investigation:
+        print(f"  investigation {investigation.get('id')} ({investigation.get('subject')}), "
+              f"finished {investigation.get('finished_at')}")
+    else:
+        print("  no investigation given: only the standard pack was recorded")
+    print(f"  alert: {len(alert['alerts'])} firing alert(s) saved" if alert
+          else "  no alert saved: the case can only be replayed as a question")
+    print(f"  repository at {ref}; replay `now` is {spec['now']}")
+    print("  Read the recorded files before committing: they are redacted by pattern, not by review.")
+    return 0
+
+
 def _replay(config, opts) -> int:
     """Run a regression case against its recording; print and optionally record each run."""
     import replay
@@ -214,11 +267,27 @@ def main(argv=None) -> int:
     p_rep.add_argument("--record", action="store_true",
                        help="Append each run (assessment, score, keyword check) to the case file")
 
-    p_cap = sub.add_parser("capture", help="Record the standard evidence pack for a service from "
-                                           "the live cluster into a regression case, for replays")
+    p_cap = sub.add_parser("capture", help="Record an incident from the live cluster into a "
+                                           "regression case: the calls the agent made, the "
+                                           "standard evidence pack, and the alert")
     p_cap.add_argument("case", help="Case file to create or update, e.g. regressions/my-incident.json")
     p_cap.add_argument("--service", required=True, help="e.g. recommendationservice")
-    p_cap.add_argument("--question", required=True, help="The question a replay asks the agent")
+    p_cap.add_argument("--question", help="The question a replay asks the agent (required "
+                                          "without --alert-file or a recording)")
+    p_cap.add_argument("--investigations", metavar="FILE",
+                       help="Saved output of GET /investigations, or of GET "
+                            "/investigations/<id>/recording. The calls the agent made are "
+                            "recorded: from the recording if the file has the outputs, "
+                            "otherwise by running the same calls again now")
+    p_cap.add_argument("--id", help="Which investigation in FILE (default: the latest alert "
+                                    "investigation for --service)")
+    p_cap.add_argument("--alert-file", metavar="FILE",
+                       help="The alert: a webhook payload, or saved output of Alertmanager's "
+                            "GET /api/v2/alerts. Not needed with a recording, which has it")
+    p_cap.add_argument("--repo-ref", metavar="SHA",
+                       help="Commit the cluster was running (default: the head of "
+                            "GITHUB_BRANCH now). Capture before merging the fix, or pass the "
+                            "commit that introduced the fault")
 
     sub.add_parser("scores", help="Show the evidence score of every scored run in regressions/")
 
@@ -270,14 +339,7 @@ def main(argv=None) -> int:
     if opts.command == "replay":
         return _replay(config, opts)
     if opts.command == "capture":
-        import replay
-        gh = wiring._github(config)
-        ref = gh.get(f"/git/ref/heads/{config.github_branch}")["object"]["sha"][:12]
-        spec = replay.capture(wiring.build_registry(config), opts.case, opts.service,
-                              config.app_namespace, opts.question, ref)
-        print(f"recorded {len(spec['recorded'])} of {len(replay.standard_pack(opts.service, ''))} "
-              f"calls into {opts.case} (repo at {ref}; `git fetch` before replaying it)")
-        return 0
+        return _capture(config, wiring, opts)
 
     import confidence
     pr, note = None, ""
