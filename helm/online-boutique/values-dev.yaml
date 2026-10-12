@@ -4,7 +4,7 @@
 # rewrites this line after pushing to ECR, and Argo CD deploys the commit.
 # Change it by merging to main, not by editing the cluster.
 image:
-  tag: "v20261012-164800-c4f3ff72"
+  tag: "v20261012-174619-e9ccf923"
 
 services:
   loadgenerator:
@@ -13,7 +13,7 @@ services:
     # The agent's own image tag. MANAGED BY CI together with image.tag, but
     # kept separate so that rolling image.tag back never rolls the agent back
     # to a tag that predates its first image. The agent may not change it.
-    imageTag: "v20261012-164800-c4f3ff72"
+    imageTag: "v20261012-174619-e9ccf923"
   recommendationservice:
     resources:
       requests:
