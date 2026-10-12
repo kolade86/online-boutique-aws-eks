@@ -154,6 +154,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # The evaluation cases (src/sreagent/regressions) each pin the commit
+          # the cluster was running, and the tests read the chart at that commit
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6

@@ -10,7 +10,9 @@ the tools answer from the case's recording instead of a cluster:
 So a replay measures how the agent reasons over the evidence that was really
 there, and lets its evidence score be compared with the known right answer.
 
-    python cli.py replay regressions/emailservice-pod-replaced.json --record
+Running a case and judging the run is evaluation.py:
+
+    python cli.py eval emailservice-pod-replaced
 """
 
 import base64
@@ -146,109 +148,10 @@ def keyword_check(answer: str, hints: dict) -> dict:
             "missing_any_of": missing, "contains_forbidden": present}
 
 
-def run_case(case_path: str, config, provider, now=None) -> dict:
-    """Run the case once; return the run record (assessment, score, grade, answer)."""
-    import confidence
-    import prompts
-    from agent import Agent
-    from redact import redact_public
-
-    with open(case_path, encoding="utf-8") as f:
-        case = json.load(f)
-    spec = case["replay"]
-    assessment = confidence.AssessmentTool(config.min_confidence_for_pr,
-                                           config.min_confidence_for_rollback)
-    registry = replay_registry(spec, os.path.dirname(os.path.abspath(case_path)),
-                               config.tool_output_max_chars, [assessment.tool()])
-    agent = Agent(provider, registry, config.max_tool_calls, config.investigation_timeout_seconds)
-    assessment.attach_to(agent)
-    recorded_at = datetime.fromisoformat(spec["now"].replace("Z", "+00:00"))
-    system = prompts.system_prompt("ask", spec.get("namespace", "online-boutique-dev"),
-                                   config.max_tool_calls)
-    result = agent.run(system, prompts.with_current_time(spec["question"], now=recorded_at))
-
-    summary = assessment.summary()
-    grade = keyword_check(result.answer, case.get("pass_criteria", {}).get("keyword_hints", {}))
-    return {
-        "date": (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d"),
-        "model": config.model,
-        "agent_commit": _head(),
-        "outcome": result.outcome,
-        "score": summary["score"],
-        "observed": summary["observed"],
-        # Whether this assessment would let a change be proposed (an observed
-        # cause and the PR threshold): must never be true for a wrong answer
-        "change_allowed": not confidence.change_blocked(assessment.latest,
-                                                        config.min_confidence_for_pr),
-        "reasons": summary["reasons"],
-        "open_questions": summary["open_questions"],
-        "submissions": summary["submissions"],
-        "keyword_check": grade,
-        # Calls the recording could not answer. A score lost to them reflects the
-        # fixture, not the agent: compare runs only with the same unavailable set.
-        "unavailable": [f"{e.tool} {_normalise(e.input)}" for e in result.evidence
-                        if e.is_error and e.output.startswith(UNAVAILABLE)],
-        "tool_calls": [{"tool": e.tool, "input": e.input, "is_error": e.is_error}
-                       for e in result.evidence],
-        "answer": redact_public(result.answer)[:6000],
-    }
-
-
-def record(case_path: str, run: dict) -> None:
-    with open(case_path, encoding="utf-8") as f:
-        case = json.load(f)
-    case.setdefault("replay_runs", []).append(run)
-    with open(case_path, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(case, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-
-
 def _head() -> str:
     r = subprocess.run(["git", "-C", REPO_ROOT, "rev-parse", "--short", "HEAD"],
                        capture_output=True, text=True)
     return r.stdout.strip() or "unknown"
-
-
-def score_table(regressions_dir: str, min_for_pr: int = 70) -> list[dict]:
-    """Every scored run in the regression cases: hand-written assessments (marked) and
-    recorded model replays.
-
-    Every row is scored now, with the current rule, from the assessment and the
-    tool calls saved with the run; `recorded` is the score the run got under
-    the rule in force when it was made. `change_allowed` says whether the
-    assessment would let a change be proposed.
-    """
-    import confidence
-    from agent import Evidence
-
-    def row(case_id, run, source, verdict, assessment, evidence, recorded):
-        s = confidence.score(assessment, evidence) if assessment is not None else None
-        return {"case": case_id, "run": run, "source": source, "verdict": verdict,
-                "recorded": recorded, "score": s.value if s else None,
-                "support": s.support if s else "",
-                "change_allowed": not confidence.change_blocked(s, min_for_pr)}
-
-    rows = []
-    for name in sorted(os.listdir(regressions_dir)):
-        if not name.endswith(".json"):
-            continue
-        with open(os.path.join(regressions_dir, name), encoding="utf-8") as f:
-            case = json.load(f)
-        case_id = case.get("id", name[:-5])
-        hand = list(case.get("hand_assessments", []))
-        if "expected_assessment" in case:
-            hand.append({**case["expected_assessment"], "run": "expected answer", "verdict": "correct"})
-        for h in hand:
-            evidence = [Evidence(t, {}, "", False) for t in h["tool_calls"]]
-            rows.append(row(case_id, h["run"], "hand-written", h["verdict"], h["assessment"],
-                            evidence, h.get("recorded_score")))
-        for r in case.get("replay_runs", []):
-            evidence = [Evidence(c["tool"], c["input"], "", c["is_error"]) for c in r["tool_calls"]]
-            last = r["submissions"][-1]["assessment"] if r["submissions"] else None
-            rows.append(row(case_id, f"replay {r['date']} {r['model']}", "model replay",
-                            "keyword check " + ("passes" if r["keyword_check"]["passed"] else "fails"),
-                            last, evidence, r["score"]))
-    return rows
 
 
 def standard_pack(service: str, namespace: str) -> list:
@@ -394,7 +297,15 @@ def capture(registry, case_path: str, service: str, namespace: str, question: st
             case = json.load(f)
     else:
         case = {"id": case_id}
+    case["format"] = 2
     case["mode"] = "alert" if alert else case.get("mode", "ask")
+    # To be written by hand: what a right answer is. `cli.py lint` fails until it is
+    case.setdefault("expected", {
+        "kind": "FILL IN: config_fault | not_fixable_by_config | no_problem",
+        "must_mention_any": [["FILL IN: a word a right answer uses", "or this one"]],
+        "must_not_contain": [],
+        "change": None,
+    })
     # With a recording the outputs date from the investigation; otherwise from now
     exact = bool(investigation) and all(s == "agent" for *_, s in calls[:agent_calls])
     at = (investigation or {}).get("started_at") if exact else None

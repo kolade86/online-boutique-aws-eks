@@ -73,54 +73,6 @@ class KeywordCheckTest(unittest.TestCase):
         self.assertEqual(bad["contains_forbidden"], ["root cause is readiness"])
 
 
-class RunCaseTest(unittest.TestCase):
-    def test_run_is_scored_graded_and_recorded(self):
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp)
-        shutil.copy(os.path.join(HERE, "regressions", "emailservice-events-raw.txt"), tmp)
-        case_path = os.path.join(tmp, "case.json")
-        with open(case_path, "w", encoding="utf-8") as f:
-            json.dump({"replay": SPEC, "pass_criteria": {"keyword_hints": KeywordCheckTest.HINTS}}, f)
-
-        assessment = {"conclusion": "cause_found", "cause": "HPA vs Argo CD self-heal",
-                      "cause_support": "inferred", "cause_evidence": [1],
-                      "decisive_check": {"what": "", "evidence": []},
-                      "alternatives": [{"cause": "readiness probes", "result": "ruled_out",
-                                        "evidence": [1]},
-                                       {"cause": "node problem", "result": "not_ruled_out",
-                                        "evidence": []}],
-                      "timing": "matches", "timing_evidence": [1],
-                      "unverified": [{"what": "Argo CD's sync history",
-                                      "could_change_diagnosis": False}]}
-        model = ScriptedModel([("list_events", {"app": "emailservice"}), ("list_hpas", {}),
-                               ("submit_assessment", assessment)],
-                              "The HPA scales down and Argo CD self-heal restores 2 on "
-                              "ip-10-0-11-231.ec2.internal.")
-        config = Config.from_env({"GITHUB_REPO": "o/r", "APP_NAMESPACE": "ns"})
-
-        run = replay.run_case(case_path, config, model)
-
-        self.assertEqual(run["outcome"], "answered")
-        # inferred 30 + ruled out 10 + timing 20; the open items are listed, not subtracted
-        self.assertEqual(run["score"], 60)
-        self.assertEqual(run["open_questions"], [
-            "Calls that failed or returned nothing: list_hpas (#2)",
-            "Not ruled out: node problem",
-            "Not verified (detail only): Argo CD's sync history"])
-        self.assertFalse(run["change_allowed"])
-        self.assertTrue(run["keyword_check"]["passed"])
-        self.assertEqual([c["is_error"] for c in run["tool_calls"]], [False, True, False])
-        self.assertIn("<node-1>", run["answer"])                 # redacted
-        self.assertIn("Current time: 2026-10-04T15:32:00Z (UTC)", model.seen[0].text)
-        self.assertTrue(model.seen[1].results[0].content.startswith("[call #1]"))
-
-        self.assertEqual(run["unavailable"], ["list_hpas {}"])            # counted, not hidden
-
-        replay.record(case_path, run)
-        with open(case_path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["replay_runs"][0]["score"], 60)
-
-
 class CaptureTest(unittest.TestCase):
     def test_standard_pack_is_recorded_redacted_and_replayable(self):
         tmp = tempfile.mkdtemp()
