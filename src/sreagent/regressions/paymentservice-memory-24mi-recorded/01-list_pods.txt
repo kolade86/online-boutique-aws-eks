@@ -1,0 +1,2 @@
+paymentservice-79c77b7d78-t4nwj: Running, ready 1/1, restarts 0, age 5m, node <node-1>, owner ReplicaSet/paymentservice-79c77b7d78
+paymentservice-79c77b7d78-xwvd8: Running, ready 1/1, restarts 0, age 6m, node <node-2>, owner ReplicaSet/paymentservice-79c77b7d78

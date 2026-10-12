@@ -1,0 +1,10 @@
+Deployment checkoutservice: revision 5, generation 6 (observed 6)
+Live spec.replicas: 2; status: replicas 2, ready 2, updated 2, available 2
+spec.replicas in the last applied manifest (kubectl.kubernetes.io/last-applied-configuration): absent (the manifest does not set it)
+Field managers of spec.replicas: kube-controller-manager (Update, subresource scale, ? ago)
+ReplicaSets, newest revision first (a rollout adds a new one; a replica-count change resizes the current one):
+  checkoutservice-79bf8b9cbd: revision 5 (current), desired 2, ready 2, image tag v20261012-182018-db08cc4a, created 13m ago
+  checkoutservice-9bd8745df: revision 4, desired 0, ready 0, image tag v20261012-174619-e9ccf923, created 46m ago
+  checkoutservice-8684cbd5b7: revision 3, desired 0, ready 0, image tag v20261012-164800-c4f3ff72, created 1h42m ago
+  checkoutservice-66fcd6f4fd: revision 2, desired 0, ready 0, image tag v20261012-151855-6e734f2a, created 3h14m ago
+  checkoutservice-754656f989: revision 1, desired 0, ready 0, image tag v20261011-133539-a446305b, created 3h21m ago

@@ -1,0 +1,2 @@
+checkoutservice-79bf8b9cbd-2wb5q: Running, ready 1/1, restarts 0, age 13m, node <node-1>, owner ReplicaSet/checkoutservice-79bf8b9cbd
+checkoutservice-79bf8b9cbd-8vgwt: Running, ready 1/1, restarts 0, age 13m, node <node-2>, owner ReplicaSet/checkoutservice-79bf8b9cbd
