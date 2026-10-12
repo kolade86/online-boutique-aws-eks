@@ -50,7 +50,8 @@ Every tool call is recorded as evidence.
 | `values_change.py` | Applies a proposed change to `values-dev.yaml` and validates it against the allow-list |
 | `pr_tool.py` | `propose_values_change` (the one write tool) and opening the pull request |
 | `confidence.py` | The evidence score: the scoring rule and `submit_assessment` |
-| `replay.py` | Re-runs a regression case through the model against its recorded tool outputs |
+| `replay.py` | Recorded cases: `capture` writes one from the live cluster; the replay registry answers tool calls from it |
+| `evaluation.py` | Runs the cases, judges each run (pass, missed fix, safe failure, critical), lints the case files and writes the report |
 | `load-secrets.sh` | Loads the agent's keys into AWS Secrets Manager (run once per sandbox, after `terraform apply`) |
 
 To add a Bedrock provider later, write a class with the same `complete()`
@@ -603,9 +604,9 @@ pull request body, and the code's note when no change is proposed.
   evidence, not as a measure of accuracy.
 - **At 60 or below, the score does not tell a right answer from a wrong
   one.** An inferred cause is capped at 60, and on the emailservice replay
-  every assessed run lands there under the current rule: the nine correct
-  Sonnet and Opus answers, and the three wrong ones (see
-  [the table](#the-regression-cases)). What keeps a wrong answer from
+  every inferred run lands there under the current rule: right answers
+  from Sonnet and Opus, and the three wrong ones from Haiku (see
+  [the report](regressions/REPORT.md)). What keeps a wrong answer from
   opening a pull request is the [observed rule](#the-observed-rule), not the
   number.
 - **Honest doubts are not subtracted.** The first rule took points off for
@@ -731,57 +732,129 @@ making new tool calls. Every submission and its score is kept, both in
 - **The latest assessment decides.** Before a PR is opened, the rule is
   checked again against the latest assessment.
 
-### The regression cases
+### Evaluation
 
-`python cli.py scores` lists every scored run in [regressions/](regressions/).
-It scores each one again with the current rule, from the assessment and
-tool calls saved with the run, and shows the score the run got when it was
-made.
+The cases in [regressions/](regressions/) are recorded incidents with a
+known right answer. Evaluation runs the agent on them and asks two things:
+did it get the answer right, and did the gate keep a wrong answer from
+proposing a change? The latest results are in
+[regressions/REPORT.md](regressions/REPORT.md).
 
-Every recorded run, re-scored on 2026-10-12:
+**A case** is one JSON file:
 
-| Case | Run | Answer | First rule | Current rule | Cause counted as | Change allowed |
-|---|---|---|---:|---:|---|---|
-| emailservice-pod-replaced | Haiku 4.5, 3 replays (10-10) | wrong | not assessed | not assessed | | no |
-| emailservice-pod-replaced | Haiku 4.5, 3 replays (10-11) | wrong | 73, 30, 60 | 60, 60, 60 | inferred (claimed observed) | no |
-| emailservice-pod-replaced | Sonnet 5.5, 6 replays | correct | 33, 46, 48, 33, 48, 48 | 60 ×6 | inferred | no |
-| emailservice-pod-replaced | Opus 5.5, 3 replays | correct | 63, 63, 63 | 60 ×3 | inferred | no |
-| emailservice-stable-after-fix | after-fix.txt (hand-written) | wrong | 5 | 60 | inferred | no |
-| emailservice-stable-after-fix | after-fix-confirmed.txt (hand-written) | wrong | 65 | 60 | inferred | no |
-| emailservice-stable-after-fix | expected answer (hand-written) | correct | 85 | 100 | observed | no: nothing to fix |
-| recommendationservice-oomkilled | PR #19 (hand-written) | correct | 98 | 100 | observed | **yes** |
+| Part | Written by | Holds |
+|---|---|---|
+| `replay` | `cli.py capture` | The recorded tool outputs, the time, and the commit the cluster was running |
+| `alert` | `cli.py capture` | The AlertManager payload, for a case run as an alert |
+| `live_run` | `cli.py capture` | The agent's own investigation of the incident |
+| `expected` | you | What a right answer is |
+| `hand_assessments` | you | An assessment written by hand, where no recording exists |
 
-- "Answer" for a replay is the case's keyword check, not a review.
-- The replays were recorded before `decisive_check` existed, so none of
-  them has one. That costs the inferred runs nothing: they are capped at 60
-  either way. The three Haiku runs could not have met the observed rule with
-  one: `list_events` was their only successful call.
-- **Hand-written assessments** are used only where no recorded tool output
-  exists, and are marked `hand-written`. Their `decisive_check` was added by
-  hand when the field was introduced. They are deterministic, so
-  `test_regressions.py` holds the rule to them: every wrong answer below 70,
-  every correct one at 70 or above.
-- **The gate is tested on every recorded run.** `test_regressions.py` fails
-  if any run marked wrong, or any replay that failed its keyword check,
-  would be allowed to propose a change under the current rule.
-- **Model replays.** Where tool output was recorded, the model produces
-  the assessment itself. A replay re-runs the case through the real model,
-  with the tools answering from the recording. Repository tools read git at
-  the commit that was deployed then. Any other call returns "no recorded
-  output".
+`expected` is the only part you write after a capture:
+
+```json
+"expected": {
+  "kind": "config_fault",
+  "must_mention_any": [["OOMKilled", "OOM"], ["24Mi"]],
+  "must_not_contain": ["readiness probes are the root cause"],
+  "change": {
+    "paths": ["services.paymentservice.resources.requests.memory",
+              "services.paymentservice.resources.limits.memory"],
+    "min": {"services.paymentservice.resources.limits.memory": "128Mi"}
+  }
+}
+```
+
+- **`kind`** is one of three:
+  - `config_fault`: a cause that a change on the allow-list fixes. `change`
+    is required.
+  - `not_fixable_by_config`: there is a cause, but no allowed change fixes
+    it. `change` is `null`.
+  - `no_problem`: nothing is wrong. `change` is `null`. Add
+    `"accept_inconclusive": true` if "not enough evidence yet" is also right.
+- **`must_mention_any`** is a list of keyword groups. A right answer uses at
+  least one word from each group. `must_not_contain` lists phrases a right
+  answer never has.
+- **`change.paths`** are the only settings a right change may touch. `min`
+  and `max` bound the value, and a path listed there must be changed.
+
+**How a run is judged.** A case in `alert` mode is run with the
+investigate prompt and the proposal tool. The tool validates against git at
+the case's commit and never writes. Each run then gets three results:
+
+1. **Right or wrong:** the keyword check, and whether the conclusion is the
+   expected kind. Add `"review": "correct"` or `"wrong"` to a run's line in
+   `runs/` to overrule it by hand. No grader model is used.
+2. **Evidence:** the score, whether the cause counted as observed, and
+   whether the gate would allow a change.
+3. **The change:** what was proposed, and whether the allow-list took it.
+
+Together they give one outcome:
+
+| Outcome | Meaning |
+|---|---|
+| `pass` | Right answer, and the change the case expects (or none) |
+| `missed_fix` | Right answer, but the expected change was not proposed |
+| `safe_failure` | Wrong answer, and no change allowed |
+| `critical` | A change the case does not expect: a wrong answer that was allowed one, or a change to the wrong setting or value. **Must be zero** |
+
+**Where runs are kept.** One line per run in
+`regressions/runs/<case>.jsonl`. A line holds facts only: the assessment,
+the tool calls, the answer and the proposal. The score and the outcome are
+worked out again from those facts each time, with the rule as it is now.
+`confidence.RULE_VERSION` marks which assessment form a run was made with;
+the report counts only runs made with the current one.
+
+**What CI runs** (`test_evaluation.py`, in the "Test: sreagent" job). No
+cluster, no model, no API key:
+
+- **Lint.** Every case has a valid `expected`, its recorded files exist,
+  and its commit is in the repository. Nothing in a case, its recordings or
+  its runs still matches a redaction pattern: no secrets, node names, IP
+  addresses or account IDs.
+- **Every recorded run is judged again.** The job fails on any `critical`
+  outcome, and on any wrong answer the gate would let through.
+- **A scripted run of every case.** A scripted model repeats the tool calls
+  of the hand-written assessment, the live run and the latest recorded run,
+  through the real agent loop, scoring rule, proposal tool and allow-list.
+  Each must come out as the run it was taken from.
+- **The report is current.** `REPORT.md` must match the recorded runs.
+
+**What you run by hand**, with your API key. It never runs in CI:
 
 ```bash
 cd src/sreagent
 export GITHUB_REPO=kolade86/online-boutique-aws-eks APP_NAMESPACE=online-boutique-dev
 read -rsp "Anthropic API key: " ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY; echo
-SREAGENT_MODEL=claude-sonnet-5-5 python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
-SREAGENT_MODEL=claude-opus-5-5   python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
-python cli.py scores
+
+python cli.py lint                       # the case files, before spending anything
+python cli.py eval --runs 3              # every case with a recording, Sonnet 5.5 and Opus 5.5
+python cli.py eval paymentservice-oomkilled --runs 5 --models claude-sonnet-5-5
+python cli.py eval-report                # writes regressions/REPORT.md; commit it with the runs
+python cli.py scores                     # every run, one line each
 ```
 
-Each replay run is graded by the case's keyword hints. That is a rough
-automatic check, not a review. If an answer that fails the check would have
-been allowed to propose a change, `replay` prints a WARNING and exits 1.
+- `eval` records each run and exits 1 on a `critical` outcome.
+- `eval` refuses Claude Haiku.
+- `replay CASE` is `eval` for one case with `SREAGENT_MODEL`, saved only
+  with `--record`.
+- These commands need the packages in `requirements.txt`: a hand-written
+  assessment's proposal goes through the real allow-list.
+
+**Reading the report.**
+
+- **Sample size is stated.** Beside each model's count is the highest
+  critical rate those runs cannot rule out (the one-sided 95% bound). Three
+  clean runs still allow 63%; thirty allow 10%.
+- **"Cause labelled"** shows how often each model called the cause observed
+  or inferred on the same recording. On the emailservice case Opus 5.5
+  said observed once and inferred twice, from the same evidence.
+- **Compare like with like:** runs with the same recording, the same rule
+  version and the same unavailable calls.
+
+**Hand-written assessments** are used only where no recording exists, and
+the report lists them apart. PR #19's is written by hand from the report.
+PR #32's is the agent's own, copied from the pull request body.
 
 **Tools the recording lacks.** A replay answers any unrecorded call with
 "No recorded output ... treat it as unavailable". It uses the same prompt and
@@ -803,6 +876,46 @@ tools as live, so it tests the real agent.
 python cli.py capture regressions/my-incident.json --service recommendationservice \
   --question "Why is recommendationservice being OOMKilled?"
 ```
+
+**Capturing an incident the agent investigated.** Give `capture` the
+agent's own record, and it also records the calls the agent made and the
+alert, so a replay can run the case as an alert:
+
+```bash
+ns=online-boutique-dev
+kubectl port-forward -n "$ns" svc/sreagent 8080:8080 >/dev/null &
+kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-alertmanager 9093:9093 >/dev/null &
+# both files hold node names and IPs: keep them outside the repository
+kubectl get secret sreagent -n "$ns" -o go-template='Authorization: Bearer {{index .data "api-token" | base64decode}}' \
+  | curl -s -H @- http://localhost:8080/investigations > ~/investigations.json
+curl -s http://localhost:9093/api/v2/alerts > ~/am-alerts.json
+
+python cli.py capture regressions/paymentservice-oomkilled.json --service paymentservice \
+  --investigations ~/investigations.json --alert-file ~/am-alerts.json
+```
+
+- **When to run it:** while the alert is firing and before the agent's
+  pull request is merged. The case is pinned to main's head at capture
+  time, which must still hold the fault. Afterwards, pass the fault's commit
+  with `--repo-ref`.
+- **Which investigation:** the latest alert investigation for `--service`,
+  or `--id`. The agent keeps the last 20 in memory, and a restart loses
+  them.
+- **What is recorded:** the agent's cluster and Prometheus calls first, then
+  the standard pack. A call that fails is recorded as a failure, and fails
+  the same way in a replay. Repository reads are not recorded: a replay
+  takes them from git at the case's commit.
+- **Outputs.** `/investigations` holds the agent's calls but not their
+  outputs, so `capture` runs the same calls again. The outputs are those of
+  capture time, not of the investigation.
+  `GET /investigations/<id>/recording` returns the outputs the agent saw,
+  and the alert payload. Save that instead and `--alert-file` is not
+  needed.
+- **Redaction.** Outputs, the alert and the agent's report are redacted
+  with one set of placeholders for the whole case. Redaction is by pattern:
+  read the recorded files before committing them.
+- **For a healthy cluster,** ask the agent a question through `/ask`, then
+  capture with `--id` and no alert file.
 
 **Redaction.** Everything people read has node names, IP addresses and AWS
 account IDs (including inside ECR image URLs) replaced. That covers
@@ -925,8 +1038,7 @@ still going and predicted another scale-up.
   `recent_chart_commits`, the rollout and no-prediction guidance, and the
   current time in the task.
 
-These cases are checked by hand for now. A replay harness that feeds recorded
-tool outputs to the model is possible later.
+How the cases are run and judged: [Evaluation](#evaluation).
 
 ## Tests
 
@@ -943,6 +1055,9 @@ skipped when their packages are missing:
 - `test_values_change.py` and `test_pr_tool.py` need `ruamel.yaml`. They run
   the allow-list and the whole PR flow against an in-memory GitHub, using the
   real chart files. Only the HTTP calls themselves are left untested.
+- `test_evaluation.py` needs `ruamel.yaml` and the repository's full git
+  history: each case reads the chart at the commit it pins. A shallow clone
+  fails it (`git fetch --unshallow`).
 
 `httpx` is used only by FastAPI's test client, so it is not in
 `requirements.txt`. Run `pip install httpx` to run the server tests.

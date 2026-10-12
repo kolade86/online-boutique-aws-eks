@@ -1,5 +1,6 @@
 {
   "id": "recommendationservice-duplicate-prs",
+  "format": 2,
   "mode": "alert",
   "source": "Live test on 2026-10-10: faults PR #23 (40Mi) and PR #24 (24Mi), agent PRs #25 and #26",
   "situation": "One fault on recommendationservice fired three alerts: HighMemoryUsage, then ContainerOOMKilled about 2.5 minutes later, then PodNotReady about 3 minutes after that. Dedup and the one-open-PR check keyed on the alert name, so each alert was a separate investigation, and the first two opened identical pull requests.",

@@ -26,6 +26,11 @@ from dataclasses import dataclass, field
 
 # --- The scoring rule -------------------------------------------------------------
 
+# Raise this when the assessment form or the rule changes, so recorded runs made
+# under the old one are reported apart (evaluation.py). 1: doubts subtracted.
+# 2: the observed rule and decisive_check.
+RULE_VERSION = 2
+
 POINTS = {
     "cause_observed": 50,         # meets the observed rule below
     "cause_inferred": 30,         # deduced from what was seen, or "observed" that does not meet the rule

@@ -57,16 +57,19 @@ _ARN_ACCOUNT = re.compile(r"(\barn:aws[a-z-]*:[a-z0-9-]*:[a-z0-9-]*:)\d{12}(?=:)
 ACCOUNT = "<account-id>"
 
 
-def redact_infra(text: str) -> str:
+def redact_infra(text: str, names: dict = None) -> str:
     """Replace node names and IPs with numbered placeholders, and AWS account IDs.
 
     The same value gets the same placeholder throughout one text, so a reader
-    can still tell two nodes apart ("<node-1>" vs "<node-2>").
+    can still tell two nodes apart ("<node-1>" vs "<node-2>"). Pass the same
+    `names` dict for several texts (the files of one recorded case) to keep
+    the numbering the same across them.
     """
+    names = {} if names is None else names
     text = _ECR_ACCOUNT.sub(ACCOUNT, text)
     text = _ARN_ACCOUNT.sub(lambda m: m.group(1) + ACCOUNT, text)
     for kind, pattern in _INFRA:
-        seen: dict[str, str] = {}
+        seen = names.setdefault(kind, {})
 
         def number(m, kind=kind, seen=seen):
             return seen.setdefault(m.group(0), f"<{kind}-{len(seen) + 1}>")
@@ -75,9 +78,9 @@ def redact_infra(text: str) -> str:
     return text
 
 
-def redact_public(text: str) -> str:
+def redact_public(text: str, names: dict = None) -> str:
     """Secrets and infrastructure identifiers: for text people read."""
-    return redact_infra(redact(text))
+    return redact_infra(redact(text), names)
 
 
 def truncate(text: str, max_chars: int, keep: str = "tail") -> str:

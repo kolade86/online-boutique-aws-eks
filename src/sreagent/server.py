@@ -59,6 +59,10 @@ class Runner:
         # One follow-up comment per incident and alert name within the window
         self.followups = alerts.Deduplicator(config.dedup_minutes * 60)
         self.results: deque = deque(maxlen=RECENT_RESULTS)
+        # For the same investigations: the alert payload and every tool output as
+        # the agent saw it, so `cli.py capture` can turn an incident into a
+        # regression case. Served only by /investigations/<id>/recording.
+        self.recordings: deque = deque(maxlen=RECENT_RESULTS)
 
     def follow_up(self, incident: str, alert: dict) -> None:
         """An alert for an incident investigated recently: if an agent PR is open for
@@ -95,6 +99,7 @@ class Runner:
 
         def work():
             try:
+                started_at = _utc_now()
                 assessment = self._assessment_tool()
                 proposal = None
                 if self._pr_opener is not None:
@@ -113,7 +118,8 @@ class Runner:
                                         self._config.open_prs, assessment)
                 self._record("alert", investigation_id, str(key), result, pull_request=pr,
                              assessment=assessment, note=confidence.note_no_change(
-                                 assessment, pr is not None and pr.get("status") in ("opened", "dry_run")))
+                                 assessment, pr is not None and pr.get("status") in ("opened", "dry_run")),
+                             started_at=started_at, alert=payload)
             except Exception:
                 log.exception("investigation crashed", extra={"id": investigation_id})
             finally:
@@ -127,6 +133,7 @@ class Runner:
         if not self._busy.acquire(blocking=False):
             return None
         try:
+            started_at = _utc_now()
             assessment = self._assessment_tool()   # scored, but /ask never proposes a change
             agent = self._agent_factory([assessment.tool()])
             assessment.attach_to(agent)
@@ -134,7 +141,7 @@ class Runner:
                                            self._config.max_tool_calls)
             result = agent.run(system, prompts.with_current_time(question))
             return self._record("ask", uuid.uuid4().hex[:8], question, result,
-                                assessment=assessment)
+                                assessment=assessment, started_at=started_at)
         finally:
             self._busy.release()
 
@@ -143,12 +150,15 @@ class Runner:
                                          self._config.min_confidence_for_rollback)
 
     def _record(self, kind: str, investigation_id: str, subject: str,
-                result: Investigation, pull_request=None, assessment=None, note="") -> dict:
+                result: Investigation, pull_request=None, assessment=None, note="",
+                started_at: str = None, alert: dict = None) -> dict:
         entry = {
             "id": investigation_id,
             "kind": kind,
             "subject": subject,
-            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "started_at": started_at,
+            "finished_at": _utc_now(),
+            "model": self._config.model,
             "outcome": result.outcome,
             "tool_calls": len(result.evidence),
             "max_tool_calls": self._config.max_tool_calls,
@@ -162,10 +172,21 @@ class Runner:
             "pull_request": json.loads(redact_public(json.dumps(pull_request))) if pull_request else None,
         }
         self.results.appendleft(entry)
+        # Not redacted for the public: capture needs the real names to give the
+        # whole case one consistent set of placeholders, and redacts before it
+        # writes anything. Secrets were already removed before the agent saw them.
+        self.recordings.appendleft({
+            **entry, "answer": result.answer, "alert": alert,
+            "evidence": [{"tool": e.tool, "input": e.input, "is_error": e.is_error,
+                          "output": e.output} for e in result.evidence]})
         log.info("investigation result", extra={k: entry[k] for k in (
             "id", "kind", "subject", "outcome", "tool_calls", "elapsed_seconds", "answer",
             "note", "pull_request")} | {"score": entry["confidence"] and entry["confidence"]["score"]})
         return entry
+
+
+def _utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _start_thread(fn: Callable[[], None]) -> None:
@@ -235,6 +256,16 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
     @app.get("/investigations", dependencies=[Depends(authorized)])
     def investigations():
         return list(runner.results)
+
+    @app.get("/investigations/{investigation_id}/recording", dependencies=[Depends(authorized)])
+    def recording(investigation_id: str):
+        """One investigation with its alert payload and full tool outputs, for
+        `cli.py capture`. Contains node names and IPs: keep it out of Git."""
+        for entry in runner.recordings:
+            if entry["id"] == investigation_id:
+                return entry
+        raise HTTPException(status_code=404, detail="no such investigation (only the most "
+                                                    f"recent {RECENT_RESULTS} are kept)")
 
     return app
 

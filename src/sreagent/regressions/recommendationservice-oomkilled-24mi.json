@@ -1,0 +1,124 @@
+{
+  "id": "recommendationservice-oomkilled-24mi",
+  "format": 2,
+  "mode": "alert",
+  "source": "Live incident on 2026-10-12: PR #31 (deliberate fault) and the agent's PR #32 (merged; the service recovered). The first live incident under the observed rule.",
+  "situation": "PR #31 (commit 6576d338, 16:57:39Z) cut recommendationservice memory to 24Mi request and limit, below its ~43 MB working set. The new ReplicaSet's pod was OOMKilled in a crash loop while the two older pods kept serving. The agent (Sonnet 5.5) marked the cause observed, scored 100 and opened PR #32 restoring 64Mi/128Mi. PodNotReady and PodCrashLooping arrived later and were added to PR #32 as comments.",
+  "expected": {
+    "kind": "config_fault",
+    "must_mention_any": [
+      [
+        "OOMKilled",
+        "OOM-killed",
+        "OOM"
+      ],
+      [
+        "24Mi"
+      ],
+      [
+        "6576d338",
+        "commit"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": {
+      "paths": [
+        "services.recommendationservice.resources.requests.memory",
+        "services.recommendationservice.resources.limits.memory"
+      ],
+      "min": {
+        "services.recommendationservice.resources.limits.memory": "64Mi"
+      },
+      "note": "The working set is about 43 MB (41Mi). A right change lifts the limit clear of it."
+    }
+  },
+  "alert_key": "ContainerOOMKilled/online-boutique-dev/recommendationservice",
+  "repo_ref": "a6f077a",
+  "repo_ref_note": "main after PR #31 merged: values-dev.yaml holds the 24Mi fault. PR #32 was validated against this commit.",
+  "expected_diagnosis": "Commit 6576d338 set the memory request and limit to 24Mi, below the ~43 MB working set, so the new ReplicaSet's pod is OOMKilled; raise the limit clear of the working set (the agent restored 64Mi/128Mi).",
+  "hand_assessments": [
+    {
+      "run": "PR #32",
+      "source": "from the PR body",
+      "verdict": "correct",
+      "method": "Not hand-written: the assessment and the proposal are the agent's own, copied from the tool-call list in PR #32's body. The body keeps only 1200-character excerpts of each tool output, not the full recording, so the case cannot be replayed through the model. Verdict by the operator: the PR was merged and the service recovered.",
+      "tool_calls": [
+        "list_pods",
+        "list_events",
+        "recent_chart_commits",
+        "describe_deployment",
+        "list_deployments",
+        "prometheus_query"
+      ],
+      "assessment": {
+        "conclusion": "cause_found",
+        "cause": "Commit 6576d338 (16:57:39Z) cut recommendationservice memory request/limit to 24Mi, below the ~43MB the service uses; the new ReplicaSet's pod is OOMKilled in a crash loop.",
+        "cause_support": "observed",
+        "cause_evidence": [
+          1,
+          3,
+          5,
+          6
+        ],
+        "decisive_check": {
+          "what": "Healthy pods of the previous ReplicaSet use ~43MB working set while the live limit is 24Mi (~25MB); the only OOMing pod is from the new ReplicaSet created after the memory-cut commit; the image tag is the same as the older healthy RS.",
+          "evidence": [
+            1,
+            4,
+            5,
+            6
+          ]
+        },
+        "alternatives": [
+          {
+            "cause": "Image regression (tag v20261012-164800) causing the OOM",
+            "result": "ruled_out",
+            "evidence": [
+              3,
+              6,
+              4
+            ]
+          },
+          {
+            "cause": "HPA/Argo replica cycle",
+            "result": "ruled_out",
+            "evidence": [
+              2,
+              4
+            ]
+          }
+        ],
+        "timing": "matches",
+        "timing_evidence": [
+          2,
+          3
+        ],
+        "unverified": [
+          {
+            "what": "Application logs of the crashing pod",
+            "could_change_diagnosis": false
+          },
+          {
+            "what": "Actual peak memory of the service (only current working set seen)",
+            "could_change_diagnosis": false
+          }
+        ]
+      },
+      "proposal": {
+        "changes": [
+          {
+            "path": "services.recommendationservice.resources.requests.memory",
+            "value": "64Mi"
+          },
+          {
+            "path": "services.recommendationservice.resources.limits.memory",
+            "value": "128Mi"
+          }
+        ],
+        "reason": "The 24Mi limit set in commit 6576d338 is below the ~43MB the service uses, so the new pod is OOMKilled. Restoring 64Mi/128Mi (the values from d09cdbe7) gives it headroom."
+      },
+      "recorded_score": 100,
+      "answer": "## Summary\nThe new recommendationservice pod (`recommendationservice-7cb8759f8f-dllgs`) is OOMKilled in a crash loop. A commit at 16:57Z cut the service's memory limit to 24Mi, which is below what it uses. The two older pods are still serving, so the service is degraded but not down.\n\n## Diagnosis\nCommit `6576d338` (\"Reduce recommendationservice memory to save cost\", 16:57:39Z) set the memory request and limit to 24Mi. The previous values were 64Mi and 128Mi.\n\nThat change created a new ReplicaSet, `7cb8759f8f`, whose pod has a 24Mi (about 25MB) limit. The healthy pods use about 43MB of working-set memory, so the new pod is killed at startup. The image tag is the same one the healthy pods run, so this is not an image regression.\n\nThe same 24Mi change was made on 10/11 (`f5262673`) and reverted by `d09cdbe7`. This is the second time.\n\nThe rollout is stuck: the new ReplicaSet has 0 of 1 pods ready and the two older pods are still available. The crash loop is therefore not yet taking the service down.\n\n## Evidence\n- **Pods (call 1):** the new pod is on ReplicaSet 7cb8759f8f, 51s old, with 3 restarts, CrashLoopBackOff and \"last exit OOMKilled (137)\". The two pods on 5dbc7fb7db are 7m old, ready and have 0 restarts.\n- **Events (call 2):** the new ReplicaSet was scaled 0→1 about 51s ago. The pod shows BackOff events and failed probes (readiness 8 times, liveness once), and it was restarted 3 times in under a minute. The probe failures come with the OOM-killed restarts, not before them.\n- **Commits (call 3):** `6576d338` at 16:57:39Z set memory 24Mi/24Mi. The alert fired at 17:01:50Z, after the new pod was created.\n- **Deployment (call 4):** revision 4 is the current ReplicaSet (desired 1, ready 0). Revision 3 (`5dbc7fb7db`) has 2 ready, on the same image tag.\n- **Live resources (call 5):** recommendationservice shows request 24Mi and limit 24Mi. Comparable services have 64Mi/128Mi.\n- **Memory usage (call 6):** working set is about 43MB on both healthy pods and about 2.8MB on the crashing pod, which is killed before it grows.\n- **Replica cycle ruled out (calls 2, 4):** the replica changes are a normal rollout (new ReplicaSet), not an HPA or Argo CD replica cycle.\n\n## Recommended change\nSet recommendationservice memory request 24Mi → 64Mi and memory limit 24Mi → 128Mi in `values-dev.yaml`. I have proposed this as a pull request. It restores the values from `d09cdbe7`.\n\n## Confidence\nHigh. The evidence shows both the OOM and the commit that caused it. Checking the pod logs and peak memory over time would confirm that 128Mi gives enough headroom."
+    }
+  ]
+}
