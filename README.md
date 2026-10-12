@@ -23,7 +23,7 @@ of them as memory cuts; the first was a real misconfiguration.
 
 | Measure | Result |
 |---|---|
-| Agent pull requests merged | 5 of 5. I reviewed and merged each one |
+| Agent pull requests merged | 5. I reviewed and merged each one. A sixth, [#26](https://github.com/kolade86/online-boutique-aws-eks/pull/26), duplicated #25; I closed it, and it led to [#27](https://github.com/kolade86/online-boutique-aws-eks/pull/27) |
 | Wrong answers that opened a pull request | 0 |
 | Fastest fix | 2 min 21 s from the fault merging to the fix PR (#19). The investigation itself took 22 s |
 | Recorded runs re-judged in CI | 28, with no wrong answer allowed a change |
@@ -80,14 +80,18 @@ Safety limits, enforced in code:
 1. I merged [#35](https://github.com/kolade86/online-boutique-aws-eks/pull/35),
    which cut paymentservice memory to 24Mi. Argo CD rolled it out.
 2. `HighMemoryUsage` fired: a pod above 90% of its limit for 5 minutes.
-3. The agent made 8 read-only calls. Its first assessment scored 60, because
-   its decisive check cited only metrics. The code refused a change.
-4. It read the live Deployment and submitted again. The new ReplicaSet had the
-   same image tag, so this was a settings change and not a code deploy. Score
-   100, cause observed.
-5. It opened [#36](https://github.com/kolade86/online-boutique-aws-eks/pull/36),
-   restoring 64Mi and 128Mi, 54 seconds after the alert started.
-6. I reviewed and merged it.
+3. The agent made 8 read-only calls, in this order: pods, memory history, live
+   limits, recent chart commits, chart defaults, events, usage against the
+   limit, and the chart defaults again. Five went to the cluster and
+   Prometheus, three to the repository.
+4. Its first assessment scored 60, because its decisive check cited only
+   metrics. The code refused a change.
+5. Its ninth call read the live Deployment. The new ReplicaSet had the same
+   image tag, so this was a settings change and not a code deploy. The second
+   assessment scored 100, cause observed.
+6. It opened [#36](https://github.com/kolade86/online-boutique-aws-eks/pull/36),
+   restoring 64Mi and 128Mi, 54 seconds after the alert started. I reviewed
+   and merged it.
 
 ## Evaluation
 
@@ -102,8 +106,10 @@ rule. It needs no cluster and no API key.
 | safe failure | Wrong answer, and no change allowed |
 | critical | A change the case does not expect. Must be zero |
 
-Model comparison on the one case with a full recording, the emailservice
-incident. "Right" is a keyword check, not a human review.
+Model comparison on the one case models have been run on, the emailservice
+incident. "Right" is a keyword check, not a human review. The replay counts
+cover both versions of the scoring rule. Under the current rule there are 3
+runs each for Sonnet and Opus, and none for Haiku.
 
 | Model | Replays | Right | Note |
 |---|---|---|---|
