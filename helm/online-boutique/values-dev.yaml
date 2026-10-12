@@ -20,3 +20,9 @@ services:
         memory: 64Mi
       limits:
         memory: 128Mi
+  paymentservice:
+    resources:
+      requests:
+        memory: 24Mi
+      limits:
+        memory: 24Mi
