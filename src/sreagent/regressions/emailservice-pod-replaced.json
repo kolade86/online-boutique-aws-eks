@@ -64,9 +64,10 @@
     ]
   },
   "model_comparison": {
-    "summary": "Claude Haiku 4.5 failed this case in all three runs, including after the prompt and tool fixes that let Claude Sonnet 5.5 pass. Sonnet 5.5 is therefore the default model (SREAGENT_MODEL).",
-    "claude-haiku-4-5-20251001": "3 runs, 3 fails. Stops after 2 tool calls (pods, events) and fills the gaps: readiness probes as cause, an invented HPA scale-up, node blame. Did not use the GitOps guidance to check the chart values.",
-    "claude-sonnet-5-5": "1 run on the current prompt, pass (plus a partial pass with an earlier Sonnet run on the previous prompt, limited by read_repo_file truncation). Uses 6-7 tool calls, checks the HPA and the chart values, and separates evidence from inference.",
+    "summary": "Claude Haiku 4.5 must not be used for this agent. It failed this case in all nine runs: three live on 2026-10-04 and six replays (2026-10-10 and 2026-10-11), on every prompt version. Sonnet 5.5 and Opus 5.5 passed every replay. Sonnet 5.5 is the default model (SREAGENT_MODEL).",
+    "claude-haiku-4-5-20251001": "9 runs, 9 fails. Live (3): stops after 2 tool calls (pods, events) and fills the gaps: readiness probes as cause, an invented HPA scale-up, node blame; never checks the chart values. Replays before the assessment reminder (3): same answer, no assessment submitted. Replays after it (3): same wrong answer, each time marking readiness probes an OBSERVED cause from list_events alone, scoring 73, 30 and 60 under the rule then in force. The 73 passed both gates for a pull request. That run is why an observed cause now needs a decisive check from the explaining side (confidence.py).",
+    "claude-sonnet-5-5": "1 live run on the current prompt, pass (plus a partial pass with an earlier Sonnet run on the previous prompt, limited by read_repo_file truncation), and 6 replays, all passing the keyword check with the cause marked inferred. Uses 6-10 tool calls, checks the chart values, and separates evidence from inference.",
+    "claude-opus-5-5": "3 replays on 2026-10-11, all passing the keyword check with the cause marked inferred.",
     "cost_note": "Sonnet 5.5 costs about 2x Haiku 4.5 per token ($2/$10 vs $1/$5 per million input/output tokens) and used about 3x the tool calls here, each resending the conversation."
   },
   "runs": [
@@ -135,7 +136,7 @@
         "file": "emailservice-events-raw.txt"
       }
     ],
-    "note": "The only tool output recorded on 2026-10-04 was list_events app=emailservice (captured about 15:32 UTC). Repository tools read git at f124e61, main at that time. Every other call returns 'no recorded output'. Run with `python cli.py replay regressions/emailservice-pod-replaced.json --record`, once with SREAGENT_MODEL=claude-haiku-4-5-20251001 and once with claude-sonnet-5-5."
+    "note": "The only tool output recorded on 2026-10-04 was list_events app=emailservice (captured about 15:32 UTC). Repository tools read git at f124e61, main at that time. Every other call returns 'no recorded output'. Run with `python cli.py replay regressions/emailservice-pod-replaced.json --record` and SREAGENT_MODEL=claude-sonnet-5-5 or claude-opus-5-5. Do not use Claude Haiku 4.5 for this agent: see model_comparison."
   },
   "replay_runs": [
     {

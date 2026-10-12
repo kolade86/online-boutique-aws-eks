@@ -816,22 +816,38 @@ because which node something ran on can matter to a diagnosis.
 The default is **Claude Sonnet 5.5** (`claude-sonnet-5-5`), for both `/alert`
 and `/ask`. Set `SREAGENT_MODEL` to change it.
 
-**Why not Haiku 4.5.** It was the original default, and it failed the
+**Do not use Claude Haiku 4.5 for this agent.** It was the original
+default. It has failed the
 [emailservice regression case](regressions/emailservice-pod-replaced.json)
-in all three runs on 2026-10-04. That includes the run after the prompt and
-tool fixes that let Sonnet 5.5 pass.
+in all nine runs, on every version of the prompt, and one of those runs
+would have been allowed to open a pull request:
 
-- Each time, Haiku stopped after two tool calls (pods and events) and filled
-  the gaps with claims no tool result supported:
-  - readiness probes as the cause
-  - an HPA scale-up that no event shows
-  - blame on a node
-- It never checked the chart values, although the prompt told it to.
-- On the same prompt, Sonnet 5.5 used six tool calls. It confirmed
-  `replicas: 2` against `minReplicas: 1` in `values.yaml`, explained both
-  halves of the cycle, and marked the Argo CD step as inferred.
+| Runs | Result |
+|---|---|
+| 3 live, 2026-10-04 | All wrong. That includes the run after the prompt and tool fixes that let Sonnet 5.5 pass |
+| 3 replays, 2026-10-10 | All wrong. It never submitted an evidence assessment |
+| 3 replays, 2026-10-11 | All wrong. It submitted one each time, with the cause marked observed, scoring 73, 30 and 60 |
+
+- **The answer was the same each time:** readiness probes as the cause.
+  The prompt says a failing readiness probe never kills a pod.
+- **It stopped early.** It made two to six tool calls, never read the chart
+  values although the prompt told it to, and filled the gaps with claims no
+  tool result supported: an HPA scale-up that no event shows, and blame on a
+  node.
+- **It overstated its evidence.** In all three assessed runs it marked the
+  wrong cause "observed", citing `list_events` alone, and claimed up to four
+  alternatives ruled out from that one call. The run that scored 73 passed
+  both gates then in force. [The observed rule](#the-observed-rule) now
+  blocks those three runs, but it checks which tools were cited, not whether
+  the label is honest. A model that mislabels a wrong cause is the case it
+  is weakest against.
+- **Sonnet 5.5 and Opus 5.5 passed all nine of their replays** of the same
+  case, and marked the cause inferred every time.
 - Sonnet 5.5 costs about twice as much per token, and used about three times
   the tool calls on this case. A wrong diagnosis that opens a PR costs more.
+
+Nothing in the code refuses a model name: `SREAGENT_MODEL` is the only
+control.
 
 **Refusal fallback.** Sonnet 5.5's safety classifiers can decline a request
 (`stop_reason: refusal`). Logs full of errors could plausibly trip the
@@ -842,7 +858,7 @@ tool fixes that let Sonnet 5.5 pass.
   then retries `cyber` declines on Claude Sonnet 5.
 - A decline that is not retried ends the run as `model_stopped`, with the
   category shown, for example `refusal:cyber`.
-- Haiku and other models are called without the fallback.
+- Other models are called without the fallback.
 
 ## Configuration
 
@@ -884,9 +900,10 @@ tool fixes that let Sonnet 5.5 pass.
 is the first: the HPA and Argo CD self-heal were fighting over the replica
 count.
 
-- All three Haiku 4.5 runs failed. They blamed readiness probes and never
-  found what scaled the Deployment back up.
-- Sonnet 5.5 passed on the current prompt.
+- All nine Haiku 4.5 runs failed. They blamed readiness probes and never
+  found what scaled the Deployment back up. See
+  [Model choice](#model-choice).
+- Sonnet 5.5 and Opus 5.5 passed every replay.
 - The file includes a short model comparison, and the full fix: omit
   `spec.replicas` for HPA-managed services.
 
