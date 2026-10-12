@@ -464,10 +464,15 @@ class ServerPullRequestTest(unittest.TestCase):
         record = self.run_alert(self.make_client(SREAGENT_OPEN_PRS="true"), STRONG)
         self.assertEqual(record["pull_request"]["status"], "opened")
         body = self.gh.pulls[0]["body"]
-        self.assertIn("## Confidence\n\n**Evidence score: 100 / 100.**", body)
-        self.assertIn("| +50 | Cause directly observed: list_pods (#1), recent_chart_commits (#3) |", body)
+        self.assertIn("## Evidence score\n\n**Evidence score: 100 / 100.**", body)
+        self.assertIn("| +50 | Cause directly observed: list_pods (call 1), recent_chart_commits (call 3) |", body)
         self.assertIn("> **Agent's own assessment:** High. It all fits.", body)
-        self.assertLess(body.index("## Confidence"), body.index("## Diagnosis"))
+        self.assertLess(body.index("## Evidence score"), body.index("## Agent's report"))
+        # the report's own sections sit one level down, so no heading appears twice
+        headings = [line for line in body.split("\n") if line.startswith("#")]
+        self.assertEqual(len(headings), len(set(headings)), headings)
+        self.assertIn("### Confidence", headings)
+        self.assertNotIn("(#", body)                 # GitHub would link "#3" to pull request 3
 
     def test_reports_are_redacted(self):
         client = self.make_client()

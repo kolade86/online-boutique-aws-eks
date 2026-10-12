@@ -158,6 +158,30 @@ class PullRequestTest(unittest.TestCase):
             self.assertNotIn("heads/main", path)
             self.assertNotEqual((body or {}).get("branch"), "main")
 
+    def test_title_names_the_service_and_the_change(self):
+        def title(*changes):
+            return pr_tool.title(self.opener.check(vc.parse_changes(
+                [{"path": p, "value": v} for p, v in changes]), "r"))
+
+        mem = "services.emailservice.resources.{}.memory"
+        self.assertEqual(title((mem.format("limits"), "256Mi"), (mem.format("requests"), "128Mi")),
+                         "sre-agent: emailservice: memory request chart default -> 128Mi, "
+                         "memory limit chart default -> 256Mi")
+        self.assertEqual(title(("image.tag", TAGS[1])),
+                         f"sre-agent: roll back image tag {TAGS[0]} -> {TAGS[1]}")
+        self.assertEqual(title(("services.emailservice.hpa.maxReplicas", 4)),
+                         "sre-agent: emailservice: HPA max chart default -> 4")
+        long = title((mem.format("limits"), "256Mi"), (mem.format("requests"), "128Mi"),
+                     ("services.emailservice.resources.limits.cpu", "300m"),
+                     ("services.emailservice.resources.requests.cpu", "150m"))
+        self.assertEqual(long, "sre-agent: emailservice: 4 settings (cpu request, memory request, "
+                               "cpu limit, memory limit)")
+        self.assertLessEqual(len(long), pr_tool.TITLE_MAX)
+
+    def test_report_headings_are_demoted_but_not_inside_code(self):
+        self.assertEqual(pr_tool.demote_headings("## Summary\ntext\n```\n## not a heading\n```\n# Top"),
+                         "### Summary\ntext\n```\n## not a heading\n```\n## Top")
+
     def test_pr_body_has_diagnosis_evidence_and_exact_change(self):
         self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
         pr_tool.finish(self.tool, Investigation(ANSWERED, "## Diagnosis\nOOMKilled at 128Mi",
@@ -165,12 +189,13 @@ class PullRequestTest(unittest.TestCase):
         body = self.gh.writes[2][2]["body"]
         title = self.gh.writes[2][2]["title"]
 
-        self.assertEqual(title, "sre-agent: services.emailservice.resources.limits.memory: (unset) -> 256Mi")
+        self.assertEqual(title, "sre-agent: emailservice: memory limit chart default -> 256Mi")
         self.assertTrue(body.startswith(pr_tool.incident_marker("online-boutique-dev/emailservice")))
         self.assertIn("**Why this change:** memory limit too low: OOMKilled", body)
         self.assertIn("```diff\n--- a/helm/online-boutique/values-dev.yaml", body)
         self.assertIn("+        memory: 256Mi", body)
-        self.assertIn("## Diagnosis\n\n## Diagnosis\nOOMKilled at 128Mi", body)
+        self.assertIn("## Agent's report\n\n### Diagnosis\nOOMKilled at 128Mi", body)
+        self.assertIn("## Tool calls\n\n2 tool call(s)", body)
         self.assertIn("2 tool call(s) made by the agent", body)
         self.assertIn("<code>list_events app=emailservice</code> (ok)", body)
         self.assertNotIn("ghp_", body)           # evidence is redacted

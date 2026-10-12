@@ -67,6 +67,9 @@ EXPLAINING_TOOLS = frozenset({"read_repo_file", "recent_chart_commits", "describ
 
 # Limits the strict JSON schema cannot express; enforced here.
 MAX_TEXT = 300
+# The decisive check names what was compared with what, on both sides: at 300
+# characters it was cut off mid-sentence in pull requests
+MAX_DECISIVE_TEXT = 800
 MAX_ITEMS = 5
 
 TOOL_NAME = "submit_assessment"
@@ -105,7 +108,8 @@ SCHEMA = {
             "description": "The one check that separates your cause from the most likely alternative. "
                            "Empty text and an empty list if you made no such check.",
             "properties": {
-                "what": {"type": "string", "description": "What you checked and what it showed"},
+                "what": {"type": "string", "description": "What you checked and what it showed, in one "
+                                                          "or two sentences"},
                 "evidence": _CALLS,
             },
         },
@@ -171,8 +175,8 @@ class Score:
 
 # --- Cleaning -----------------------------------------------------------------------
 
-def _text(value) -> str:
-    return value.strip()[:MAX_TEXT] if isinstance(value, str) else ""
+def _text(value, limit: int = MAX_TEXT) -> str:
+    return value.strip()[:limit] if isinstance(value, str) else ""
 
 
 def _calls(value) -> list:
@@ -214,7 +218,7 @@ def clean(raw) -> tuple[dict, list[Reason]]:
         "cause_support": pick("cause_support", SUPPORTS, "inferred"),
         "cause_evidence": _calls(raw.get("cause_evidence")),
         # absent from assessments recorded before the field existed
-        "decisive_check": {"what": _text(decisive.get("what")),
+        "decisive_check": {"what": _text(decisive.get("what"), MAX_DECISIVE_TEXT),
                            "evidence": _calls(decisive.get("evidence"))},
         "alternatives": [{"cause": _text(x.get("cause")),
                           "result": x.get("result") if x.get("result") in RESULTS else "not_ruled_out",
@@ -242,18 +246,18 @@ def _valid(calls: list, evidence: list, dropped: list) -> list:
     ok = []
     for n in calls:
         if not 1 <= n <= len(evidence):
-            dropped.append(f"#{n} does not exist")
+            dropped.append(f"call {n} does not exist")
         elif evidence[n - 1].tool == TOOL_NAME:
-            dropped.append(f"#{n} is an assessment, not evidence")
+            dropped.append(f"call {n} is an assessment, not evidence")
         elif evidence[n - 1].is_error:
-            dropped.append(f"#{n} ({evidence[n - 1].tool}) failed")
+            dropped.append(f"call {n} ({evidence[n - 1].tool}) failed")
         else:
             ok.append(n)
     return ok
 
 
 def _cite(calls: list, evidence: list) -> str:
-    return ", ".join(f"{evidence[n - 1].tool} (#{n})" for n in calls)
+    return ", ".join(f"{evidence[n - 1].tool} (call {n})" for n in calls)
 
 
 def _why_not_observed(cause_calls: list, decisive_calls: list, evidence: list) -> str:
@@ -274,7 +278,7 @@ def score(raw_assessment, evidence: list) -> Score:
     """The evidence score for an assessment, given the run's tool calls (agent.Evidence)."""
     a, reasons = clean(raw_assessment)
     dropped: list[str] = []
-    failed = [f"{e.tool} (#{n})" for n, e in enumerate(evidence, 1)
+    failed = [f"{e.tool} (call {n})" for n, e in enumerate(evidence, 1)
               if e.is_error and e.tool != TOOL_NAME]
     questions = ["Calls that failed or returned nothing: " + ", ".join(failed)] if failed else []
 

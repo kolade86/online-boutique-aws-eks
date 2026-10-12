@@ -420,7 +420,7 @@ class ReportTest(unittest.TestCase):
                                    note=confidence.note_no_change(tool))
         self.assertIn("Evidence score: 40/100 (PRs need 70, image.tag rollbacks 85) - an "
                       "evidence score, not a probability", report)
-        self.assertIn(" +30  Cause inferred: list_pods (#1)", report)
+        self.assertIn(" +30  Cause inferred: list_pods (call 1)", report)
         self.assertIn("Open questions (not scored):", report)
         self.assertIn("   ?  Not ruled out: a leak", report)
         self.assertIn("Revised: 55 (after 2 calls) -> 40 (after 3 calls)", report)

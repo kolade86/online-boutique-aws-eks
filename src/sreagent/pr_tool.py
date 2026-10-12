@@ -31,6 +31,7 @@ TAG_IN_FILE = re.compile(r'^  tag: "?([^"\s]+)"?\s*$', re.MULTILINE)
 LABEL = "sre-agent"
 RECENT_TAG_COMMITS = 6          # values-dev.yaml commits searched for rollback tags
 MAX_BODY_CHARS = 60000          # GitHub's limit is 65536
+TITLE_MAX = 120
 EVIDENCE_EXCERPT_CHARS = 1200
 
 
@@ -183,10 +184,36 @@ class PullRequestOpener:
         return {"number": pr["number"], "url": pr["html_url"], "branch": branch}
 
 
+_SETTING = {("replicas",): "replicas", ("hpa", "minReplicas"): "HPA min", ("hpa", "maxReplicas"): "HPA max"}
+
+
+def _setting(path: tuple) -> str:
+    """("resources", "limits", "memory") -> "memory limit"."""
+    if len(path) == 3 and path[0] == "resources":
+        return f"{path[2]} {path[1].rstrip('s')}"
+    return _SETTING.get(path, ".".join(path))
+
+
 def title(p: Proposal) -> str:
-    lines = vc.describe(p.diff)
-    head = lines[0] if len(lines) == 1 else f"{len(lines)} settings"
-    return f"sre-agent: {head}"[:120]
+    """Names the service and the change:
+    "sre-agent: recommendationservice: memory request 24Mi -> 64Mi, memory limit 24Mi -> 128Mi"."""
+    def show(v):
+        return "chart default" if v is vc._MISSING else str(v)
+
+    if ("image", "tag") in p.diff:
+        old, new = p.diff[("image", "tag")]
+        return f"sre-agent: roll back image tag {show(old)} -> {show(new)}"[:TITLE_MAX]
+    services = sorted({path[1] for path in p.diff if path[0] == "services" and len(path) > 2})
+    several = len(services) > 1
+    # requests before limits, as in the values file
+    order = sorted(p.diff.items(), key=lambda item: (item[0][1:2], "requests" not in item[0], item[0]))
+    parts = [(f"{path[1]} " if several else "") + f"{_setting(path[2:])} {show(old)} -> {show(new)}"
+             for path, (old, new) in order if path[0] == "services" and len(path) > 2]
+    head = f"sre-agent: {', '.join(services)}: {', '.join(parts)}"
+    if len(head) > TITLE_MAX:   # too long to list: name what kind of settings they are
+        kinds = ", ".join(dict.fromkeys(_setting(path[2:]) for path, _ in order))
+        head = f"sre-agent: {', '.join(services)}: {len(parts)} settings ({kinds})"
+    return head[:TITLE_MAX]
 
 
 def commit_message(p: Proposal, key: str) -> str:
@@ -221,8 +248,10 @@ def pr_body(p: Proposal, key: str, investigation_id: str, diagnosis: str,
             "",
         ]
     parts += confidence_section(confidence, diagnosis, ("image", "tag") in p.diff)
-    parts += ["## Diagnosis", "", redact(diagnosis).strip() or "_(no report)_", "",
-              "## Evidence", "",
+    # The report has its own Summary, Diagnosis, Evidence and Confidence sections:
+    # they sit one level below this body's, under names the body does not use
+    parts += ["## Agent's report", "", demote_headings(redact(diagnosis).strip()) or "_(no report)_", "",
+              "## Tool calls", "",
               f"{len(evidence)} tool call(s) made by the agent, in order:", ""]
     for i, e in enumerate(evidence, 1):
         status = "error" if e.is_error else "ok"
@@ -243,6 +272,17 @@ def pr_body(p: Proposal, key: str, investigation_id: str, diagnosis: str,
     return body
 
 
+def demote_headings(markdown: str) -> str:
+    """Push every Markdown heading one level down ("## Diagnosis" -> "### Diagnosis"),
+    leaving fenced code alone."""
+    out, fenced = [], False
+    for line in markdown.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        out.append("#" + line if not fenced and re.match(r"#{1,5} ", line) else line)
+    return "\n".join(out)
+
+
 _MODEL_CONFIDENCE = re.compile(r"^#+\s*Confidence\s*\n(.*?)(?=^#+\s|\Z)", re.MULTILINE | re.DOTALL)
 
 
@@ -253,12 +293,12 @@ def model_confidence_text(report: str) -> str:
 
 
 def confidence_section(confidence: dict, report: str, rollback: bool) -> list[str]:
-    """The PR body's Confidence section: score, reasons, every submission, the model's words."""
+    """The PR body's score section: score, reasons, every submission, the model's words."""
     if not confidence or confidence.get("score") is None:
         return []
     needed = confidence["min_for_rollback"] if rollback else confidence["min_for_pr"]
     kind = "an image.tag rollback" if rollback else "a pull request"
-    parts = ["## Confidence", "",
+    parts = ["## Evidence score", "",
              f"**Evidence score: {confidence['score']} / 100.** Computed in code from the agent's "
              f"evidence assessment; it measures how well the conclusion is supported by the "
              f"evidence it cited, not a probability. {kind[0].upper() + kind[1:]} needs a "
