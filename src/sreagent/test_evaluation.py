@@ -338,18 +338,30 @@ class RegressionCasesTest(unittest.TestCase):
             ("emailservice-stable-after-fix", "emailservice-after-fix.txt"): (60, ev.SAFE_FAILURE),
             ("emailservice-stable-after-fix", "emailservice-after-fix-confirmed.txt"): (60, ev.SAFE_FAILURE),
             ("emailservice-stable-after-fix", "expected answer"): (100, ev.PASS),
+            # a question has no alert to time against: 50 + 10 + 10 + 20, no timing points
+            ("healthy-checkoutservice", "expected answer"): (90, ev.PASS),
+            ("paymentservice-memory-24mi", "live run 92b5268c"): (100, ev.PASS),
             ("recommendationservice-oomkilled", "PR #19"): (100, ev.PASS),
             ("recommendationservice-oomkilled-24mi", "PR #32"): (100, ev.PASS),
         })
 
-    def test_the_two_real_incidents_get_the_change_the_agent_made(self):
-        for case_id, limit in (("recommendationservice-oomkilled", "450Mi"),
-                               ("recommendationservice-oomkilled-24mi", "128Mi")):
+    def test_the_live_run_is_a_pass_because_of_its_change(self):
+        # paymentservice, PR #36: an observed cause and the memory change the case expects
+        row, = [r for r in self.rows if r["run"] == "live run 92b5268c"]
+        self.assertEqual((row["source"], row["correct"], row["support"], row["gate_open"],
+                          row["change_made"]), ("live run", True, "observed", True, True))
+
+    def test_the_real_incidents_get_the_change_the_agent_made(self):
+        for case_id, service, limit in (
+                ("recommendationservice-oomkilled", "recommendationservice", "450Mi"),
+                ("recommendationservice-oomkilled-24mi", "recommendationservice", "128Mi"),
+                ("paymentservice-memory-24mi", "paymentservice", "128Mi")):
             path, case = [(p, c) for p, c in self.cases if c["id"] == case_id][0]
             label, script, expected, _ = ev.scripts_for(REGRESSIONS, case)[0]
             run = ev.run_script(case, path, script)
             self.assertEqual(run["proposal"]["status"], "dry_run", run["proposal_refusals"])
-            self.assertEqual(run["proposal"]["changes"][MEMORY.format("limits")], limit)
+            self.assertEqual(run["proposal"]["changes"][f"services.{service}.resources.limits.memory"],
+                             limit)
 
     def test_a_scripted_run_of_every_case(self):
         """Each case, through the agent loop, the rule, the proposal tool and the
@@ -368,6 +380,10 @@ class RegressionCasesTest(unittest.TestCase):
                         expected = ev.judge(case, source)["outcome"]
                     self.assertEqual(row["outcome"], expected, row["detail"])
                     self.assertNotEqual(row["outcome"], ev.CRITICAL)
+                    if source and "verdict" in source and ev.has_recording(case):
+                        # a hand-written assessment may cite only what the recording holds
+                        self.assertEqual(run["unavailable"], [])
+                        self.assertFalse(any(c["is_error"] for c in run["tool_calls"]))
                     ran += 1
         self.assertGreaterEqual(ran, len(self.cases))
 

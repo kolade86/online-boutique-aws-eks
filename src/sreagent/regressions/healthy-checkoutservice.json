@@ -100,5 +100,77 @@
       }
     ],
     "note": "Captured with `cli.py capture` on 2026-10-12: 0 call(s) the agent made, 10 from the standard pack. Redacted."
+  },
+  "expected_assessment": {
+    "note": "Hand-written on 2026-10-12 from the recorded outputs: what a right answer's assessment looks like. No model has been run on this case yet. The calls carry their inputs, so the scripted run reads the recording.",
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "checkoutservice"
+        }
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "checkoutservice"
+        }
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"online-boutique-dev\",pod=~\"checkoutservice-.*\"})"
+        }
+      },
+      {
+        "tool": "list_hpas",
+        "input": {}
+      }
+    ],
+    "assessment": {
+      "conclusion": "no_problem",
+      "cause": "checkoutservice is healthy: both pods are Running and ready with 0 restarts, and the Deployment has 2 of 2 replicas ready, updated and available",
+      "cause_support": "observed",
+      "cause_evidence": [
+        1,
+        2
+      ],
+      "decisive_check": {
+        "what": "describe_deployment shows desired 2, ready 2, updated 2, available 2 on the current revision, with the previous ReplicaSet scaled to 0",
+        "evidence": [
+          2
+        ]
+      },
+      "alternatives": [
+        {
+          "cause": "pods restarting or crash-looping",
+          "result": "ruled_out",
+          "evidence": [
+            1,
+            3
+          ]
+        },
+        {
+          "cause": "a rollout stuck or still in progress",
+          "result": "ruled_out",
+          "evidence": [
+            2
+          ]
+        }
+      ],
+      "timing": "not_checked",
+      "timing_evidence": [],
+      "unverified": [
+        {
+          "what": "request errors and latency: the services expose no metrics",
+          "could_change_diagnosis": false
+        },
+        {
+          "what": "HPA 'no metrics returned' warnings, last seen 13 minutes earlier, at the rollout",
+          "could_change_diagnosis": false
+        }
+      ]
+    },
+    "answer": "checkoutservice is healthy. Both pods are Running and ready with 0 restarts, the Deployment has 2 of 2 replicas available on the current revision, and the HPA reads 1% CPU against a 70% target."
   }
 }

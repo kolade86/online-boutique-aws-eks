@@ -333,10 +333,14 @@ def hand_runs(case: dict) -> list:
         entries.append({**case["expected_assessment"], "run": "expected answer", "verdict": "correct"})
     out = []
     for h in entries:
-        calls = [t for t in h["tool_calls"] if t not in (ASSESS, PROPOSE)]
+        # A call is a tool name, or {"tool", "input"} where the case has a recording
+        # and the input must match a recorded call
+        calls = [c if isinstance(c, dict) else {"tool": c, "input": {}} for c in h["tool_calls"]]
+        calls = [c for c in calls if c["tool"] not in (ASSESS, PROPOSE)]
         out.append({"run": h["run"], "source": h.get("source", "hand-written"), "verdict": h["verdict"],
                     "score": h.get("recorded_score"), "rule_version": confidence.RULE_VERSION,
-                    "tool_calls": [{"tool": t, "input": {}, "is_error": False} for t in calls],
+                    "tool_calls": [{"tool": c["tool"], "input": c.get("input") or {}, "is_error": False}
+                                   for c in calls],
                     "submissions": [{"assessment": h["assessment"]}],
                     "proposal_args": h.get("proposal"), "answer": h.get("answer", ""),
                     "can_propose": bool(h.get("proposal"))})
