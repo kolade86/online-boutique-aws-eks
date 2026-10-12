@@ -32,6 +32,7 @@ One row each, so no rates. A live run is the agent's own investigation of the in
 | emailservice-stable-after-fix | emailservice-after-fix.txt | hand-written | no | 60 | inferred | no | safe_failure |
 | emailservice-stable-after-fix | emailservice-after-fix-confirmed.txt | hand-written | no | 60 | inferred | no | safe_failure |
 | emailservice-stable-after-fix | expected answer | hand-written | yes | 100 | observed | no | pass |
+| recommendationservice-oomkilled-24mi | PR #32 | from the PR body | yes | 100 | observed | yes | pass |
 | recommendationservice-oomkilled | PR #19 | hand-written | yes | 100 | observed | yes | pass |
 
 ## Runs made under an earlier rule

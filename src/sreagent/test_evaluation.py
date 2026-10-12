@@ -339,10 +339,12 @@ class RegressionCasesTest(unittest.TestCase):
             ("emailservice-stable-after-fix", "emailservice-after-fix-confirmed.txt"): (60, ev.SAFE_FAILURE),
             ("emailservice-stable-after-fix", "expected answer"): (100, ev.PASS),
             ("recommendationservice-oomkilled", "PR #19"): (100, ev.PASS),
+            ("recommendationservice-oomkilled-24mi", "PR #32"): (100, ev.PASS),
         })
 
     def test_the_two_real_incidents_get_the_change_the_agent_made(self):
-        for case_id, limit in (("recommendationservice-oomkilled", "450Mi"),):
+        for case_id, limit in (("recommendationservice-oomkilled", "450Mi"),
+                               ("recommendationservice-oomkilled-24mi", "128Mi")):
             path, case = [(p, c) for p, c in self.cases if c["id"] == case_id][0]
             label, script, expected, _ = ev.scripts_for(REGRESSIONS, case)[0]
             run = ev.run_script(case, path, script)
