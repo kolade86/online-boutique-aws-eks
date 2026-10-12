@@ -229,7 +229,7 @@ class AgentLoopTest(unittest.TestCase):
         result = a.run("sys", "task")
 
         self.assertEqual(result.outcome, agent.ANSWERED)
-        self.assertEqual(tool.latest.value, 50)
+        self.assertEqual(tool.latest.value, 30)   # no decisive check: counted as inferred
         self.assertEqual([e.tool for e in result.evidence], ["t", confidence.TOOL_NAME])
 
     def test_tool_output_is_redacted_and_truncated_before_the_model_sees_it(self):

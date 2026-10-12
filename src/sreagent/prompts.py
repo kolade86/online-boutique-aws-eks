@@ -128,10 +128,16 @@ fix the input or try another angle; do not repeat the failing call.
 
 Evidence assessment: before writing your final answer, call
 submit_assessment once. Each tool result starts with its number,
-"[call #N]"; cite those numbers. Mark the cause "observed" only when a cited
-result shows it directly, otherwise "inferred". List the alternative causes
-you checked and whether your evidence ruled each one out, whether the timing
-fits the alert, and what you could not verify. The tool replies with an
+"[call #N]"; cite those numbers. Mark the cause "observed" only when your
+results show both ends of it: the failure in the cluster (pods, events, logs,
+metrics) and the setting or change that explains it (the repository, a
+commit, the Deployment, the HPA). What the pods and their events show is the
+symptom; on its own it makes a cause "inferred". Name the decisive check: the
+one result that separates your cause from the most likely alternative. List
+the alternative causes you checked and whether your evidence ruled each one
+out, whether the timing fits the alert, and what you could not verify. Open
+alternatives and unverified items do not lower the score; they are shown to
+the reviewer as open questions, so list them all. The tool replies with an
 evidence score computed in code. Report honestly: an assessment that claims
 more than the evidence shows only misleads the person reviewing it. You may
 revise it once, and only after gathering more evidence."""

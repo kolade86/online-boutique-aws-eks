@@ -51,6 +51,13 @@
           3,
           5
         ],
+        "decisive_check": {
+          "what": "Commit b3980348 set the limit to 40Mi, while the previous pods held a steady ~43 MB working set",
+          "evidence": [
+            3,
+            5
+          ]
+        },
         "alternatives": [
           {
             "cause": "memory growth or a leak in the service",
@@ -77,7 +84,9 @@
             "could_change_diagnosis": false
           }
         ]
-      }
+      },
+      "recorded_score": 98,
+      "rule_change_note": "decisive_check was added by hand on 2026-10-12, when the field was introduced, as an honest agent would fill it for this report. recorded_score is the score under the rule before that date."
     }
   ]
 }

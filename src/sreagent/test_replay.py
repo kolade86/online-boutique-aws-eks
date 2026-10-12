@@ -84,6 +84,7 @@ class RunCaseTest(unittest.TestCase):
 
         assessment = {"conclusion": "cause_found", "cause": "HPA vs Argo CD self-heal",
                       "cause_support": "inferred", "cause_evidence": [1],
+                      "decisive_check": {"what": "", "evidence": []},
                       "alternatives": [{"cause": "readiness probes", "result": "ruled_out",
                                         "evidence": [1]},
                                        {"cause": "node problem", "result": "not_ruled_out",
@@ -100,8 +101,13 @@ class RunCaseTest(unittest.TestCase):
         run = replay.run_case(case_path, config, model)
 
         self.assertEqual(run["outcome"], "answered")
-        # inferred 30 + ruled out 10 - open 15 + timing 20 - minor 2 = 43
-        self.assertEqual(run["score"], 43)
+        # inferred 30 + ruled out 10 + timing 20; the open items are listed, not subtracted
+        self.assertEqual(run["score"], 60)
+        self.assertEqual(run["open_questions"], [
+            "Calls that failed or returned nothing: list_hpas (#2)",
+            "Not ruled out: node problem",
+            "Not verified (detail only): Argo CD's sync history"])
+        self.assertFalse(run["change_allowed"])
         self.assertTrue(run["keyword_check"]["passed"])
         self.assertEqual([c["is_error"] for c in run["tool_calls"]], [False, True, False])
         self.assertIn("<node-1>", run["answer"])                 # redacted
@@ -112,7 +118,7 @@ class RunCaseTest(unittest.TestCase):
 
         replay.record(case_path, run)
         with open(case_path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["replay_runs"][0]["score"], 43)
+            self.assertEqual(json.load(f)["replay_runs"][0]["score"], 60)
 
 
 class CaptureTest(unittest.TestCase):

@@ -9,11 +9,15 @@ module turns that into a score with a fixed rule.
 What the score is and is not:
 - It measures how well the conclusion is supported by the evidence the agent
   says it has. It is NOT a calibrated probability that the diagnosis is right.
-- The code checks that every cited tool call exists and succeeded. It cannot
-  check that the call actually proves the claim; that judgement is the
-  model's. Stage 6 evaluation is what checks whether scores track
-  correctness.
+- The code checks that every cited tool call exists and succeeded, and which
+  tools the citations come from. It cannot check that the call actually
+  proves the claim; that judgement is the model's. Stage 6 evaluation is what
+  checks whether scores track correctness.
 - The same assessment and the same tool calls always give the same score.
+- What the model says it could not rule out or verify is never subtracted. A
+  rule that did so scored a candid model below a less candid one on the same
+  evidence. Those items are listed as open questions for the reader, together
+  with the calls that failed, which the code lists itself.
 
 The whole rule is the table below. Tune it here.
 """
@@ -23,24 +27,38 @@ from dataclasses import dataclass, field
 # --- The scoring rule -------------------------------------------------------------
 
 POINTS = {
-    "cause_observed": 50,         # a cited tool result shows the cause itself
-    "cause_inferred": 30,         # deduced from what was seen (or "observed" without a valid citation)
+    "cause_observed": 50,         # meets the observed rule below
+    "cause_inferred": 30,         # deduced from what was seen, or "observed" that does not meet the rule
     "corroborated": 10,           # the cause is cited from >= CORROBORATION_TOOLS different tools
+    "decisive_check": 10,         # the check that separates the cause from the leading alternative, cited
     "alternative_ruled_out": 10,  # each, at most MAX_RULED_OUT, needs a valid citation
-    "alternative_open": -15,      # each alternative left not ruled out
     "timing_matches": 20,         # needs a valid citation
     "timing_mismatch": -20,
-    "unverified_major": -15,      # each unverified item that could change the diagnosis
-    "unverified_minor": -2,       # each detail-only item, at most MAX_MINOR_PENALTY in total
 }
 CORROBORATION_TOOLS = 2
 MAX_RULED_OUT = 2
-MAX_MINOR_PENALTY = 6
 # A single explanation that was never tested against another is the pattern of
 # every wrong answer in regressions/: without at least one alternative ruled
 # out, the score cannot reach the default PR threshold.
 CAP_NO_ALTERNATIVE_RULED_OUT = 55
+# An inferred cause never opens a pull request (change_blocked), so its score
+# stays below the PR threshold too, however much else is cited.
+CAP_INFERRED = 60
 INCONCLUSIVE_SCORE = 20
+
+# The observed rule. A cause counts as observed only when the citations cover
+# both ends of it:
+# - the workload's side: what happened to the pods, which is also what the alert
+#   or the question already says;
+# - the explaining side: the setting, change or controller state behind it. The
+#   decisive check must cite this side.
+# One tool's view of the failing pods is a symptom, however clearly it shows it:
+# a wrong answer in regressions/ called "readiness probes" an observed cause
+# from list_events alone and scored 73.
+WORKLOAD_TOOLS = frozenset({"list_pods", "list_events", "get_pod_logs",
+                            "prometheus_query", "prometheus_query_range"})
+EXPLAINING_TOOLS = frozenset({"read_repo_file", "recent_chart_commits", "describe_deployment",
+                              "list_deployments", "list_hpas"})
 
 # Limits the strict JSON schema cannot express; enforced here.
 MAX_TEXT = 300
@@ -61,8 +79,8 @@ _CALLS = {"type": "array", "items": {"type": "integer"},
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["conclusion", "cause", "cause_support", "cause_evidence", "alternatives",
-                 "timing", "timing_evidence", "unverified"],
+    "required": ["conclusion", "cause", "cause_support", "cause_evidence", "decisive_check",
+                 "alternatives", "timing", "timing_evidence", "unverified"],
     "properties": {
         "conclusion": {"type": "string", "enum": list(CONCLUSIONS),
                        "description": "cause_found: you identified the cause. no_problem: the evidence "
@@ -71,9 +89,21 @@ SCHEMA = {
                   "description": "One sentence: the cause, or for no_problem what shows there is none. "
                                  "Empty for inconclusive."},
         "cause_support": {"type": "string", "enum": list(SUPPORTS),
-                          "description": "observed: a tool result shows the cause itself (an OOMKilled exit, "
-                                         "a commit diff, a metric above a limit). inferred: you deduced it."},
+                          "description": "observed: your results show both the failure in the cluster "
+                                         "(pods, events, logs, metrics) and the setting or change that "
+                                         "explains it (the repository, a commit, the Deployment, the HPA). "
+                                         "inferred: you deduced it, or saw only one of the two."},
         "cause_evidence": _CALLS,
+        "decisive_check": {
+            "type": "object", "additionalProperties": False,
+            "required": ["what", "evidence"],
+            "description": "The one check that separates your cause from the most likely alternative. "
+                           "Empty text and an empty list if you made no such check.",
+            "properties": {
+                "what": {"type": "string", "description": "What you checked and what it showed"},
+                "evidence": _CALLS,
+            },
+        },
         "alternatives": {
             "type": "array",
             "description": "Other causes you considered (at most 5)",
@@ -117,13 +147,20 @@ class Score:
     value: int
     reasons: list[Reason]
     assessment: dict          # the assessment as scored (cleaned)
-    # True only for cause_found with "observed" credited (valid citations):
-    # the hard requirement for proposing a change
+    # True only for cause_found that meets the observed rule: the hard
+    # requirement for proposing a change
     observed: bool = False
+    # How the conclusion was credited: "observed" or "inferred" ("" if inconclusive)
+    support: str = ""
+    # Why a cause claimed as observed was not counted as one ("" otherwise)
+    not_observed: str = ""
+    # Not scored: what the model could not rule out or verify, and the calls that failed
+    open_questions: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {"score": self.value, "observed": self.observed,
                 "reasons": [{"points": r.points, "text": r.text} for r in self.reasons],
+                "open_questions": self.open_questions,
                 "assessment": self.assessment}
 
 
@@ -157,6 +194,7 @@ def clean(raw) -> tuple[dict, list[Reason]]:
     """
     notes = []
     raw = raw if isinstance(raw, dict) else {}
+    decisive = raw.get("decisive_check") if isinstance(raw.get("decisive_check"), dict) else {}
 
     def pick(key, allowed, default):
         v = raw.get(key)
@@ -170,6 +208,9 @@ def clean(raw) -> tuple[dict, list[Reason]]:
         "cause": _text(raw.get("cause")),
         "cause_support": pick("cause_support", SUPPORTS, "inferred"),
         "cause_evidence": _calls(raw.get("cause_evidence")),
+        # absent from assessments recorded before the field existed
+        "decisive_check": {"what": _text(decisive.get("what")),
+                           "evidence": _calls(decisive.get("evidence"))},
         "alternatives": [{"cause": _text(x.get("cause")),
                           "result": x.get("result") if x.get("result") in RESULTS else "not_ruled_out",
                           "evidence": _calls(x.get("evidence"))}
@@ -210,26 +251,47 @@ def _cite(calls: list, evidence: list) -> str:
     return ", ".join(f"{evidence[n - 1].tool} (#{n})" for n in calls)
 
 
+def _why_not_observed(cause_calls: list, decisive_calls: list, evidence: list) -> str:
+    """Why these citations do not make an observed cause ("" if they do)."""
+    if not cause_calls:
+        return "no valid citation"
+    if not decisive_calls:
+        return "no decisive check with a valid citation"
+    if not any(evidence[n - 1].tool in EXPLAINING_TOOLS for n in decisive_calls):
+        return (f"the decisive check cites only {_cite(decisive_calls, evidence)}, which shows what "
+                "happened to the pods, not the setting or change that explains it")
+    if not any(evidence[n - 1].tool in WORKLOAD_TOOLS for n in cause_calls + decisive_calls):
+        return "nothing cited shows the failure in the cluster (pods, events, logs or metrics)"
+    return ""
+
+
 def score(raw_assessment, evidence: list) -> Score:
     """The evidence score for an assessment, given the run's tool calls (agent.Evidence)."""
     a, reasons = clean(raw_assessment)
     dropped: list[str] = []
+    failed = [f"{e.tool} (#{n})" for n, e in enumerate(evidence, 1)
+              if e.is_error and e.tool != TOOL_NAME]
+    questions = ["Calls that failed or returned nothing: " + ", ".join(failed)] if failed else []
 
     if a["conclusion"] == "inconclusive":
         reasons.append(Reason(INCONCLUSIVE_SCORE, "Inconclusive: no cause identified"))
-        return Score(INCONCLUSIVE_SCORE, reasons, a)
+        return Score(INCONCLUSIVE_SCORE, reasons, a, open_questions=questions)
 
     subject = "Cause" if a["conclusion"] == "cause_found" else "No problem"
     total = 0
 
     cause_calls = _valid(a["cause_evidence"], evidence, dropped)
-    observed = a["cause_support"] == "observed" and bool(cause_calls)
+    decisive = a["decisive_check"]
+    decisive_calls = _valid(decisive["evidence"], evidence, dropped) if decisive["what"] else []
+    not_observed = (_why_not_observed(cause_calls, decisive_calls, evidence)
+                    if a["cause_support"] == "observed" else "")
+    observed = a["cause_support"] == "observed" and not not_observed
     if observed:
         total += POINTS["cause_observed"]
         reasons.append(Reason(POINTS["cause_observed"],
                               f"{subject} directly observed: {_cite(cause_calls, evidence)}"))
     else:
-        why = (" (claimed observed, but no valid citation)" if a["cause_support"] == "observed"
+        why = (f" (claimed observed, but {not_observed})" if not_observed
                else (f": {_cite(cause_calls, evidence)}" if cause_calls else ", with no citation"))
         total += POINTS["cause_inferred"]
         reasons.append(Reason(POINTS["cause_inferred"], f"{subject} inferred{why}"))
@@ -238,6 +300,15 @@ def score(raw_assessment, evidence: list) -> Score:
     if len(tools) >= CORROBORATION_TOOLS:
         total += POINTS["corroborated"]
         reasons.append(Reason(POINTS["corroborated"], f"Corroborated by {len(tools)} different tools"))
+
+    if decisive_calls:
+        total += POINTS["decisive_check"]
+        reasons.append(Reason(POINTS["decisive_check"],
+                              f"Decisive check: {decisive['what']} ({_cite(decisive_calls, evidence)})"))
+    elif decisive["what"]:
+        reasons.append(Reason(0, f"Decisive check claimed without a valid citation: {decisive['what']}"))
+    else:
+        reasons.append(Reason(0, "No decisive check named"))
 
     ruled_out = 0
     for alt in a["alternatives"]:
@@ -254,8 +325,7 @@ def score(raw_assessment, evidence: list) -> Score:
         elif alt["result"] == "ruled_out":
             reasons.append(Reason(0, f"Claimed ruled out without a valid citation: {name}"))
         else:
-            total += POINTS["alternative_open"]
-            reasons.append(Reason(POINTS["alternative_open"], f"Not ruled out: {name}"))
+            questions.append(f"Not ruled out: {name}")
 
     timing_calls = _valid(a["timing_evidence"], evidence, dropped)
     if a["timing"] == "matches" and timing_calls:
@@ -270,18 +340,10 @@ def score(raw_assessment, evidence: list) -> Score:
     else:
         reasons.append(Reason(0, "Timing not checked"))
 
-    minor = 0
     for item in a["unverified"]:
         what = item["what"] or "an unnamed item"
-        if item["could_change_diagnosis"]:
-            total += POINTS["unverified_major"]
-            reasons.append(Reason(POINTS["unverified_major"],
-                                  f"Not verified, could change the diagnosis: {what}"))
-        else:
-            penalty = max(POINTS["unverified_minor"], -MAX_MINOR_PENALTY - minor)
-            minor += penalty
-            total += penalty
-            reasons.append(Reason(penalty, f"Not verified (detail only): {what}"))
+        questions.append(f"Not verified, could change the diagnosis: {what}"
+                         if item["could_change_diagnosis"] else f"Not verified (detail only): {what}")
 
     if dropped:
         reasons.append(Reason(0, "Citations ignored: " + "; ".join(dropped)))
@@ -291,13 +353,25 @@ def score(raw_assessment, evidence: list) -> Score:
                               f"Capped at {CAP_NO_ALTERNATIVE_RULED_OUT}: no alternative explanation "
                               "was ruled out with evidence"))
         total = CAP_NO_ALTERNATIVE_RULED_OUT
+    if not observed and total > CAP_INFERRED:
+        reasons.append(Reason(CAP_INFERRED - total,
+                              f"Capped at {CAP_INFERRED}: the {subject.lower()} is inferred, not observed"))
+        total = CAP_INFERRED
+
+    if total > 100:
+        reasons.append(Reason(100 - total, "The score stops at 100"))
 
     return Score(max(0, min(100, total)), reasons, a,
-                 observed=observed and a["conclusion"] == "cause_found")
+                 observed=observed and a["conclusion"] == "cause_found",
+                 support="observed" if observed else "inferred",
+                 not_observed=not_observed, open_questions=questions)
 
 
 def format_reasons(s: Score) -> list[str]:
-    return [f"{r.points:+4d}  {r.text}" if r.points else f"   .  {r.text}" for r in s.reasons]
+    lines = [f"{r.points:+4d}  {r.text}" if r.points else f"   .  {r.text}" for r in s.reasons]
+    if s.open_questions:
+        lines += ["Open questions (not scored):"] + [f"   ?  {q}" for q in s.open_questions]
+    return lines
 
 
 # --- The tool the model calls ----------------------------------------------------------
@@ -358,6 +432,7 @@ class AssessmentTool:
                 "min_for_pr": self.min_for_pr,
                 "min_for_rollback": self.min_for_rollback,
                 "reasons": [{"points": r.points, "text": r.text} for r in latest.reasons] if latest else [],
+                "open_questions": latest.open_questions if latest else [],
                 "submissions": [s.as_dict() for s in self.submissions]}
 
     def handle(self, args: dict) -> str:
@@ -386,11 +461,12 @@ class AssessmentTool:
         return Tool(
             TOOL_NAME,
             "Record your evidence assessment before writing the final report, citing your tool calls "
-            "by number (1 = your first call). The code turns it into an evidence score: a cause seen "
-            "directly in a tool result counts for more than one inferred; alternatives ruled out with "
-            "evidence, and timing that fits the alert, add to it; open alternatives and things you "
-            "could not check take away. Be honest: an inflated assessment only delays a human. You "
-            "may revise it once, after gathering more evidence.",
+            "by number (1 = your first call). The code turns it into an evidence score: an observed "
+            "cause counts for more than an inferred one; a cited decisive check, alternatives ruled "
+            "out with evidence, and timing that fits the alert add to it. Alternatives you could not "
+            "rule out and things you could not verify do not lower the score: they are shown to the "
+            "reviewer as open questions, so list them all. Be honest: an inflated assessment only "
+            "delays a human. You may revise it once, after gathering more evidence.",
             SCHEMA, self.handle, strict=True)
 
 
@@ -410,6 +486,9 @@ def change_blocked(score, needed: int) -> str:
     if not score.observed:
         if score.assessment.get("conclusion") != "cause_found":
             return "the conclusion is not a cause that a change could fix"
+        if score.not_observed:
+            return (f"the cause does not count as observed ({score.not_observed}) - "
+                    "a change needs an observed cause")
         return ("the cause is inferred, not directly observed in a cited tool result - "
                 "a change needs an observed cause")
     if score.value < needed:
