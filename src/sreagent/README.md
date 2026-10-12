@@ -601,23 +601,27 @@ pull request body, and the code's note when no change is proposed.
 - **Stage 6 evaluation is what checks whether scores track correctness.**
   Until then, treat the score as a structured summary of the agent's
   evidence, not as a measure of accuracy.
-- **Scores are not comparable across models.** On the same emailservice
-  replay (three runs each), every Sonnet and Opus answer passed the keyword
-  check, and every one called the cause inferred:
-
-  | Model | Scores |
-  |---|---|
-  | Claude Haiku 4.5 | not assessed ×3: it never called `submit_assessment`, before the reminder existed |
-  | Claude Sonnet 5.5 | 33, 46, 48 |
-  | Claude Opus 5.5 | 76, 63, 63 (reported; these runs are not recorded in the case file) |
-
-  The gap comes from self-description, not evidence. Sonnet marked the
-  missing `describe_deployment` check as "could change the diagnosis" (−15)
-  and listed an alternative as not ruled out (−15). Opus marked the same gap
-  "detail only" (−2). So the score penalises a more self-critical model.
-- **The same fixture varies by about 15 points between runs** of the same
-  model: Opus 63 to 76, Sonnet 33 to 48. Read a single score as a band, not
-  a number.
+- **At 60 or below, the score does not tell a right answer from a wrong
+  one.** An inferred cause is capped at 60, and on the emailservice replay
+  every assessed run lands there under the current rule: the nine correct
+  Sonnet and Opus answers, and the three wrong ones (see
+  [the table](#the-regression-cases)). What keeps a wrong answer from
+  opening a pull request is the [observed rule](#the-observed-rule), not the
+  number.
+- **Honest doubts are not subtracted.** The first rule took points off for
+  each alternative the model said it had not ruled out, and each item it
+  said it could not verify. On the same evidence, with the same correct
+  answer, Sonnet scored 33 to 48 and Opus 63: Sonnet called the missing
+  `describe_deployment` check "could change the diagnosis" (−15) and Opus
+  called it "detail only" (−2). That rule scored the more self-critical
+  model lower, so it was removed. Those items are now listed as open
+  questions.
+- **Scores are still not comparable across models.** Whether a cause is
+  observed, and whether an alternative is ruled out, remain the model's
+  labels.
+- **Read a single score as a band, not a number.** Under the first rule the
+  same fixture varied by about 15 points between runs of one model. The
+  current rule has not been measured with fresh runs yet.
 
 ### How it is produced
 
@@ -630,8 +634,9 @@ numbers.
 |---|---|
 | `conclusion` | `cause_found`, `no_problem`, `inconclusive` |
 | `cause` | one sentence |
-| `cause_support` | `observed` (a cited result shows the cause itself) or `inferred` |
+| `cause_support` | `observed` or `inferred` (see [the observed rule](#the-observed-rule)) |
 | `cause_evidence` | call numbers |
+| `decisive_check` | `{what, evidence}`: the one check that separates the cause from the most likely alternative |
 | `alternatives` | up to 5 × `{cause, result: ruled_out \| not_ruled_out, evidence}` |
 | `timing` | `matches`, `does_not_match`, `not_checked`, plus `timing_evidence` |
 | `unverified` | up to 5 × `{what, could_change_diagnosis}` |
@@ -641,24 +646,62 @@ whole rule is the `POINTS` table at the top of that file:
 
 | Rule | Points |
 |---|---|
-| Cause observed, with at least one valid citation | +50 |
-| Cause inferred, or "observed" with no valid citation | +30 |
+| Cause observed (it meets the observed rule) | +50 |
+| Cause inferred, or "observed" that does not meet the rule | +30 |
 | Cause cited from 2 or more different tools | +10 |
+| Decisive check, with a citation | +10 |
 | Each alternative ruled out with a citation (at most 2) | +10 |
-| Each alternative not ruled out | −15 |
 | Timing matches the alert, with a citation | +20 |
 | Timing does not match | −20 |
-| Each unverified item that could change the diagnosis | −15 |
-| Each detail-only unverified item | −2, at most −6 in total |
 | No alternative ruled out with evidence | capped at 55 |
+| Cause inferred | capped at 60 |
 | `inconclusive` | 20 |
 
 - **Valid citations:** a citation counts only if it names a real tool call
   that succeeded. An assessment can't cite another assessment.
 - **Every adjustment is a listed reason.** That includes dropped citations,
-  an empty cause, and trimmed lists.
+  an empty cause, trimmed lists, and why an "observed" claim was not
+  counted.
+- **Open questions are listed, not scored.** They appear under the reasons
+  in the CLI, in `/investigations` (`confidence.open_questions`) and in the
+  pull request. There are three kinds:
+  - alternatives the model did not rule out
+  - items it could not verify, marked if they could change the diagnosis
+  - calls that failed or had no recording, which the code lists itself
 - **The score is deterministic.** The same assessment and the same tool
   calls always give the same score.
+
+### The observed rule
+
+A cause counts as observed only when the citations cover **both ends** of
+it. The code checks this from the tools the cited calls used:
+
+| Side | Tools | Shows |
+|---|---|---|
+| The workload | `list_pods`, `list_events`, `get_pod_logs`, `prometheus_query`, `prometheus_query_range` | What happened to the pods. This is also what the alert already says |
+| The explanation | `read_repo_file`, `recent_chart_commits`, `describe_deployment`, `list_deployments`, `list_hpas` | The setting, change or controller state behind it |
+
+- The cause or the decisive check must cite a call from the workload side.
+- **The decisive check must cite a call from the explanation side.**
+- Otherwise the cause is scored as inferred, and the reason says which part
+  was missing.
+
+**Why.** On 2026-10-11 Claude Haiku 4.5 answered the emailservice replay
+wrongly: it blamed readiness probes. It marked that cause observed, citing
+`list_events` alone, and scored 73. That passed both gates for a pull
+request. The events did show readiness failures, so the citation was valid.
+They were a symptom, and one tool's view of the failing pods cannot tell a
+symptom from a cause. The only change the agent can propose is a
+configuration change, so a cause it may act on must include a look at the
+configuration.
+
+**What the rule cannot do.** It checks which tools were cited, not what
+their output says. A wrong answer that cites a repository file as its
+decisive check would still count as observed. The hand-written wrong
+answers in the emailservice-stable case had that evidence; they score 60
+only because they were labelled inferred. Stage 6 evaluation measures how
+often this happens. Until then the allow-list and the human who merges are
+the remaining checks.
 
 **Revisions.** The model may revise its assessment once, and only after
 making new tool calls. Every submission and its score is kept, both in
@@ -673,9 +716,10 @@ making new tool calls. Every submission and its score is kept, both in
 | `SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK` | `85` | For a change to `image.tag`, which affects every service |
 
 - **The cause must be observed.** On top of the thresholds, a change needs
-  `cause_support: observed` with valid citations, and a `cause_found`
-  conclusion. An inferred cause is reported with its score but never opens a
-  PR, whatever the number. Opus scored an inferred cause at 76.
+  a `cause_found` conclusion whose cause meets
+  [the observed rule](#the-observed-rule). An inferred cause is reported
+  with its score but never opens a PR. Its score is capped at 60, below the
+  default threshold, so the number and the gate agree.
   `confidence.change_blocked()` is the one rule used everywhere: the proposal
   tool, the final check before opening, the tool's reply to the model, and
   the note under the report.
@@ -690,11 +734,36 @@ making new tool calls. Every submission and its score is kept, both in
 ### The regression cases
 
 `python cli.py scores` lists every scored run in [regressions/](regressions/).
+It scores each one again with the current rule, from the assessment and
+tool calls saved with the run, and shows the score the run got when it was
+made.
 
+Every recorded run, re-scored on 2026-10-12:
+
+| Case | Run | Answer | First rule | Current rule | Cause counted as | Change allowed |
+|---|---|---|---:|---:|---|---|
+| emailservice-pod-replaced | Haiku 4.5, 3 replays (10-10) | wrong | not assessed | not assessed | | no |
+| emailservice-pod-replaced | Haiku 4.5, 3 replays (10-11) | wrong | 73, 30, 60 | 60, 60, 60 | inferred (claimed observed) | no |
+| emailservice-pod-replaced | Sonnet 5.5, 6 replays | correct | 33, 46, 48, 33, 48, 48 | 60 ×6 | inferred | no |
+| emailservice-pod-replaced | Opus 5.5, 3 replays | correct | 63, 63, 63 | 60 ×3 | inferred | no |
+| emailservice-stable-after-fix | after-fix.txt (hand-written) | wrong | 5 | 60 | inferred | no |
+| emailservice-stable-after-fix | after-fix-confirmed.txt (hand-written) | wrong | 65 | 60 | inferred | no |
+| emailservice-stable-after-fix | expected answer (hand-written) | correct | 85 | 100 | observed | no: nothing to fix |
+| recommendationservice-oomkilled | PR #19 (hand-written) | correct | 98 | 100 | observed | **yes** |
+
+- "Answer" for a replay is the case's keyword check, not a review.
+- The replays were recorded before `decisive_check` existed, so none of
+  them has one. That costs the inferred runs nothing: they are capped at 60
+  either way. The three Haiku runs could not have met the observed rule with
+  one: `list_events` was their only successful call.
 - **Hand-written assessments** are used only where no recorded tool output
-  exists, and are marked `hand-written`. They are deterministic, so
+  exists, and are marked `hand-written`. Their `decisive_check` was added by
+  hand when the field was introduced. They are deterministic, so
   `test_regressions.py` holds the rule to them: every wrong answer below 70,
   every correct one at 70 or above.
+- **The gate is tested on every recorded run.** `test_regressions.py` fails
+  if any run marked wrong, or any replay that failed its keyword check,
+  would be allowed to propose a change under the current rule.
 - **Model replays.** Where tool output was recorded, the model produces
   the assessment itself. A replay re-runs the case through the real model,
   with the tools answering from the recording. Repository tools read git at
@@ -705,14 +774,14 @@ making new tool calls. Every submission and its score is kept, both in
 cd src/sreagent
 export GITHUB_REPO=kolade86/online-boutique-aws-eks APP_NAMESPACE=online-boutique-dev
 read -rsp "Anthropic API key: " ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY; echo
-SREAGENT_MODEL=claude-haiku-4-5-20251001 python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
-SREAGENT_MODEL=claude-sonnet-5-5          python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
+SREAGENT_MODEL=claude-sonnet-5-5 python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
+SREAGENT_MODEL=claude-opus-5-5   python cli.py replay regressions/emailservice-pod-replaced.json --runs 3 --record
 python cli.py scores
 ```
 
 Each replay run is graded by the case's keyword hints. That is a rough
-automatic check, not a review. If an answer that fails the check scores at
-or above the PR threshold, `replay` prints a WARNING.
+automatic check, not a review. If an answer that fails the check would have
+been allowed to propose a change, `replay` prints a WARNING and exits 1.
 
 **Tools the recording lacks.** A replay answers any unrecorded call with
 "No recorded output ... treat it as unavailable". It uses the same prompt and

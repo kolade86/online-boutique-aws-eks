@@ -247,13 +247,14 @@ except ImportError:  # ruamel.yaml not installed
     pr_tool = None
 
 # Assessments of the stub's three calls (1 list_pods, 2 list_events, 3 recent_chart_commits)
-STRONG = {  # 50 observed + 10 corroborated + 10 ruled out + 20 timing = 90
+STRONG = {  # 50 observed + 10 corroborated + 10 decisive + 10 ruled out + 20 timing = 100
     "conclusion": "cause_found", "cause": "memory limit below the working set",
     "cause_support": "observed", "cause_evidence": [1, 3],
+    "decisive_check": {"what": "the commit that cut the limit", "evidence": [3]},
     "alternatives": [{"cause": "a memory leak", "result": "ruled_out", "evidence": [2]}],
     "timing": "matches", "timing_evidence": [3], "unverified": []}
-MEDIUM = dict(STRONG, timing="not_checked", timing_evidence=[])                     # 70
-WEAK = dict(STRONG, alternatives=[], cause_evidence=[1])                           # 70, capped at 55
+MEDIUM = dict(STRONG, timing="not_checked", timing_evidence=[])                     # 80
+WEAK = dict(STRONG, alternatives=[], cause_evidence=[1])                           # 80, capped at 55
 MEMORY_CHANGE = {"changes": [{"path": "services.emailservice.resources.limits.memory",
                               "value": "256Mi"}], "reason": "OOM"}
 
@@ -386,7 +387,7 @@ class ServerPullRequestTest(unittest.TestCase):
     def test_record_carries_the_score_reasons_and_model_words(self):
         record = self.run_alert(self.make_client(), STRONG)
         conf = record["confidence"]
-        self.assertEqual((conf["score"], conf["min_for_pr"], conf["min_for_rollback"]), (90, 70, 85))
+        self.assertEqual((conf["score"], conf["min_for_pr"], conf["min_for_rollback"]), (100, 70, 85))
         self.assertEqual(conf["reasons"][0]["points"], 50)
         self.assertEqual(len(conf["submissions"]), 1)
         self.assertEqual(record["note"], "")
@@ -406,8 +407,8 @@ class ServerPullRequestTest(unittest.TestCase):
 
     def test_inferred_cause_opens_no_pr_even_above_threshold(self):
         client = self.make_client(SREAGENT_OPEN_PRS="true")
-        record = self.run_alert(client, dict(STRONG, cause_support="inferred"))   # 70
-        self.assertEqual(record["confidence"]["score"], 70)
+        record = self.run_alert(client, dict(STRONG, cause_support="inferred"))   # 80, capped at 60
+        self.assertEqual(record["confidence"]["score"], 60)
         self.assertFalse(record["confidence"]["observed"])
         self.assertIsNone(record["pull_request"])
         self.assertEqual(self.gh.writes, [])
@@ -415,10 +416,10 @@ class ServerPullRequestTest(unittest.TestCase):
         self.assertIn("No change proposed: the cause is inferred", record["note"])
 
     def test_threshold_is_configurable(self):
-        client = self.make_client(SREAGENT_OPEN_PRS="true", SREAGENT_MIN_CONFIDENCE_FOR_PR="75")
-        record = self.run_alert(client, MEDIUM)                     # 70 < 75
+        client = self.make_client(SREAGENT_OPEN_PRS="true", SREAGENT_MIN_CONFIDENCE_FOR_PR="85")
+        record = self.run_alert(client, MEDIUM)                     # 80 < 85
         self.assertIsNone(record["pull_request"])
-        self.assertIn("below the 75 needed", record["note"])
+        self.assertIn("below the 85 needed", record["note"])
 
     def test_no_assessment_no_change(self):
         record = self.run_alert(self.make_client(), None)
@@ -430,19 +431,18 @@ class ServerPullRequestTest(unittest.TestCase):
     def test_rollback_needs_the_higher_threshold(self):
         rollback = {"changes": [{"path": "image.tag", "value": TAGS[1]}], "reason": "bad deploy"}
         client = self.make_client()
-        record = self.run_alert(client, dict(STRONG, unverified=[             # 90 - 15 = 75
-            {"what": "the old image's behaviour", "could_change_diagnosis": True}]), rollback)
+        record = self.run_alert(client, MEDIUM, rollback)                      # 80
         self.assertIsNone(record["pull_request"])
-        self.assertIn("the evidence score is 75/100, below the 85 needed",
+        self.assertIn("the evidence score is 80/100, below the 85 needed",
                       self.agent.tool_results[-1])
-        record = self.run_alert(self.make_client(), STRONG, rollback)          # 90
+        record = self.run_alert(self.make_client(), STRONG, rollback)          # 100
         self.assertEqual(record["pull_request"]["status"], "dry_run")
 
     def test_opened_pr_body_shows_the_score(self):
         record = self.run_alert(self.make_client(SREAGENT_OPEN_PRS="true"), STRONG)
         self.assertEqual(record["pull_request"]["status"], "opened")
         body = self.gh.pulls[0]["body"]
-        self.assertIn("## Confidence\n\n**Evidence score: 90 / 100.**", body)
+        self.assertIn("## Confidence\n\n**Evidence score: 100 / 100.**", body)
         self.assertIn("| +50 | Cause directly observed: list_pods (#1), recent_chart_commits (#3) |", body)
         self.assertIn("> **Agent's own assessment:** High. It all fits.", body)
         self.assertLess(body.index("## Confidence"), body.index("## Diagnosis"))
@@ -459,7 +459,7 @@ class ServerPullRequestTest(unittest.TestCase):
         client = self.make_client()
         self.agent.assess = STRONG
         resp = client.post("/ask", json={"question": "why?"}, headers=AUTH).json()
-        self.assertEqual(resp["confidence"]["score"], 90)
+        self.assertEqual(resp["confidence"]["score"], 100)
         self.assertIsNone(resp["pull_request"])
 
     def test_no_proposal_no_pull_request(self):

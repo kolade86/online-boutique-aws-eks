@@ -307,7 +307,8 @@ class PullRequestTest(unittest.TestCase):
     def assessed(self, *assessments):
         """An AssessmentTool after submitting each assessment, one tool call apart."""
         import confidence
-        ev = [Evidence("list_pods", {}, "out", False), Evidence("list_events", {}, "out", False)]
+        ev = [Evidence("list_pods", {}, "out", False), Evidence("list_events", {}, "out", False),
+              Evidence("recent_chart_commits", {}, "out", False)]
         tool = confidence.AssessmentTool(70, 85)
         tool.attach(lambda: ev)
         for a in assessments:
@@ -317,12 +318,14 @@ class PullRequestTest(unittest.TestCase):
 
     STRONG = {"conclusion": "cause_found", "cause": "limit below working set",
               "cause_support": "observed", "cause_evidence": [1, 2],
+              "decisive_check": {"what": "the commit that cut the limit", "evidence": [3]},
               "alternatives": [{"cause": "a leak", "result": "ruled_out", "evidence": [2]}],
-              "timing": "matches", "timing_evidence": [2], "unverified": []}
+              "timing": "matches", "timing_evidence": [2],
+              "unverified": [{"what": "the container's logs", "could_change_diagnosis": False}]}
 
     def test_body_records_every_assessment(self):
         weak = dict(self.STRONG, alternatives=[], timing="not_checked", timing_evidence=[])
-        assessment = self.assessed(weak, self.STRONG)            # 55, then 90
+        assessment = self.assessed(weak, self.STRONG)            # 55, then 100
         self.tool.assessment = assessment
         self.propose(("services.emailservice.resources.limits.memory", "256Mi"))
         report = "## Diagnosis\nx\n## Confidence\nHigh. The numbers fit.\n## Evidence\n- y"
@@ -330,10 +333,12 @@ class PullRequestTest(unittest.TestCase):
                                 KEY, "ab12cd34", open_prs=True, assessment=assessment)
         self.assertEqual(result["status"], "opened")
         body = self.gh.writes[2][2]["body"]
-        self.assertIn("**Evidence score: 90 / 100.**", body)
+        self.assertIn("**Evidence score: 100 / 100.**", body)
+        self.assertIn("Open questions (listed by the agent or the code; they do not change the "
+                      "score):\n\n- Not verified (detail only): the container's logs", body)
         self.assertIn("A pull request needs a directly observed cause and a score of at least 70.", body)
-        self.assertIn("Assessment history: first after 2 tool call(s): 55; "
-                      "revised after 3 tool call(s): 90.", body)
+        self.assertIn("Assessment history: first after 3 tool call(s): 55; "
+                      "revised after 4 tool call(s): 100.", body)
         self.assertIn("> **Agent's own assessment:** High. The numbers fit.", body)
 
     def test_finish_rechecks_the_latest_assessment(self):

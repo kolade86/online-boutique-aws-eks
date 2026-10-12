@@ -153,7 +153,13 @@ def run_case(case_path: str, config, provider, now=None) -> dict:
         "agent_commit": _head(),
         "outcome": result.outcome,
         "score": summary["score"],
+        "observed": summary["observed"],
+        # Whether this assessment would let a change be proposed (an observed
+        # cause and the PR threshold): must never be true for a wrong answer
+        "change_allowed": not confidence.change_blocked(assessment.latest,
+                                                        config.min_confidence_for_pr),
         "reasons": summary["reasons"],
+        "open_questions": summary["open_questions"],
         "submissions": summary["submissions"],
         "keyword_check": grade,
         # Calls the recording could not answer. A score lost to them reflects the
@@ -181,11 +187,24 @@ def _head() -> str:
     return r.stdout.strip() or "unknown"
 
 
-def score_table(regressions_dir: str) -> list[dict]:
+def score_table(regressions_dir: str, min_for_pr: int = 70) -> list[dict]:
     """Every scored run in the regression cases: hand-written assessments (marked) and
-    recorded model replays."""
+    recorded model replays.
+
+    Every row is scored now, with the current rule, from the assessment and the
+    tool calls saved with the run; `recorded` is the score the run got under
+    the rule in force when it was made. `change_allowed` says whether the
+    assessment would let a change be proposed.
+    """
     import confidence
     from agent import Evidence
+
+    def row(case_id, run, source, verdict, assessment, evidence, recorded):
+        s = confidence.score(assessment, evidence) if assessment is not None else None
+        return {"case": case_id, "run": run, "source": source, "verdict": verdict,
+                "recorded": recorded, "score": s.value if s else None,
+                "support": s.support if s else "",
+                "change_allowed": not confidence.change_blocked(s, min_for_pr)}
 
     rows = []
     for name in sorted(os.listdir(regressions_dir)):
@@ -199,14 +218,14 @@ def score_table(regressions_dir: str) -> list[dict]:
             hand.append({**case["expected_assessment"], "run": "expected answer", "verdict": "correct"})
         for h in hand:
             evidence = [Evidence(t, {}, "", False) for t in h["tool_calls"]]
-            rows.append({"case": case_id, "run": h["run"], "source": "hand-written",
-                         "verdict": h["verdict"],
-                         "score": confidence.score(h["assessment"], evidence).value})
+            rows.append(row(case_id, h["run"], "hand-written", h["verdict"], h["assessment"],
+                            evidence, h.get("recorded_score")))
         for r in case.get("replay_runs", []):
-            rows.append({"case": case_id, "run": f"replay {r['date']} {r['model']}",
-                         "source": "model replay",
-                         "verdict": "keyword check " + ("passes" if r["keyword_check"]["passed"] else "fails"),
-                         "score": r["score"]})
+            evidence = [Evidence(c["tool"], c["input"], "", c["is_error"]) for c in r["tool_calls"]]
+            last = r["submissions"][-1]["assessment"] if r["submissions"] else None
+            rows.append(row(case_id, f"replay {r['date']} {r['model']}", "model replay",
+                            "keyword check " + ("passes" if r["keyword_check"]["passed"] else "fails"),
+                            last, evidence, r["score"]))
     return rows
 
 

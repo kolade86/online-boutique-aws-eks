@@ -80,6 +80,12 @@
           5,
           6
         ],
+        "decisive_check": {
+          "what": "values.yaml sets replicas: 2 for emailservice while its HPA minReplicas is 1",
+          "evidence": [
+            5
+          ]
+        },
         "alternatives": [
           {
             "cause": "readiness probe failures replacing pods",
@@ -106,7 +112,9 @@
             "could_change_diagnosis": true
           }
         ]
-      }
+      },
+      "recorded_score": 5,
+      "rule_change_note": "decisive_check was added by hand on 2026-10-12, when the field was introduced, as an honest agent would fill it for this report. recorded_score is the score under the rule before that date."
     },
     {
       "run": "emailservice-after-fix-confirmed.txt",
@@ -130,6 +138,12 @@
           4,
           6
         ],
+        "decisive_check": {
+          "what": "values.yaml still sets replicas: 2 against HPA minReplicas 1, read again after the deploy",
+          "evidence": [
+            6
+          ]
+        },
         "alternatives": [
           {
             "cause": "probe failures or crashes",
@@ -156,7 +170,9 @@
             "could_change_diagnosis": true
           }
         ]
-      }
+      },
+      "recorded_score": 65,
+      "rule_change_note": "decisive_check was added by hand on 2026-10-12, when the field was introduced, as an honest agent would fill it for this report. recorded_score is the score under the rule before that date."
     }
   ],
   "expected_assessment": {
@@ -175,6 +191,12 @@
         2,
         3
       ],
+      "decisive_check": {
+        "what": "describe_deployment shows spec.replicas absent from the applied manifest, owned only by the HPA",
+        "evidence": [
+          3
+        ]
+      },
       "alternatives": [
         {
           "cause": "the cycle is still running",
@@ -201,6 +223,8 @@
           "could_change_diagnosis": true
         }
       ]
-    }
+    },
+    "recorded_score": 85,
+    "rule_change_note": "decisive_check was added by hand on 2026-10-12, when the field was introduced, as an honest agent would fill it for this report. recorded_score is the score under the rule before that date."
   }
 }

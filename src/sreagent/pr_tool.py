@@ -267,6 +267,9 @@ def confidence_section(confidence: dict, report: str, rollback: bool) -> list[st
     for r in confidence["reasons"]:
         parts.append(f"| {r['points']:+d} | {r['text'].replace('|', '/')} |" if r["points"]
                      else f"| | {r['text'].replace('|', '/')} |")
+    if confidence.get("open_questions"):
+        parts += ["", "Open questions (listed by the agent or the code; they do not change the score):", ""]
+        parts += [f"- {q.replace('|', '/')}" for q in confidence["open_questions"]]
     submissions = confidence.get("submissions") or []
     if len(submissions) > 1:
         parts += ["", "Assessment history: " + "; ".join(

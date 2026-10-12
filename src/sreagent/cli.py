@@ -156,12 +156,14 @@ def _replay(config, opts) -> int:
             print("    no recording for: " + "; ".join(run["unavailable"]))
         for r in run["reasons"]:
             print(f"    {r['points']:+4d}  {r['text']}" if r["points"] else f"       .  {r['text']}")
+        for q in run["open_questions"]:
+            print(f"       ?  {q}")
         if not grade["passed"]:
             print(f"    keyword check: missing one of {grade['missing_any_of']}; "
                   f"contains {grade['contains_forbidden']}")
-            if run["score"] is not None and run["score"] >= config.min_confidence_for_pr:
-                print(f"    WARNING: an answer that fails the keyword check scored {run['score']}, "
-                      f"at or above the PR threshold {config.min_confidence_for_pr}")
+            if run["change_allowed"]:
+                print(f"    WARNING: an answer that fails the keyword check scored {run['score']} "
+                      "with an observed cause: it would have been allowed to propose a change")
                 worst = 1
         if opts.record:
             replay.record(opts.case, run)
@@ -227,10 +229,18 @@ def main(argv=None) -> int:
         import replay
         rows = replay.score_table(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                "regressions"))
-        print(f"{'case':34} {'run':42} {'source':13} {'verdict':22} score")
+        # "recorded" is the score when the run was made; "now" is the current rule
+        print(f"{'case':34} {'run':42} {'source':13} {'verdict':22} {'recorded':>8} {'now':>4}  "
+              "support   change allowed")
         for r in rows:
-            shown = "not assessed" if r["score"] is None else r["score"]
-            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {shown}")
+            recorded = "-" if r["recorded"] is None else r["recorded"]
+            if r["score"] is None:
+                print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} "
+                      f"{recorded:>8}    -  not assessed")
+                continue
+            print(f"{r['case']:34} {r['run']:42} {r['source']:13} {r['verdict']:22} {recorded:>8} "
+                  f"{r['score']:>4}  {r['support'] or '-':9} "
+                  f"{'YES' if r['change_allowed'] else 'no'}")
         return 0
     # Log lines can hold characters a Windows console code page cannot print
     sys.stdout.reconfigure(errors="replace")

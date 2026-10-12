@@ -405,22 +405,25 @@ class ReportTest(unittest.TestCase):
         import cli
         import confidence
         from agent import Evidence, Investigation
-        ev = [Evidence("list_pods", {}, "x", False), Evidence("list_events", {}, "x", False)]
+        ev = [Evidence("list_pods", {}, "x", False), Evidence("list_deployments", {}, "x", False)]
         tool = confidence.AssessmentTool(70, 85)
         tool.attach(lambda: ev)
         a = {"conclusion": "cause_found", "cause": "c", "cause_support": "observed",
-             "cause_evidence": [1], "alternatives": [], "timing": "not_checked",
-             "timing_evidence": [], "unverified": []}
+             "cause_evidence": [1], "decisive_check": {"what": "limit 40Mi", "evidence": [2]},
+             "alternatives": [{"cause": "a leak", "result": "not_ruled_out", "evidence": []}],
+             "timing": "not_checked", "timing_evidence": [], "unverified": []}
         tool.handle(a)
         ev.append(Evidence("list_hpas", {}, "x", False))
         tool.handle(dict(a, cause_support="inferred"))
         result = Investigation("answered", "killed on ip-10-0-10-135.ec2.internal", ev, 2.0)
         report = cli.format_report(result, 15, assessment=tool,
                                    note=confidence.note_no_change(tool))
-        self.assertIn("Evidence score: 30/100 (PRs need 70, image.tag rollbacks 85) - an "
+        self.assertIn("Evidence score: 40/100 (PRs need 70, image.tag rollbacks 85) - an "
                       "evidence score, not a probability", report)
         self.assertIn(" +30  Cause inferred: list_pods (#1)", report)
-        self.assertIn("Revised: 50 (after 2 calls) -> 30 (after 3 calls)", report)
+        self.assertIn("Open questions (not scored):", report)
+        self.assertIn("   ?  Not ruled out: a leak", report)
+        self.assertIn("Revised: 55 (after 2 calls) -> 40 (after 3 calls)", report)
         self.assertIn("No change proposed: the cause is inferred, not directly observed", report)
         self.assertIn("killed on <node-1>", report)
 
