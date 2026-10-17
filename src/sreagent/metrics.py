@@ -12,8 +12,12 @@ from contextlib import contextmanager
 
 import agent
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import (CollectorRegistry, Counter, Gauge, Histogram,
+                               disable_created_metrics, generate_latest)
 from prometheus_client.exposition import CONTENT_TYPE_LATEST
+
+# No *_created series beside every counter and histogram: nothing reads them
+disable_created_metrics()
 
 DURATION_BUCKETS = (5, 10, 20, 30, 45, 60, 90, 120, 180, 300, 450)
 TOOL_CALL_BUCKETS = (1, 2, 4, 6, 8, 10, 12, 15, 20)
@@ -22,12 +26,25 @@ SCORE_BUCKETS = tuple(range(10, 101, 10))
 TOKEN_TYPES = ("input", "output", "cache_read", "cache_write")
 OUTCOMES = (agent.ANSWERED, agent.ANSWERED_AT_LIMIT, agent.TOOL_LIMIT, agent.TIMEOUT,
             agent.MODEL_STOPPED, agent.MODEL_ERROR)
+KINDS = ("alert", "ask")
+# The model's stop reasons that can be known in advance. Refusal categories
+# ("refusal:cyber", ...) form an open set; they appear on first use.
+STOP_REASONS = ("end_turn", "tool_use", "max_tokens", "refusal")
+SUPPORTS = ("observed", "inferred", "inconclusive")
+DECISIONS = ("investigated", "added_to_incident", "busy", "not_worth")
+# pr_tool.finish() statuses
+PR_STATUSES = ("opened", "dry_run", "below_confidence", "commented", "comment_dry_run",
+               "recently_merged", "not_opened", "failed")
+FOLLOWUP_RESULTS = ("posted", "failed")
 
 
 class Metrics:
     content_type = CONTENT_TYPE_LATEST
 
-    def __init__(self, model: str, registry: CollectorRegistry = None):
+    def __init__(self, model: str, registry: CollectorRegistry = None, tools=(),
+                 models=()):
+        """`tools`: the agent's tool names; `models`: every model that may answer
+        (the configured one, and the priced ones a fallback can reach)."""
         self.registry = registry or CollectorRegistry()
         r = self.registry
         self.investigations = Counter(
@@ -77,12 +94,43 @@ class Metrics:
             "sreagent_investigation_in_progress", "1 while an investigation runs", registry=r)
         Gauge("sreagent_info", "The agent's configured model", ["model"],
               registry=r).labels(model=model).set(1)
-        # Start the series the alerts read at 0. A counter that first appears
-        # at 1 is invisible to increase(), so the first failure would not count.
-        for kind in ("alert", "ask"):
+        self._start_at_zero(model, tools, models)
+
+    def _start_at_zero(self, model: str, tools, models) -> None:
+        """Create every series whose label values are known in advance, at 0.
+
+        A series that first appears holding its first event is invisible to
+        rate() and increase(): the first investigation, the first use of a
+        tool, the first refusal would never be counted. Only label values that
+        cannot be known stay lazy: a service name in an alert decision, a
+        refusal category, a model with no price.
+        """
+        models = list(dict.fromkeys([model, *models]))
+        for kind in KINDS:
             for outcome in OUTCOMES:
                 self.investigations.labels(kind=kind, outcome=outcome, model=model)
-        self.cost.labels(model=model)
+            self.duration.labels(kind=kind)
+            self.calls_per_investigation.labels(kind=kind)
+            self.cost_per_investigation.labels(kind=kind)
+            for support in SUPPORTS:
+                self.score.labels(kind=kind, support=support)
+            for support in (*SUPPORTS, "not_assessed"):
+                self.assessments.labels(kind=kind, support=support)
+        for tool in tools:
+            for result in ("ok", "error"):
+                self.tool_calls.labels(tool=tool, result=result)
+        for m in models:
+            self.cost.labels(model=m)
+            for t in TOKEN_TYPES:
+                self.tokens.labels(model=m, type=t)
+            for reason in STOP_REASONS:
+                self.model_requests.labels(model=m, stop_reason=reason)
+        for decision in DECISIONS:
+            self.alert_decisions.labels(decision=decision, service="-")
+        for status in PR_STATUSES:
+            self.pull_requests.labels(status=status)
+        for result in FOLLOWUP_RESULTS:
+            self.followups.labels(result=result)
 
     @contextmanager
     def running(self):

@@ -689,9 +689,20 @@ them into a Grafana dashboard and two alerts.
 - Its rows:
   - activity: investigations, alert decisions by service;
   - speed: duration, tool calls, tool errors;
-  - cost: per hour and per investigation, tokens, cache share;
+  - cost: in range and per investigation, tokens, cache share;
   - quality: scores, observed vs inferred, PR results;
   - health: `up`, stop reasons.
+- **Counts and totals, not rates.** The agent runs a few times a day, so
+  panels show totals over the dashboard's time range (6 hours by default)
+  and counts per interval (at least 5 minutes), never per-second or
+  per-hour rates. Event counts are rounded; series that stay at zero are
+  hidden.
+- **Every known series starts at 0** when the agent starts: each tool,
+  outcome, token type, stop reason, PR status and priced model. A series
+  that first appears holding its first event is invisible to `increase()`,
+  so the first investigation would not be counted. Only values that can't
+  be known in advance (a service in an alert decision, a refusal category,
+  an unpriced model) appear on first use.
 
 **Alerts about the agent** (`templates/prometheusrules.yaml`; thresholds in
 `sreagentAlerts`):
