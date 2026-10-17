@@ -2,7 +2,7 @@
 # Version constraints for the EKS-Core Module
 
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.16.0"
 
   required_providers {
     aws = {
