@@ -268,15 +268,20 @@ def _start_thread(fn: Callable[[], None]) -> None:
 
 def create_app(config: Config, agent_factory: Callable[[list], Agent],
                spawn=_start_thread, pr_opener=None, collect_state=None,
-               chat_page: str = CHAT_PAGE) -> FastAPI:
+               chat_page: str = CHAT_PAGE, tool_names=()) -> FastAPI:
     if not config.api_token:
         raise ValueError("SREAGENT_API_TOKEN must be set to run the server")
     chat_html, chat_headers = load_chat_page(chat_page)
 
     app = FastAPI(title="sreagent", docs_url=None, redoc_url=None, openapi_url=None)
     import metrics as agent_metrics   # needs prometheus_client
-    app_metrics = agent_metrics.Metrics(config.model)
-    runner = Runner(agent_factory, config, spawn, pr_opener, collect_state, metrics=app_metrics)
+    prices = cost.load_prices(config.prices_file)
+    # The tools the agent always has, besides the ones passed in (the server's
+    # registry): the assessment, and the proposal tool for alerts
+    tools = [*tool_names, confidence.TOOL_NAME, "propose_values_change"]
+    app_metrics = agent_metrics.Metrics(config.model, tools=tools, models=prices.models)
+    runner = Runner(agent_factory, config, spawn, pr_opener, collect_state, metrics=app_metrics,
+                    prices=prices)
     app.state.runner = runner
     app.state.metrics = app_metrics
 
@@ -387,6 +392,7 @@ def main():
         return out
 
     app = create_app(config, lambda extra_tools: wiring.build_agent(config, extra_tools),
+                     tool_names=[spec.name for spec in registry.specs],
                      pr_opener=wiring.build_pr_opener(config), collect_state=collect_state)
     uvicorn.run(app, host="0.0.0.0", port=config.port, access_log=False)
 

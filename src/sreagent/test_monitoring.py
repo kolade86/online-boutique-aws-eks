@@ -212,9 +212,9 @@ class MetricsTest(unittest.TestCase):
     def test_metrics_has_its_own_registry_per_app(self):
         a = metrics.Metrics("m1")
         b = metrics.Metrics("m2")
-        a.decision("busy", "x")
-        self.assertIn(b'decision="busy"', a.exposition())
-        self.assertNotIn(b'decision="busy"', b.exposition())
+        a.decision("busy", "cartservice")
+        self.assertIn(b'service="cartservice"', a.exposition())
+        self.assertNotIn(b'service="cartservice"', b.exposition())
 
 
 class ChartTest(unittest.TestCase):
@@ -231,21 +231,133 @@ class ChartTest(unittest.TestCase):
         template = self.read("templates", "servicemonitors.yaml")
         self.assertIn("release: monitoring", template)   # what kube-prometheus-stack selects
 
+    def dashboard(self):
+        return json.loads(self.read("dashboards", "sreagent.json"))
+
+    def queries(self):
+        return [(p, t) for p in self.dashboard()["panels"] for t in p.get("targets", [])]
+
     def test_the_dashboard_is_a_labelled_configmap_with_valid_json(self):
         template = self.read("templates", "dashboards.yaml")
         self.assertIn('grafana_dashboard: "1"', template)
         self.assertIn('.Files.Get "dashboards/sreagent.json"', template)
-        dashboard = json.loads(self.read("dashboards", "sreagent.json"))
+        dashboard = self.dashboard()
         self.assertEqual(dashboard["uid"], "sreagent")
-        exprs = [t["expr"] for p in dashboard["panels"] for t in p.get("targets", [])]
-        self.assertGreaterEqual(len([p for p in dashboard["panels"] if p["type"] != "row"]), 15)
+        self.assertEqual(dashboard["time"], {"from": "now-6h", "to": "now"})
+        self.assertGreaterEqual(len([p for p in dashboard["panels"] if p["type"] != "row"]), 20)
         # every metric the dashboard reads is one the agent exports (or `up`)
         source = open(os.path.join(HERE, "metrics.py"), encoding="utf-8").read()
         exported = set(re.findall(r'"(sreagent_\w+)"', source))
-        used = {m for e in exprs for m in re.findall(r"\b(sreagent_\w+?)(?:_bucket|_sum|_count)?\b", e)}
+        used = {m for _, t in self.queries()
+                for m in re.findall(r"\b(sreagent_\w+?)(?:_bucket|_sum|_count)?\b", t["expr"])}
         self.assertEqual(used - exported, set())
-        self.assertTrue(all('namespace="$namespace"' in e for e in exprs))
+        self.assertTrue(all('namespace="$namespace"' in t["expr"] for _, t in self.queries()))
 
+    def test_counts_and_totals_not_rates(self):
+        events = ("sreagent_investigations_total", "sreagent_alert_decisions_total",
+                  "sreagent_tool_calls_total", "sreagent_assessments_total",
+                  "sreagent_pull_requests_total", "sreagent_followup_comments_total",
+                  "sreagent_model_requests_total", "sreagent_unpriced_responses_total")
+        for panel, target in self.queries():
+            expr = target["expr"]
+            with self.subTest(panel=panel["title"], ref=target["refId"]):
+                self.assertNotIn("rate(", expr.replace("increase(", ""))   # no rate()
+                self.assertNotIn("$__rate_interval", expr)
+                self.assertTrue("[$__range]" in expr or "[$__interval]" in expr
+                                or "increase(" not in expr)
+                if any(e in expr for e in events):
+                    self.assertTrue(expr.startswith("round("), "an event count is rounded")
+                if panel["type"] == "bargauge":
+                    self.assertTrue(target["legendFormat"], "bar gauges name their bars")
+                    self.assertTrue(target["instant"])
+                if panel["type"] in ("stat", "bargauge"):
+                    self.assertTrue(target["instant"], "totals are one value for the range")
+            if panel["type"] in ("timeseries", "heatmap"):
+                self.assertEqual(panel.get("interval"), "5m", panel["title"])
+        # no bar chart panel: it fails with an error on an empty result
+        self.assertNotIn("barchart", {p["type"] for p in self.dashboard()["panels"]})
+
+
+@unittest.skipIf(server is None, "fastapi/httpx/prometheus_client not installed")
+class SeriesStartAtZeroTest(unittest.TestCase):
+    """Every series the dashboard (and the agent's alerts) read exists, at 0, before
+    the first investigation: a series that first appears holding its first event
+    is invisible to increase()."""
+
+    def scrape_fresh_app(self):
+        import github_tools
+        import k8s_tools
+        import prometheus_tools
+        import replay
+        tools = [t.name for t in (
+            prometheus_tools.make_tools(prometheus_tools.PrometheusClient("http://test.invalid"))
+            + k8s_tools.make_tools(k8s_tools.KubeReader("ns", core=object()))
+            + github_tools.make_tools(replay.LocalGit("HEAD", "helm/online-boutique/values-dev.yaml")))]
+        cfg = Config.from_env({"GITHUB_REPO": "o/r", "APP_NAMESPACE": "ns",
+                               "SREAGENT_API_TOKEN": "t"})
+        client = TestClient(server.create_app(cfg, lambda extra: None, spawn=lambda fn: None,
+                                              tool_names=tools))
+        return client.get("/metrics").text, tools
+
+    @staticmethod
+    def series(text):
+        out = []
+        for line in text.splitlines():
+            if line and not line.startswith("#"):
+                name, _, rest = line.partition("{")
+                labels = dict(re.findall(r'(\w+)="([^"]*)"', rest.rsplit("}", 1)[0]))
+                out.append((name.split(" ")[0], labels, float(line.rsplit(" ", 1)[1])))
+        return out
+
+    def test_every_series_the_dashboard_reads_exists_at_zero(self):
+        text, _ = self.scrape_fresh_app()
+        series = self.series(text)
+        with open(os.path.join(CHART, "dashboards", "sreagent.json"), encoding="utf-8") as f:
+            dashboard = json.load(f)
+        exprs = [t["expr"] for p in dashboard["panels"] for t in p.get("targets", [])]
+        checked = 0
+        for expr in exprs:
+            for name, matchers in re.findall(r"\b(sreagent_\w+)\{([^}]*)\}", expr):
+                if name == "sreagent_unpriced_responses_total":
+                    continue        # only for unknown models; the panel adds `or vector(0)`
+                wanted = {k: v for k, v in re.findall(r'(\w+)="([^"$]*)"', matchers)}
+                with self.subTest(series=name, labels=wanted):
+                    found = [v for n, labels, v in series
+                             if n == name and all(labels.get(k) == v for k, v in wanted.items())]
+                    self.assertTrue(found, f"{name} {wanted} is missing before the first investigation")
+                    if name != "sreagent_info":          # a gauge that is always 1
+                        self.assertEqual(set(found), {0.0})
+                    checked += 1
+        self.assertGreater(checked, 25)
+
+    def test_every_tool_kind_outcome_and_status_starts_at_zero(self):
+        text, tools = self.scrape_fresh_app()
+        series = self.series(text)
+
+        def has(name, **labels):
+            return any(n == name and all(l.get(k) == v for k, v in labels.items())
+                       for n, l, _ in series)
+
+        import confidence
+        for tool in [*tools, confidence.TOOL_NAME, "propose_values_change"]:
+            for result in ("ok", "error"):
+                self.assertTrue(has("sreagent_tool_calls_total", tool=tool, result=result), tool)
+        for kind in metrics.KINDS:
+            for outcome in metrics.OUTCOMES:
+                self.assertTrue(has("sreagent_investigations_total", kind=kind, outcome=outcome))
+            for support in ("observed", "inferred", "inconclusive", "not_assessed"):
+                self.assertTrue(has("sreagent_assessments_total", kind=kind, support=support))
+            self.assertTrue(has("sreagent_investigation_duration_seconds_count", kind=kind))
+        for model in cost.load_prices().models:          # the fallback model included
+            for t in ("input", "output", "cache_read", "cache_write"):
+                self.assertTrue(has("sreagent_model_tokens_total", model=model, type=t))
+            for reason in metrics.STOP_REASONS:
+                self.assertTrue(has("sreagent_model_requests_total", model=model, stop_reason=reason))
+        for status in metrics.PR_STATUSES:
+            self.assertTrue(has("sreagent_pull_requests_total", status=status))
+        for decision in metrics.DECISIONS:
+            self.assertTrue(has("sreagent_alert_decisions_total", decision=decision, service="-"))
+        self.assertNotIn("_created", text)
 
 if __name__ == "__main__":
     unittest.main()

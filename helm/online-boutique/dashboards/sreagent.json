@@ -1,17 +1,17 @@
 {
   "uid": "sreagent",
   "title": "SRE agent",
-  "description": "What the SRE agent does, how long it takes and what it costs. Metrics from its /metrics endpoint (src/sreagent/metrics.py).",
+  "description": "What the SRE agent does, how long it takes and what it costs, from its /metrics endpoint (src/sreagent/metrics.py). Counts and totals over the dashboard's time range; no rates.",
   "tags": [
     "sreagent",
     "online-boutique"
   ],
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
   "time": {
-    "from": "now-7d",
+    "from": "now-6h",
     "to": "now"
   },
   "timezone": "utc",
@@ -54,6 +54,7 @@
       "type": "row",
       "title": "Activity",
       "collapsed": false,
+      "panels": [],
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -64,16 +65,16 @@
     },
     {
       "id": 2,
-      "title": "Investigations per hour, by kind and outcome",
-      "type": "timeseries",
+      "title": "Investigations in range",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Finished investigations: alerts and /ask questions, by how they ended.",
+      "description": "",
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 4,
+        "w": 5,
         "x": 0,
         "y": 1
       },
@@ -83,46 +84,46 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (kind, outcome) (increase(sreagent_investigations_total{namespace=\"$namespace\"}[1h]))",
-          "legendFormat": "{{kind}} {{outcome}}",
-          "refId": "A"
+          "expr": "round(sum(increase(sreagent_investigations_total{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "investigations",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "stacking": {
-              "mode": "normal"
-            }
-          }
+          "noValue": "0"
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
       }
     },
     {
       "id": 3,
-      "title": "Alert decisions per hour",
-      "type": "timeseries",
+      "title": "Estimated cost in range",
+      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "One per incident in each /alert call: investigated, added to an incident already investigated, skipped as busy, or not worth investigating.",
+      "description": "Token counts times model_prices.json, an estimate.",
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 12,
+        "h": 4,
+        "w": 5,
+        "x": 5,
         "y": 1
       },
       "targets": [
@@ -131,35 +132,85 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (decision) (increase(sreagent_alert_decisions_total{namespace=\"$namespace\"}[1h]))",
-          "legendFormat": "{{decision}}",
-          "refId": "A"
+          "expr": "sum(increase(sreagent_cost_usd_total{namespace=\"$namespace\"}[$__range]))",
+          "legendFormat": "cost",
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "stacking": {
-              "mode": "normal"
-            }
-          }
+          "noValue": "0",
+          "unit": "currencyUSD",
+          "decimals": 4
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
       }
     },
     {
       "id": 4,
+      "title": "Alerts added to an incident in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Alerts for a service investigated recently: not investigated again.",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 10,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum(increase(sreagent_alert_decisions_total{namespace=\"$namespace\", decision=\"added_to_incident\"}[$__range])))",
+          "legendFormat": "added to an incident",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 5,
       "title": "Investigating now",
       "type": "stat",
       "datasource": {
@@ -170,7 +221,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 20,
+        "x": 15,
         "y": 1
       },
       "targets": [
@@ -181,26 +232,33 @@
           },
           "expr": "max(sreagent_investigation_in_progress{namespace=\"$namespace\"})",
           "legendFormat": "in progress",
-          "refId": "A"
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "0"
+        },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "values": false
         },
         "colorMode": "value",
         "graphMode": "none",
-        "textMode": "auto"
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
       }
     },
     {
-      "id": 5,
+      "id": 6,
       "title": "Model",
       "type": "stat",
       "datasource": {
@@ -210,9 +268,9 @@
       "description": "",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 5
+        "w": 5,
+        "x": 19,
+        "y": 1
       },
       "targets": [
         {
@@ -222,28 +280,935 @@
           },
           "expr": "max by (model) (sreagent_info{namespace=\"$namespace\"})",
           "legendFormat": "{{model}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "0"
+        },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "values": false
         },
-        "textMode": "name",
         "colorMode": "none",
-        "graphMode": "none"
+        "graphMode": "none",
+        "textMode": "name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
       }
     },
     {
-      "id": 6,
-      "title": "Alert decisions by service (24h)",
-      "type": "barchart",
+      "id": 7,
+      "title": "Investigations per interval, by kind and outcome",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Alerts and /ask questions, by how they ended. Each bar is the total in that interval.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum by (kind, outcome) (increase(sreagent_investigations_total{namespace=\"$namespace\"}[$__interval]))) > 0",
+          "legendFormat": "{{kind}} {{outcome}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "id": 8,
+      "title": "Alert decisions per interval",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "One per incident in each /alert call: investigated, added to an incident investigated recently, skipped as busy, or not worth investigating. Each bar is the total in that interval.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum by (decision) (increase(sreagent_alert_decisions_total{namespace=\"$namespace\"}[$__interval]))) > 0",
+          "legendFormat": "{{decision}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "id": 9,
+      "title": "Alert decisions by service in range",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Alerts about the app's services. A service's very first decision after the agent starts is not counted (its series appears with that decision in it).",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum by (service, decision) (increase(sreagent_alert_decisions_total{namespace=\"$namespace\", service!=\"-\"}[$__range]))) > 0",
+          "legendFormat": "{{service}}: {{decision}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Speed and effort",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 10
+    },
+    {
+      "id": 11,
+      "title": "Duration in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Over the dashboard's time range. With few investigations a percentile is interpolated between bucket edges; the average is exact.",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(sreagent_investigation_duration_seconds_sum{namespace=\"$namespace\"}[$__range])) / sum(increase(sreagent_investigation_duration_seconds_count{namespace=\"$namespace\"}[$__range]))",
+          "legendFormat": "average",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p50",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p90",
+          "refId": "C",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p99",
+          "refId": "D",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Tool calls per investigation in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Over the dashboard's time range. With few investigations a percentile is interpolated between bucket edges; the average is exact. The budget is SREAGENT_MAX_TOOL_CALLS (15 by default).",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(sreagent_investigation_tool_calls_sum{namespace=\"$namespace\"}[$__range])) / sum(increase(sreagent_investigation_tool_calls_count{namespace=\"$namespace\"}[$__range]))",
+          "legendFormat": "average",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(sreagent_investigation_tool_calls_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p50",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(sreagent_investigation_tool_calls_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p90",
+          "refId": "C",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 13,
+      "title": "Duration distribution",
+      "type": "heatmap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "How long investigations took. Answers usually take 20 to 60 seconds. Each column is the total in that interval.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (le) (increase(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__interval])) > 0",
+          "legendFormat": "{{le}}",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "format": "heatmap"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculate": false,
+        "yAxis": {
+          "unit": "s"
+        },
+        "color": {
+          "scheme": "Blues"
+        },
+        "cellGap": 1,
+        "legend": {
+          "show": true
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "id": 14,
+      "title": "Tool calls by tool in range",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Every call, ok or error.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum by (tool, result) (increase(sreagent_tool_calls_total{namespace=\"$namespace\"}[$__range]))) > 0",
+          "legendFormat": "{{tool}} {{result}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
+      }
+    },
+    {
+      "id": 15,
+      "title": "Tool call errors per interval",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each bar is the total in that interval.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum by (tool) (increase(sreagent_tool_calls_total{namespace=\"$namespace\", result=\"error\"}[$__interval]))) > 0",
+          "legendFormat": "{{tool}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "type": "row",
+      "title": "Cost (estimated from token counts and model_prices.json)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "id": 16
+    },
+    {
+      "id": 17,
+      "title": "Cost per investigation in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Over the dashboard's time range. With few investigations a percentile is interpolated between bucket edges; the average is exact.",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(sreagent_investigation_cost_usd_sum{namespace=\"$namespace\"}[$__range])) / sum(increase(sreagent_investigation_cost_usd_count{namespace=\"$namespace\"}[$__range]))",
+          "legendFormat": "average",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(sreagent_investigation_cost_usd_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p50",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(sreagent_investigation_cost_usd_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p90",
+          "refId": "C",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "unit": "currencyUSD",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 18,
+      "title": "Cache reads as a share of input in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each loop step resends the conversation; cached prefixes are billed at the cache-read rate.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 43
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(sreagent_model_tokens_total{namespace=\"$namespace\", type=\"cache_read\"}[$__range])) / sum(increase(sreagent_model_tokens_total{namespace=\"$namespace\", type=~\"input|cache_read|cache_write\"}[$__range]))",
+          "legendFormat": "cache reads",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "unit": "percentunit",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 19,
+      "title": "Unpriced responses in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Responses from a model with no price in model_prices.json: the cost is too low.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 43
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "round(sum(increase(sreagent_unpriced_responses_total{namespace=\"$namespace\"}[$__range]))) or vector(0)",
+          "legendFormat": "unpriced",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 20,
+      "title": "Estimated cost per interval, by model",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each bar is the total in that interval.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (model) (increase(sreagent_cost_usd_total{namespace=\"$namespace\"}[$__interval])) > 0",
+          "legendFormat": "{{model}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data",
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "id": 21,
+      "title": "Tokens per interval, by type",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each bar is the total in that interval.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (type) (increase(sreagent_model_tokens_total{namespace=\"$namespace\"}[$__interval])) > 0",
+          "legendFormat": "{{type}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data",
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "id": 22,
+      "title": "Tokens in range, by type",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (type) (increase(sreagent_model_tokens_total{namespace=\"$namespace\"}[$__range])) > 0",
+          "legendFormat": "{{type}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No data",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Quality and decisions",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "id": 23
+    },
+    {
+      "id": 24,
+      "title": "Evidence score in range",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Over the dashboard's time range. With few investigations a percentile is interpolated between bucket edges; the average is exact. A change needs an observed cause and 70 (85 for an image rollback).",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 64
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(sreagent_evidence_score_sum{namespace=\"$namespace\"}[$__range])) / sum(increase(sreagent_evidence_score_count{namespace=\"$namespace\"}[$__range]))",
+          "legendFormat": "average",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(sreagent_evidence_score_bucket{namespace=\"$namespace\"}[$__range])))",
+          "legendFormat": "p50",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 25,
+      "title": "How the cause was credited in range",
+      "type": "bargauge",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -251,138 +1216,9 @@
       "description": "",
       "gridPos": {
         "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 9
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "refId": "A",
-          "instant": true,
-          "format": "table",
-          "expr": "sum by (service, decision) (increase(sreagent_alert_decisions_total{namespace=\"$namespace\", service!=\"-\"}[24h]))"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "stacking": "normal",
-        "orientation": "horizontal",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "transformations": [
-        {
-          "id": "groupingToMatrix",
-          "options": {
-            "columnField": "decision",
-            "rowField": "service",
-            "valueField": "Value"
-          }
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "title": "Speed and effort",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 16
-      },
-      "id": 7
-    },
-    {
-      "id": 8,
-      "title": "Duration p50 / p90 / p99",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 17
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "histogram_quantile(0.9, sum by (le) (rate(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
-          "legendFormat": "p90",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
-          "legendFormat": "p99",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "stacking": {
-              "mode": "none"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 9,
-      "title": "Duration distribution",
-      "type": "heatmap",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "How long investigations took. Answers usually take 20 to 60 seconds.",
-      "gridPos": {
-        "h": 8,
         "w": 8,
         "x": 8,
-        "y": 17
+        "y": 64
       },
       "targets": [
         {
@@ -390,213 +1226,16 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (le) (increase(sreagent_investigation_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "{{le}}",
-          "refId": "A",
-          "format": "heatmap"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "options": {
-        "calculate": false,
-        "yAxis": {
-          "unit": "s"
-        },
-        "color": {
-          "scheme": "Blues"
-        },
-        "cellGap": 1
-      }
-    },
-    {
-      "id": 10,
-      "title": "Tool calls per investigation",
-      "type": "heatmap",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "The budget is SREAGENT_MAX_TOOL_CALLS (15 by default).",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 17
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (le) (increase(sreagent_investigation_tool_calls_bucket{namespace=\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "{{le}}",
-          "refId": "A",
-          "format": "heatmap"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "calculate": false,
-        "yAxis": {
-          "unit": "short"
-        },
-        "color": {
-          "scheme": "Blues"
-        },
-        "cellGap": 1
-      }
-    },
-    {
-      "id": 11,
-      "title": "Tool calls by tool (24h)",
-      "type": "barchart",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 25
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
+          "expr": "round(sum by (support) (increase(sreagent_assessments_total{namespace=\"$namespace\"}[$__range]))) > 0",
+          "legendFormat": "{{support}}",
           "refId": "A",
           "instant": true,
-          "format": "table",
-          "expr": "sum by (tool, result) (increase(sreagent_tool_calls_total{namespace=\"$namespace\"}[24h]))"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "stacking": "normal",
-        "orientation": "horizontal",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "transformations": [
-        {
-          "id": "groupingToMatrix",
-          "options": {
-            "columnField": "result",
-            "rowField": "tool",
-            "valueField": "Value"
-          }
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "title": "Tool call error rate",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 25
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (tool) (rate(sreagent_tool_calls_total{namespace=\"$namespace\", result=\"error\"}[$__rate_interval])) / sum by (tool) (rate(sreagent_tool_calls_total{namespace=\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "{{tool}}",
-          "refId": "A"
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "stacking": {
-              "mode": "none"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "type": "row",
-      "title": "Cost (estimated from token counts and model_prices.json)",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "id": 13
-    },
-    {
-      "id": 14,
-      "title": "Estimated cost, last 24 hours",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 34
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(increase(sreagent_cost_usd_total{namespace=\"$namespace\"}[24h]))",
-          "legendFormat": "24h",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -604,76 +1243,30 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "values": false
         },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
       }
     },
     {
-      "id": 15,
-      "title": "Estimated cost per hour, by model",
-      "type": "timeseries",
+      "id": 26,
+      "title": "Pull requests and follow-ups in range",
+      "type": "bargauge",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
       "description": "",
       "gridPos": {
-        "h": 8,
-        "w": 10,
-        "x": 6,
-        "y": 34
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (model) (increase(sreagent_cost_usd_total{namespace=\"$namespace\"}[1h]))",
-          "legendFormat": "{{model}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "stacking": {
-              "mode": "normal"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 16,
-      "title": "Cost per investigation p50 / p90",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 8,
         "x": 16,
-        "y": 34
+        "y": 64
       },
       "targets": [
         {
@@ -681,208 +1274,58 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(sreagent_investigation_cost_usd_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
-          "legendFormat": "p50",
-          "refId": "A"
+          "expr": "round(sum by (status) (increase(sreagent_pull_requests_total{namespace=\"$namespace\"}[$__range]))) > 0",
+          "legendFormat": "PR {{status}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.9, sum by (le) (rate(sreagent_investigation_cost_usd_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
-          "legendFormat": "p90",
-          "refId": "B"
+          "expr": "round(sum by (result) (increase(sreagent_followup_comments_total{namespace=\"$namespace\"}[$__range]))) > 0",
+          "legendFormat": "follow-up comment {{result}}",
+          "refId": "B",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "stacking": {
-              "mode": "none"
-            }
-          }
+          "noValue": "No data"
         },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 17,
-      "title": "Unpriced responses (24h)",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Responses from a model with no price in model_prices.json: the cost above is too low.",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 38
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(increase(sreagent_unpriced_responses_total{namespace=\"$namespace\"}[24h])) or vector(0)",
-          "legendFormat": "unpriced",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
         "overrides": []
       },
       "options": {
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "values": false
         },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
       }
     },
     {
-      "id": 18,
-      "title": "Tokens per hour, by type",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 42
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (type) (increase(sreagent_model_tokens_total{namespace=\"$namespace\"}[1h]))",
-          "legendFormat": "{{type}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "stacking": {
-              "mode": "normal"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "id": 19,
-      "title": "Cache reads as a share of input",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Each loop step resends the conversation; cached prefixes are billed at the cache-read rate.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 42
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(rate(sreagent_model_tokens_total{namespace=\"$namespace\", type=\"cache_read\"}[$__rate_interval])) / sum(rate(sreagent_model_tokens_total{namespace=\"$namespace\", type=~\"input|cache_read|cache_write\"}[$__rate_interval]))",
-          "legendFormat": "cache read share",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "stacking": {
-              "mode": "none"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "type": "row",
-      "title": "Quality and decisions",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 50
-      },
-      "id": 20
-    },
-    {
-      "id": 21,
+      "id": 27,
       "title": "Evidence score distribution",
       "type": "heatmap",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Scores of the latest assessment. A change needs an observed cause and 70 (85 for an image rollback).",
+      "description": "Scores of the latest assessment of each investigation. Each column is the total in that interval.",
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 24,
         "x": 0,
-        "y": 51
+        "y": 71
       },
       "targets": [
         {
@@ -890,15 +1333,17 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (le) (increase(sreagent_evidence_score_bucket{namespace=\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (le) (increase(sreagent_evidence_score_bucket{namespace=\"$namespace\"}[$__interval])) > 0",
           "legendFormat": "{{le}}",
           "refId": "A",
+          "instant": false,
+          "range": true,
           "format": "heatmap"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -910,123 +1355,28 @@
         "color": {
           "scheme": "Blues"
         },
-        "cellGap": 1
-      }
-    },
-    {
-      "id": 22,
-      "title": "How the cause was credited (24h)",
-      "type": "piechart",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 51
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (support) (increase(sreagent_assessments_total{namespace=\"$namespace\"}[24h]))",
-          "legendFormat": "{{support}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
+        "cellGap": 1,
         "legend": {
-          "displayMode": "list",
-          "placement": "right"
-        },
-        "pieType": "pie"
-      }
-    },
-    {
-      "id": 23,
-      "title": "Pull request results per day",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 51
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (status) (increase(sreagent_pull_requests_total{namespace=\"$namespace\"}[1d]))",
-          "legendFormat": "{{status}}",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (result) (increase(sreagent_followup_comments_total{namespace=\"$namespace\"}[1d]))",
-          "legendFormat": "follow-up comment {{result}}",
-          "refId": "B"
+          "show": true
         }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "stacking": {
-              "mode": "normal"
-            }
-          }
-        },
-        "overrides": []
       },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
+      "interval": "5m"
     },
     {
       "type": "row",
       "title": "Health",
       "collapsed": false,
+      "panels": [],
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 79
       },
-      "id": 24
+      "id": 28
     },
     {
-      "id": 25,
+      "id": 29,
       "title": "Agent up",
       "type": "stat",
       "datasource": {
@@ -1035,10 +1385,10 @@
       },
       "description": "",
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 6,
         "x": 0,
-        "y": 60
+        "y": 80
       },
       "targets": [
         {
@@ -1048,11 +1398,14 @@
           },
           "expr": "max(up{namespace=\"$namespace\", job=\"sreagent\"})",
           "legendFormat": "up",
-          "refId": "A"
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "0",
           "mappings": [
             {
               "type": "value",
@@ -1075,27 +1428,30 @@
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "values": false
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "value"
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
       }
     },
     {
-      "id": 26,
-      "title": "Model responses by stop reason",
+      "id": 30,
+      "title": "Model responses per interval, by stop reason",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "refusal:<category> is a safety-classifier decline; with server-side fallback the retry shows under the model that answered.",
+      "description": "refusal:<category> is a safety-classifier decline; with server-side fallback the retry shows under the model that answered. Each bar is the total in that interval.",
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 18,
         "x": 6,
-        "y": 60
+        "y": 80
       },
       "targets": [
         {
@@ -1103,19 +1459,25 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (model, stop_reason) (increase(sreagent_model_requests_total{namespace=\"$namespace\"}[1h]))",
+          "expr": "round(sum by (model, stop_reason) (increase(sreagent_model_requests_total{namespace=\"$namespace\"}[$__interval]))) > 0",
           "legendFormat": "{{model}} {{stop_reason}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": false,
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "No data",
           "custom": {
             "drawStyle": "bars",
-            "fillOpacity": 60,
+            "fillOpacity": 70,
+            "barAlignment": 0,
+            "lineWidth": 1,
             "stacking": {
               "mode": "normal"
-            }
+            },
+            "showPoints": "never"
           }
         },
         "overrides": []
@@ -1126,9 +1488,11 @@
           "placement": "bottom"
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "desc"
         }
-      }
+      },
+      "interval": "5m"
     }
   ]
 }
