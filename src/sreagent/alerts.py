@@ -106,10 +106,15 @@ SELF = "sreagent"   # its own Deployment in the chart; a human looks at those
 
 
 def route_matchers(app_namespace: str) -> list[str]:
-    """The AlertManager route matchers for the agent's receiver (Stage 4)."""
+    """The AlertManager route matchers for the agent's receiver (Stage 4).
+
+    `workload!="sreagent"` keeps alerts about the agent's own pod off the
+    webhook entirely; worth_investigating() still refuses them as a second line.
+    """
     return [f'namespace="{app_namespace}"',
             f'alertname=~"{"|".join(INVESTIGATE_ALERTS)}"',
-            f'severity=~"{"|".join(INVESTIGATE_SEVERITIES)}"']
+            f'severity=~"{"|".join(INVESTIGATE_SEVERITIES)}"',
+            f'workload!="{SELF}"']
 
 
 def worth_investigating(alert: dict, app_namespace: str):

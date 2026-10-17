@@ -11,6 +11,7 @@ its repeat_interval already re-sends unresolved alerts later.
 """
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import json
@@ -24,11 +25,12 @@ from collections import deque
 from typing import Callable
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 import alerts
 import confidence
+import cost
 import prompts
 from agent import Agent, Investigation
 from config import Config
@@ -50,11 +52,13 @@ class Runner:
 
     def __init__(self, agent_factory: Callable[[list], Agent], config: Config,
                  spawn: Callable[[Callable[[], None]], None], pr_opener=None,
-                 collect_state: Callable[[str], list] = None):
+                 collect_state: Callable[[str], list] = None, metrics=None, prices=None):
         # agent_factory(extra_tools) builds an Agent; alerts get the PR
         # proposal tool, /ask never does.
         self._agent_factory = agent_factory
         self._config = config
+        self.metrics = metrics    # metrics.Metrics, or None
+        self.prices = prices or cost.load_prices(config.prices_file)
         self._spawn = spawn
         self._pr_opener = pr_opener
         # collect_state(service) -> [(label, output)]: read-only tools run by
@@ -98,9 +102,13 @@ class Runner:
                 body = pr_tool.followup_comment(str(alerts.key_of(new[0])), alerts=new,
                                                 evidence=state)
                 self._pr_opener.comment(existing["number"], body)
+                if self.metrics is not None:
+                    self.metrics.followup("posted")
                 log.info("follow-up comment", extra={"incident": incident, "alerts": names,
                                                     "pull_request": existing["number"]})
             except Exception:
+                if self.metrics is not None:
+                    self.metrics.followup("failed")
                 log.exception("follow-up comment failed", extra={"incident": incident})
 
         self._spawn(work)
@@ -118,27 +126,8 @@ class Runner:
 
         def work():
             try:
-                started_at = _utc_now()
-                assessment = self._assessment_tool()
-                proposal = None
-                if self._pr_opener is not None:
-                    import pr_tool  # needs ruamel.yaml
-                    proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment,
-                                                    self._config.recent_merge_minutes)
-                agent = self._agent_factory([assessment.tool()]
-                                            + ([proposal.tool()] if proposal else []))
-                assessment.attach_to(agent)
-                system = prompts.system_prompt("investigate", self._config.app_namespace,
-                                               self._config.max_tool_calls)
-                result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
-                pr = None
-                if proposal is not None:
-                    pr = pr_tool.finish(proposal, result, str(key), investigation_id,
-                                        self._config.open_prs, assessment)
-                self._record("alert", investigation_id, str(key), result, pull_request=pr,
-                             assessment=assessment, note=confidence.note_no_change(
-                                 assessment, pr is not None and pr.get("status") in ("opened", "dry_run")),
-                             started_at=started_at, alert=payload)
+                with self._running():
+                    self._investigate(key, payload, investigation_id)
             except Exception:
                 log.exception("investigation crashed", extra={"id": investigation_id})
             finally:
@@ -147,22 +136,51 @@ class Runner:
         self._spawn(work)
         return True
 
+    def _investigate(self, key: alerts.AlertKey, payload: dict, investigation_id: str) -> None:
+        started_at = _utc_now()
+        assessment = self._assessment_tool()
+        proposal = None
+        if self._pr_opener is not None:
+            import pr_tool  # needs ruamel.yaml
+            proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment,
+                                            self._config.recent_merge_minutes)
+        agent = self._agent_factory([assessment.tool()]
+                                    + ([proposal.tool()] if proposal else []))
+        assessment.attach_to(agent)
+        system = prompts.system_prompt("investigate", self._config.app_namespace,
+                                       self._config.max_tool_calls)
+        result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
+        pr = None
+        if proposal is not None:
+            pr = pr_tool.finish(proposal, result, str(key), investigation_id,
+                                self._config.open_prs, assessment)
+            if pr is not None and self.metrics is not None:
+                self.metrics.pull_request(pr.get("status", "unknown"))
+        self._record("alert", investigation_id, str(key), result, pull_request=pr,
+                     assessment=assessment, note=confidence.note_no_change(
+                         assessment, pr is not None and pr.get("status") in ("opened", "dry_run")),
+                     started_at=started_at, alert=payload)
+
     def ask(self, question: str):
         """Run synchronously. Returns None when another investigation is running."""
         if not self._busy.acquire(blocking=False):
             return None
         try:
-            started_at = _utc_now()
-            assessment = self._assessment_tool()   # scored, but /ask never proposes a change
-            agent = self._agent_factory([assessment.tool()])
-            assessment.attach_to(agent)
-            system = prompts.system_prompt("ask", self._config.app_namespace,
-                                           self._config.max_tool_calls)
-            result = agent.run(system, prompts.with_current_time(question))
-            return self._record("ask", uuid.uuid4().hex[:8], question, result,
-                                assessment=assessment, started_at=started_at)
+            with self._running():
+                started_at = _utc_now()
+                assessment = self._assessment_tool()   # scored, but /ask never proposes a change
+                agent = self._agent_factory([assessment.tool()])
+                assessment.attach_to(agent)
+                system = prompts.system_prompt("ask", self._config.app_namespace,
+                                               self._config.max_tool_calls)
+                result = agent.run(system, prompts.with_current_time(question))
+                return self._record("ask", uuid.uuid4().hex[:8], question, result,
+                                    assessment=assessment, started_at=started_at)
         finally:
             self._busy.release()
+
+    def _running(self):
+        return self.metrics.running() if self.metrics is not None else contextlib.nullcontext()
 
     def _assessment_tool(self):
         return confidence.AssessmentTool(self._config.min_confidence_for_pr,
@@ -171,6 +189,7 @@ class Runner:
     def _record(self, kind: str, investigation_id: str, subject: str,
                 result: Investigation, pull_request=None, assessment=None, note="",
                 started_at: str = None, alert: dict = None) -> dict:
+        usage = cost.summarize(result.usage, self.prices)
         entry = {
             "id": investigation_id,
             "kind": kind,
@@ -182,6 +201,8 @@ class Runner:
             "tool_calls": len(result.evidence),
             "max_tool_calls": self._config.max_tool_calls,
             "elapsed_seconds": round(result.elapsed_seconds, 1),
+            # Tokens and the estimated cost (prices: model_prices.json, dated)
+            "usage": usage,
             # What people read: no secrets, node names, IPs or account IDs
             "answer": redact_public(result.answer),
             "note": note,
@@ -200,7 +221,9 @@ class Runner:
                           "output": e.output} for e in result.evidence]})
         log.info("investigation result", extra={k: entry[k] for k in (
             "id", "kind", "subject", "outcome", "tool_calls", "elapsed_seconds", "answer",
-            "note", "pull_request")} | {"score": entry["confidence"] and entry["confidence"]["score"]})
+            "note", "pull_request", "usage")} | {"score": entry["confidence"] and entry["confidence"]["score"]})
+        if self.metrics is not None:
+            self.metrics.record(kind, result, self._config.model, assessment, usage, self.prices)
         return entry
 
 
@@ -251,8 +274,11 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
     chat_html, chat_headers = load_chat_page(chat_page)
 
     app = FastAPI(title="sreagent", docs_url=None, redoc_url=None, openapi_url=None)
-    runner = Runner(agent_factory, config, spawn, pr_opener, collect_state)
+    import metrics as agent_metrics   # needs prometheus_client
+    app_metrics = agent_metrics.Metrics(config.model)
+    runner = Runner(agent_factory, config, spawn, pr_opener, collect_state, metrics=app_metrics)
     app.state.runner = runner
+    app.state.metrics = app_metrics
 
     def authorized(authorization: str = Header(default="")):
         scheme, _, token = authorization.partition(" ")
@@ -263,6 +289,12 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
+
+    # No token: counts, durations and cost only - no secrets, no alert text. The
+    # Service is ClusterIP, so only the cluster (Prometheus) reaches it.
+    @app.get("/metrics")
+    def prometheus_metrics():
+        return Response(app_metrics.exposition(), media_type=app_metrics.content_type)
 
     # No token: the page holds no secrets. It asks for the token and sends it to /ask.
     @app.get("/chat", response_class=HTMLResponse)
@@ -289,18 +321,23 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
             if not worth:
                 why = alerts.worth_investigating(group[0], config.app_namespace)[1]
                 decisions.append({**decision, "status": "skipped", "reason": why})
+                # not about one of the app's services: no service label
+                app_metrics.decision("not_worth", "-")
             elif age is not None:
                 decisions.append({**decision, "status": "skipped",
                                   "reason": f"part of incident {incident}, investigated "
                                             f"{int(age // 60)} minute(s) ago"})
                 runner.follow_up(incident, worth)
+                app_metrics.decision("added_to_incident", key.service)
             elif started is not None or not runner.try_start_alert(
                     key, {**payload, "alerts": worth}, incident):
                 decisions.append({**decision, "status": "skipped",
                                   "reason": "another investigation is running"})
+                app_metrics.decision("busy", key.service)
             else:
                 started = incident
                 decisions.append({**decision, "status": "accepted"})
+                app_metrics.decision("investigated", key.service)
         if not decisions:
             decisions.append({"key": None, "incident": None, "status": "skipped",
                               "reason": "no firing alerts"})

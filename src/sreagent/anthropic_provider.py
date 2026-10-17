@@ -51,7 +51,36 @@ class AnthropicProvider:
                         for b in response.content if b.type == "tool_use"],
             stop_reason=stop_reason,
             provider_data=response.content,
+            usage=usage_of(response, stop_reason),
         )
+
+
+def _tokens(u) -> dict:
+    return {"input": getattr(u, "input_tokens", 0) or 0,
+            "output": getattr(u, "output_tokens", 0) or 0,
+            "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
+            "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0}
+
+
+def usage_of(response, stop_reason: str) -> list:
+    """Tokens per attempt, each with the model that ran it.
+
+    With server-side fallbacks, `usage.iterations` lists every attempt (the
+    declined one and the fallback) with its own model; the top-level usage
+    covers only the attempt that produced the message. Without them, the
+    top-level usage and `response.model` are the whole story. An attempt
+    followed by another was a refusal.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return []
+    iterations = getattr(usage, "iterations", None) or []
+    if iterations:
+        last = len(iterations) - 1
+        return [{"model": getattr(it, "model", None) or response.model,
+                 "stop_reason": stop_reason if i == last else "refusal", **_tokens(it)}
+                for i, it in enumerate(iterations)]
+    return [{"model": response.model, "stop_reason": stop_reason, **_tokens(usage)}]
 
 
 def _tool(t: ToolSpec) -> dict:

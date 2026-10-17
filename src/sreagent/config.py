@@ -37,6 +37,7 @@ class Config:
     min_confidence_for_rollback: int
     recent_merge_minutes: int
     dedup_minutes: int
+    prices_file: str
     port: int
 
     @classmethod
@@ -85,6 +86,9 @@ class Config:
             # proposal for it (the fix may still be rolling out)
             recent_merge_minutes=integer("SREAGENT_RECENT_MERGE_MINUTES", 60),
             dedup_minutes=integer("SREAGENT_DEDUP_MINUTES", 30),
+            # Model prices for the cost estimate (cost.py); dated in the file
+            prices_file=env.get("SREAGENT_PRICES_FILE") or os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "model_prices.json"),
             port=integer("PORT", 8080),
         )
 

@@ -38,11 +38,17 @@ class AssistantTurn:
     `provider_data` lets a provider keep its native response (for example the
     Anthropic content blocks) so it can send the turn back verbatim on the next
     request. The loop never reads it.
+
+    `usage` lists the tokens each attempt used, with the model that ran it:
+    usually one entry, more when the provider retried the request on another
+    model (a refusal fallback). Each entry has "model", "stop_reason",
+    "input", "output", "cache_read" and "cache_write".
     """
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     stop_reason: str = "end_turn"
     provider_data: Any = None
+    usage: list = field(default_factory=list)
 
 
 @dataclass

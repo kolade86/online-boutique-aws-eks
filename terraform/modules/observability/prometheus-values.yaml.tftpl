@@ -164,13 +164,16 @@ alertmanager:
         # namespace. Must match alerts.route_matchers() in src/sreagent
         # (a test there checks it). `continue` so they are emailed as well.
         # It inherits the grouping above: one call per service, which may
-        # hold several alert names.
+        # hold several alert names. Never alerts about the agent itself
+        # (workload sreagent: its own pod, or the Sreagent* alerts on its
+        # metrics): those go to email only.
         - receiver: sre-agent
           continue: true
           matchers:
             - 'namespace="${app_namespace}"'
             - 'alertname=~"PodCrashLooping|PodNotReady|ContainerOOMKilled|HighCPUUsage|HighMemoryUsage|DeploymentReplicasMismatch|HpaMaxedOut"'
             - 'severity=~"warning|critical"'
+            - 'workload!="sreagent"'
 %{ endif ~}
         # Alerts without a `workload` label (kube-prometheus-stack's default
         # rules, infrastructure alerts) keep one group per alert name: they
