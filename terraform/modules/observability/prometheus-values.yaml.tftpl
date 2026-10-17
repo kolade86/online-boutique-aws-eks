@@ -136,11 +136,24 @@ alertmanager:
     # out here. Keep the "null" route FIRST in `routes`: it has no
     # `continue`, so the always-firing Watchdog and InfoInhibitor stop there
     # and never reach email (or any receiver added after it).
+    #
+    # Grouping: one group per service, so one fault sends one email thread
+    # (and one agent notification) instead of one per alert name. The chart's
+    # rules carry a `workload` label for this (templates/prometheusrules.yaml).
+    # - group_wait 30s: collect the alerts that fire together (several pods,
+    #   several rules) into the first notification, without delaying it much.
+    # - group_interval 15m: a fault's alerts arrive over 5-10 minutes (OOMKilled
+    #   at once, PodNotReady after 3m, crash looping and memory after 5m); a
+    #   new alert joining the group is sent at most once per 15 minutes.
+    # - repeat_interval 4h: a group still firing is re-sent every 4 hours,
+    #   not every hour.
+    # Not inhibition (e.g. OOMKilled suppressing PodNotReady): it applies to
+    # every receiver, so the SRE agent would stop receiving those alerts too.
     route:
-      group_by: ['alertname']
-      group_wait: 10s
-      group_interval: 10s
-      repeat_interval: 1h
+      group_by: ['namespace', 'workload']
+      group_wait: 30s
+      group_interval: 15m
+      repeat_interval: 4h
       receiver: web.hook
       routes:
         - receiver: "null"
@@ -150,16 +163,25 @@ alertmanager:
         # SRE agent: only the chart's workload-health alerts in the app
         # namespace. Must match alerts.route_matchers() in src/sreagent
         # (a test there checks it). `continue` so they are emailed as well.
+        # It inherits the grouping above: one call per service, which may
+        # hold several alert names.
         - receiver: sre-agent
           continue: true
           matchers:
             - 'namespace="${app_namespace}"'
             - 'alertname=~"PodCrashLooping|PodNotReady|ContainerOOMKilled|HighCPUUsage|HighMemoryUsage|DeploymentReplicasMismatch|HpaMaxedOut"'
             - 'severity=~"warning|critical"'
-        # A route that matched with `continue` stops the fall-back to the
-        # parent's receiver, so email needs an explicit catch-all here.
-        - receiver: web.hook
 %{ endif ~}
+        # Alerts without a `workload` label (kube-prometheus-stack's default
+        # rules, infrastructure alerts) keep one group per alert name: they
+        # are not about one service. A route that matched with `continue`
+        # stops the fall-back to the parent's receiver, so email needs these
+        # explicit routes.
+        - receiver: web.hook
+          group_by: ['alertname', 'namespace']
+          matchers:
+            - 'workload=""'
+        - receiver: web.hook
 
     receivers:
       # Discards what is routed to it (no integrations configured).
@@ -180,11 +202,20 @@ alertmanager:
             # Plain text: SNS email does not render Markdown, so the old
             # "**Alert:**" markers arrived literally. One block per alert,
             # with the target (service/job/pod) that the old template left out.
-            subject: "[${environment_upper}] {{ .Status | toUpper }}: {{ .GroupLabels.alertname }} ({{ len .Alerts }})"
+            # A group is either one service (its distinct alert names are
+            # listed) or, without a `workload` label, one alert name. SNS
+            # rejects subjects over 100 characters, so the namespace is in
+            # the body only.
+            subject: >-
+              [${environment_upper}] {{ .Status | toUpper }}:
+              {{- with .GroupLabels.workload }} {{ . }}:
+              {{- $any := false }}{{ range $i, $a := $.Alerts }}{{ $seen := false }}{{ range $j, $b := $.Alerts }}{{ if and (lt $j $i) (eq $b.Labels.alertname $a.Labels.alertname) }}{{ $seen = true }}{{ end }}{{ end }}{{ if not $seen }}{{ if $any }},{{ end }} {{ $a.Labels.alertname }}{{ $any = true }}{{ end }}{{ end }}
+              {{- else }} {{ .GroupLabels.alertname }} ({{ len .Alerts }}){{ end }}
             message: |
-              {{ .Status | toUpper }}: {{ .GroupLabels.alertname }}, {{ len .Alerts }} alert(s)
+              {{ .Status | toUpper }}: {{ with .GroupLabels.workload }}{{ $.GroupLabels.namespace }}/{{ . }}{{ else }}{{ .GroupLabels.alertname }}{{ end }}, {{ len .Alerts }} alert(s)
               {{ range .Alerts }}
               {{ .Annotations.summary }}
+                Alert:     {{ .Labels.alertname }}
                 Status:    {{ .Status }}
                 Severity:  {{ .Labels.severity }}
                 Namespace: {{ or .Labels.namespace "-" }}

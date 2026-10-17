@@ -7,13 +7,28 @@ metadata:
     release: monitoring
 spec:
   groups:
+    # Every rule here carries a `workload` label: the Deployment the alert is
+    # about. AlertManager groups by it (namespace + workload), so one fault
+    # sends one email thread per service, not one per alert name. Pod-level
+    # rules take it from the pod name, minus the
+    # "-<replicaset hash>-<pod suffix>" (the same pattern src/sreagent/alerts.py
+    # uses); the others from the deployment or HPA name (an HPA is named after
+    # its Deployment in this chart).
+    #
+    # No request-level alerts (error rate, latency): the services publish no
+    # request metrics (they are instrumented for tracing only). Add such rules
+    # once a service exports grpc_server_* or http_requests_total.
+
     # ==========================================
     # Pod Health Alerts
     # ==========================================
     - name: pod-health
       rules:
         - alert: PodCrashLooping
-          expr: rate(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}"}[5m]) > 0
+          expr: |
+            label_replace(
+              rate(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}"}[5m]) > 0,
+              "workload", "$1", "pod", "(.*)-[a-z0-9]{6,10}-[a-z0-9]{5}")
           for: 5m
           labels:
             severity: critical
@@ -22,7 +37,10 @@ spec:
             description: "Pod {{`{{ $labels.pod }}`}} in namespace {{`{{ $labels.namespace }}`}} has been restarting for more than 5 minutes."
 
         - alert: PodNotReady
-          expr: kube_pod_status_ready{namespace="{{ .Release.Namespace }}", condition="true"} == 0
+          expr: |
+            label_replace(
+              kube_pod_status_ready{namespace="{{ .Release.Namespace }}", condition="true"} == 0,
+              "workload", "$1", "pod", "(.*)-[a-z0-9]{6,10}-[a-z0-9]{5}")
           for: 3m
           labels:
             severity: warning
@@ -31,7 +49,10 @@ spec:
             description: "Pod {{`{{ $labels.pod }}`}} has been in a non-ready state for more than 3 minutes."
 
         - alert: ContainerOOMKilled
-          expr: kube_pod_container_status_last_terminated_reason{namespace="{{ .Release.Namespace }}", reason="OOMKilled"} == 1
+          expr: |
+            label_replace(
+              kube_pod_container_status_last_terminated_reason{namespace="{{ .Release.Namespace }}", reason="OOMKilled"} == 1,
+              "workload", "$1", "pod", "(.*)-[a-z0-9]{6,10}-[a-z0-9]{5}")
           for: 0m
           labels:
             severity: critical
@@ -46,10 +67,12 @@ spec:
       rules:
         - alert: HighCPUUsage
           expr: |
-            sum by (pod, namespace) (rate(container_cpu_usage_seconds_total{namespace="{{ .Release.Namespace }}", container!=""}[5m]))
-            /
-            sum by (pod, namespace) (kube_pod_container_resource_requests{namespace="{{ .Release.Namespace }}", resource="cpu"})
-            > 0.9
+            label_replace(
+              sum by (pod, namespace) (rate(container_cpu_usage_seconds_total{namespace="{{ .Release.Namespace }}", container!=""}[5m]))
+              /
+              sum by (pod, namespace) (kube_pod_container_resource_requests{namespace="{{ .Release.Namespace }}", resource="cpu"})
+              > 0.9,
+              "workload", "$1", "pod", "(.*)-[a-z0-9]{6,10}-[a-z0-9]{5}")
           for: 5m
           labels:
             severity: warning
@@ -59,10 +82,12 @@ spec:
 
         - alert: HighMemoryUsage
           expr: |
-            sum by (pod, namespace) (container_memory_working_set_bytes{namespace="{{ .Release.Namespace }}", container!=""})
-            /
-            sum by (pod, namespace) (kube_pod_container_resource_limits{namespace="{{ .Release.Namespace }}", resource="memory"})
-            > 0.9
+            label_replace(
+              sum by (pod, namespace) (container_memory_working_set_bytes{namespace="{{ .Release.Namespace }}", container!=""})
+              /
+              sum by (pod, namespace) (kube_pod_container_resource_limits{namespace="{{ .Release.Namespace }}", resource="memory"})
+              > 0.9,
+              "workload", "$1", "pod", "(.*)-[a-z0-9]{6,10}-[a-z0-9]{5}")
           for: 5m
           labels:
             severity: warning
@@ -77,9 +102,11 @@ spec:
       rules:
         - alert: DeploymentReplicasMismatch
           expr: |
-            kube_deployment_spec_replicas{namespace="{{ .Release.Namespace }}"}
-            !=
-            kube_deployment_status_ready_replicas{namespace="{{ .Release.Namespace }}"}
+            label_replace(
+              kube_deployment_spec_replicas{namespace="{{ .Release.Namespace }}"}
+              !=
+              kube_deployment_status_ready_replicas{namespace="{{ .Release.Namespace }}"},
+              "workload", "$1", "deployment", "(.+)")
           for: 5m
           labels:
             severity: critical
@@ -89,60 +116,14 @@ spec:
 
         - alert: HpaMaxedOut
           expr: |
-            kube_horizontalpodautoscaler_status_current_replicas{namespace="{{ .Release.Namespace }}"}
-            ==
-            kube_horizontalpodautoscaler_spec_max_replicas{namespace="{{ .Release.Namespace }}"}
+            label_replace(
+              kube_horizontalpodautoscaler_status_current_replicas{namespace="{{ .Release.Namespace }}"}
+              ==
+              kube_horizontalpodautoscaler_spec_max_replicas{namespace="{{ .Release.Namespace }}"},
+              "workload", "$1", "horizontalpodautoscaler", "(.+)")
           for: 10m
           labels:
             severity: warning
           annotations:
             summary: "HPA {{`{{ $labels.horizontalpodautoscaler }}`}} is at max replicas"
             description: "HPA {{`{{ $labels.horizontalpodautoscaler }}`}} has been running at maximum capacity for 10 minutes. Consider increasing max replicas."
-
-    # ==========================================
-    # gRPC Service Alerts
-    # ==========================================
-    - name: grpc-services
-      rules:
-        - alert: HighGrpcErrorRate
-          expr: |
-            sum by (grpc_service) (rate(grpc_server_handled_total{namespace="{{ .Release.Namespace }}", grpc_code!="OK"}[5m]))
-            /
-            sum by (grpc_service) (rate(grpc_server_handled_total{namespace="{{ .Release.Namespace }}"}[5m]))
-            > 0.05
-          for: 5m
-          labels:
-            severity: critical
-          annotations:
-            summary: "gRPC service {{`{{ $labels.grpc_service }}`}} error rate above 5%"
-            description: "gRPC service {{`{{ $labels.grpc_service }}`}} has had an error rate above 5% for 5 minutes."
-
-        - alert: HighGrpcLatency
-          expr: |
-            histogram_quantile(0.99,
-              sum by (grpc_service, le) (rate(grpc_server_handling_seconds_bucket{namespace="{{ .Release.Namespace }}"}[5m]))
-            ) > 0.5
-          for: 5m
-          labels:
-            severity: warning
-          annotations:
-            summary: "gRPC service {{`{{ $labels.grpc_service }}`}} p99 latency above 500ms"
-            description: "gRPC service {{`{{ $labels.grpc_service }}`}} has p99 latency above 500ms for 5 minutes."
-
-    # ==========================================
-    # Frontend (HTTP) Alerts
-    # ==========================================
-    - name: frontend
-      rules:
-        - alert: HighHttpErrorRate
-          expr: |
-            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", code=~"5.."}[5m]))
-            /
-            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}"}[5m]))
-            > 0.05
-          for: 5m
-          labels:
-            severity: critical
-          annotations:
-            summary: "Frontend HTTP 5xx error rate above 5%"
-            description: "The frontend service has had more than 5% HTTP 5xx errors for 5 minutes."

@@ -265,8 +265,8 @@ Left out on purpose:
 
 - `TargetDown`, `KubeSchedulerDown` and `RedisDown`: they are about the
   monitoring set-up, and no allowed change can fix them.
-- The gRPC/HTTP error-rate and latency rules: the services expose no
-  metrics, so these rules can never fire.
+- Request-level alerts (error rate, latency): there are none. The services
+  publish no request metrics, so the chart has no such rules.
 - kube-prometheus-stack's duplicates of the chart's rules, such as
   `KubePodCrashLooping`.
 

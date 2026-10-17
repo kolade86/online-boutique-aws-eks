@@ -197,6 +197,20 @@ class ServerTest(unittest.TestCase):
         self.assertIn("cartservice-6b9f7c8d4-bbbbb", task)   # both cartservice pods
         self.assertNotIn("emailservice", task)               # not the other service
 
+    def test_an_alert_not_worth_investigating_does_not_hide_the_rest_of_its_group(self):
+        info = {**alert("PodCrashLooping"), "labels": {**alert()["labels"], "severity": "info"}}
+        decisions = self.post_alert(info, alert("ContainerOOMKilled"))
+        self.assertEqual(decisions, [{"key": "ContainerOOMKilled/ns/cartservice",
+                                      "incident": "ns/cartservice", "status": "accepted"}])
+        self.spawn.run_all()
+        self.assertIn("Alert: ContainerOOMKilled", self.agent.tasks[0])
+        self.assertNotIn("severity info", self.agent.tasks[0])   # only what is worth it
+
+        # a group with nothing worth investigating is skipped with the first one's reason
+        decisions = self.post_alert({**info, "labels": {**info["labels"], "pod": "adservice-6b9f7c8d4-aaaaa"}})
+        self.assertEqual(decisions[0]["status"], "skipped")
+        self.assertIn("below warning", decisions[0]["reason"])
+
     def test_resolved_only(self):
         decisions = self.post_alert(alert(status="resolved"))
         self.assertEqual(decisions[0]["reason"], "no firing alerts")
@@ -325,6 +339,63 @@ class ServerPullRequestTest(unittest.TestCase):
         self.assertEqual(d["decisions"][0]["status"], "skipped")
         self.assertEqual(len(self.gh.writes), writes)
         self.assertEqual(len(self.agent.tasks), 1)                         # investigated once
+
+    def grouped(self, *alertnames, pod="emailservice-6b9f7c8d4-aaaaa"):
+        """One AlertManager notification for the emailservice group: several alert
+        names for one service, as group_by [namespace, workload] sends them."""
+        return payload(*[{"status": "firing", "startsAt": "2026-10-17T12:00:00Z",
+                          "labels": {"alertname": n, "namespace": "online-boutique-dev",
+                                     "pod": pod, "workload": "emailservice",
+                                     "severity": "critical"},
+                          "annotations": {"summary": f"{n} on emailservice"}}
+                         for n in alertnames])
+
+    def test_grouped_notification_is_one_investigation_with_every_alert(self):
+        client = self.make_client()
+        d = client.post("/alert", json=self.grouped("ContainerOOMKilled", "PodNotReady"),
+                        headers=AUTH).json()
+        self.assertEqual(d["decisions"], [{"key": "ContainerOOMKilled/online-boutique-dev/emailservice",
+                                           "incident": "online-boutique-dev/emailservice",
+                                           "status": "accepted"}])
+        self.spawn.run_all()
+        self.assertEqual(len(self.agent.tasks), 1)
+        self.assertIn("Alert: ContainerOOMKilled", self.agent.tasks[0])
+        self.assertIn("Alert: PodNotReady", self.agent.tasks[0])
+
+    def test_alerts_already_investigated_are_not_news_when_the_group_is_resent(self):
+        client = self.make_client(SREAGENT_OPEN_PRS="true")
+        self.agent.assess, self.agent.propose = STRONG, MEMORY_CHANGE
+        client.post("/alert", json=self.grouped("ContainerOOMKilled", "PodNotReady"), headers=AUTH)
+        self.spawn.run_all()
+        self.assertEqual([p["number"] for p in self.gh.pulls], [42])
+
+        # group_interval later: the group again, with nothing new -> no comment
+        d = client.post("/alert", json=self.grouped("ContainerOOMKilled", "PodNotReady"),
+                        headers=AUTH).json()
+        self.spawn.run_all()
+        self.assertEqual(d["decisions"][0]["status"], "skipped")
+        self.assertEqual([w for w in self.gh.writes if w[1] == "/issues/42/comments"], [])
+
+        # ... and once with two new alert names -> one comment naming only those
+        client.post("/alert", json=self.grouped("ContainerOOMKilled", "PodNotReady",
+                                                "PodCrashLooping", "HighMemoryUsage"), headers=AUTH)
+        self.spawn.run_all()
+        comments = [w[2]["body"] for w in self.gh.writes if w[1] == "/issues/42/comments"]
+        self.assertEqual(len(comments), 1)
+        self.assertIn("**Other alerts for this incident:** "
+                      "`PodCrashLooping/online-boutique-dev/emailservice`, "
+                      "`HighMemoryUsage/online-boutique-dev/emailservice`", comments[0])
+        self.assertIn("  - Summary: HighMemoryUsage on emailservice", comments[0])
+        self.assertNotIn("ContainerOOMKilled", comments[0])
+        self.assertNotIn("PodNotReady", comments[0])
+        self.assertEqual(self.collected, ["emailservice"])        # current state collected once
+
+        # the same four again: nothing new, no second comment
+        client.post("/alert", json=self.grouped("ContainerOOMKilled", "PodNotReady",
+                                                "PodCrashLooping", "HighMemoryUsage"), headers=AUTH)
+        self.spawn.run_all()
+        self.assertEqual(len([w for w in self.gh.writes if w[1] == "/issues/42/comments"]), 1)
+        self.assertEqual(len(self.agent.tasks), 1)
 
     def test_late_alert_after_the_window_does_not_repropose_a_merged_fix(self):
         gh = FakeGitHub()

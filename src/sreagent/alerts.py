@@ -34,12 +34,14 @@ class AlertKey:
 def service_of(labels: dict) -> str:
     """Best guess at the service an alert is about, from its labels.
 
-    Order matters. kube-state-metrics series (PodCrashLooping, ContainerOOMKilled,
-    ...) carry service="monitoring-kube-state-metrics", the exporter's own
-    Service, so `service` is only trusted when nothing more specific exists.
-    `container` is never used: every service in this chart names it "server".
+    Order matters. The chart's rules set `workload` to the Deployment's name
+    (the label AlertManager groups by), so it comes first. kube-state-metrics
+    series (PodCrashLooping, ContainerOOMKilled, ...) carry
+    service="monitoring-kube-state-metrics", the exporter's own Service, so
+    `service` is only trusted when nothing more specific exists. `container` is
+    never used: every service in this chart names it "server".
     """
-    for name in ("deployment", "horizontalpodautoscaler", "app"):
+    for name in ("workload", "deployment", "horizontalpodautoscaler", "app"):
         if labels.get(name):
             return labels[name]
     pod = labels.get("pod", "")
@@ -77,15 +79,14 @@ def firing(payload: dict) -> list[dict]:
 
 
 # The alerts worth an investigation: the chart's workload-health rules
-# (helm/online-boutique/templates/prometheusrules.yaml). Each is about the
+# (helm/online-boutique/templates/prometheusrules.yaml), which are all of the
+# chart's rules. Each is about the
 # shop's own pods and maps to something the agent can diagnose and, within
 # its allow-list, fix (resources, replicas/HPA, image rollback).
 #
 # Deliberately NOT on the list:
 # - TargetDown, KubeSchedulerDown, RedisDown, ...: about the monitoring set-up,
 #   not the shop; no allowed change can fix them.
-# - HighGrpcErrorRate, HighGrpcLatency, HighHttpErrorRate: the services
-#   expose no Prometheus metrics, so these rules can never fire.
 # - kube-prometheus-stack defaults (KubePodCrashLooping, ...): duplicates of
 #   the chart's rules under other names, which would mean two investigations
 #   of one problem.
