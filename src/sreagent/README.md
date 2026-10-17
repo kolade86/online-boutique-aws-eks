@@ -52,6 +52,8 @@ Every tool call is recorded as evidence.
 | `confidence.py` | The evidence score: the scoring rule and `submit_assessment` |
 | `replay.py` | Recorded cases: `capture` writes one from the live cluster; the replay registry answers tool calls from it |
 | `evaluation.py` | Runs the cases, judges each run (pass, missed fix, safe failure, critical), lints the case files and writes the report |
+| `metrics.py` | Prometheus metrics at `/metrics` |
+| `cost.py`, `model_prices.json` | The estimated cost: token counts times the dated prices in the JSON file |
 | `load-secrets.sh` | Loads the agent's keys into AWS Secrets Manager (run once per sandbox, after `terraform apply`) |
 
 To add a Bedrock provider later, write a class with the same `complete()`
@@ -183,8 +185,9 @@ python server.py                                   # listens on :8080 (PORT)
 | `POST /ask` | bearer | `{"question": "..."}`. Runs synchronously and returns the answer. Never opens a PR |
 | `GET /investigations` | bearer | The last 20 results (answer, outcome, tools called), newest first |
 | `GET /chat` | none | A page for asking questions in a browser. It sends them to `/ask` with the token you type in. See [Chat page](#chat-page) |
+| `GET /metrics` | none | Prometheus metrics. See [Monitoring the agent](#monitoring-the-agent) |
 
-Every endpoint except `/healthz` and `/chat` needs `Authorization: Bearer <SREAGENT_API_TOKEN>`.
+Every endpoint except `/healthz`, `/chat` and `/metrics` needs `Authorization: Bearer <SREAGENT_API_TOKEN>`.
 The server refuses to start without a token.
 
 From a second terminal:
@@ -629,6 +632,80 @@ The synthetic alert also sends one email, because the route has
   - Until then, notifications sent with the old token get a 401 from the
     restarted agent, and are retried.
 
+## Monitoring the agent
+
+The agent exposes Prometheus metrics at `GET /metrics`, and the chart turns
+them into a Grafana dashboard and two alerts.
+
+**What is measured** ([metrics.py](metrics.py)):
+
+| Metric | Labels | What it shows |
+|---|---|---|
+| `sreagent_investigations_total` | `kind`, `outcome`, `model` | Investigations, by alert or question and how they ended |
+| `sreagent_investigation_duration_seconds` | `kind` | How long they took |
+| `sreagent_investigation_tool_calls` | `kind` | Tool calls per investigation |
+| `sreagent_tool_calls_total` | `tool`, `result` | Each tool call, ok or error |
+| `sreagent_model_requests_total` | `model`, `stop_reason` | Model responses, by the model that answered (fallbacks show up) |
+| `sreagent_model_tokens_total` | `model`, `type` | Tokens: input, output, cache read, cache write |
+| `sreagent_cost_usd_total` | `model` | Estimated cost |
+| `sreagent_investigation_cost_usd` | `kind` | Estimated cost per investigation |
+| `sreagent_unpriced_responses_total` | `model` | Responses from a model with no price: the cost is too low |
+| `sreagent_evidence_score`, `sreagent_assessments_total` | `kind`, `support` | Scores, and how the cause was credited (observed, inferred, not assessed) |
+| `sreagent_alert_decisions_total` | `decision`, `service` | Per incident: investigated, added to an incident, busy, not worth it |
+| `sreagent_pull_requests_total` | `status` | Results of the pull request step |
+| `sreagent_followup_comments_total` | `result` | Comments added to an open agent PR |
+| `sreagent_investigation_in_progress`, `sreagent_info` | – / `model` | Running now; the configured model |
+
+- **Labels stay few and bounded.** No investigation IDs, questions, alert
+  text or pod names. `service` is set only for alerts about the app's own
+  services; anything else is `-`.
+- **No token on `/metrics`.** It holds counts, durations and cost, no
+  secrets. The Service is ClusterIP, so only the cluster reaches it.
+
+**Tokens and cost.**
+
+- Every model response's token counts are recorded with the model that ran
+  it. With a server-side refusal fallback, each attempt is priced at its own
+  model.
+- The cost is an estimate: tokens times the prices in
+  [model_prices.json](model_prices.json), which carries the date they were
+  checked and the source. **Update the file, and its date, when prices
+  change.** `SREAGENT_PRICES_FILE` points at another file.
+- A model missing from the file is never guessed. Its cost is reported as
+  unknown, and `sreagent_unpriced_responses_total` counts it.
+- `/investigations`, the "investigation result" log line, the CLI report,
+  evaluation runs and the chat page all show the tokens and the estimate.
+
+**Scraping and the dashboard** (both in the chart, deployed by Argo CD):
+
+- `services.sreagent.serviceMonitor` renders ServiceMonitor
+  `sreagent-metrics`. kube-prometheus-stack selects ServiceMonitors in every
+  namespace that carry `release: monitoring`.
+- [dashboards/sreagent.json](../../helm/online-boutique/dashboards/sreagent.json)
+  is shipped as a ConfigMap labelled `grafana_dashboard: "1"`. Grafana's
+  sidecar loads such ConfigMaps from every namespace. Open Grafana
+  (`kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80`) and
+  find **SRE agent** in the General folder.
+- Its rows:
+  - activity: investigations, alert decisions by service;
+  - speed: duration, tool calls, tool errors;
+  - cost: per hour and per investigation, tokens, cache share;
+  - quality: scores, observed vs inferred, PR results;
+  - health: `up`, stop reasons.
+
+**Alerts about the agent** (`templates/prometheusrules.yaml`; thresholds in
+`sreagentAlerts`):
+
+| Alert | Fires when |
+|---|---|
+| `SreagentInvestigationsFailing` | 3 or more investigations in an hour end in a timeout, a model error or refusal, or the tool limit |
+| `SreagentCostHigh` | The estimated cost over 24 hours passes $5 |
+
+**They go to email only, never to the agent.** Both carry
+`workload: sreagent`, and the agent's AlertManager route has
+`workload!="sreagent"`, so alerts about its own pod stay off the webhook
+too. The agent also refuses alerts about itself in code.
+
 ## Evidence score
 
 Every investigation and every `/ask` answer ends with an **evidence score**
@@ -1040,6 +1117,7 @@ control.
 | `SREAGENT_MIN_CONFIDENCE_FOR_PR` | `70` | Evidence score a proposed change needs. See [Evidence score](#evidence-score) |
 | `SREAGENT_MIN_CONFIDENCE_FOR_ROLLBACK` | `85` | Evidence score an `image.tag` rollback needs |
 | `SREAGENT_RECENT_MERGE_MINUTES` | `60` | An agent PR for the same service merged this recently blocks a new proposal |
+| `SREAGENT_PRICES_FILE` | `model_prices.json` next to the code | Model prices for the cost estimate |
 | `SREAGENT_OPEN_PRS` | `false` | Server only: open the PRs the agent proposes (otherwise `dry_run`) |
 | `PORT` | `8080` | Server port |
 | `GITHUB_BRANCH` | `main` | |

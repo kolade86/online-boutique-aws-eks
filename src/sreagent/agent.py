@@ -47,6 +47,8 @@ class Investigation:
     answer: str
     evidence: list[Evidence] = field(default_factory=list)
     elapsed_seconds: float = 0.0
+    # Token usage of every model attempt, in order (AssistantTurn.usage)
+    usage: list = field(default_factory=list)
 
 
 class Agent:
@@ -69,6 +71,7 @@ class Agent:
         messages = [UserTurn(task)]
         evidence: list[Evidence] = []
         self.evidence = evidence   # visible to tools during the run (submit_assessment cites it)
+        usage: list = []
         refused_last_round = False
         report = None   # the final answer written before a reminder, if one was sent
 
@@ -76,7 +79,7 @@ class Agent:
             elapsed = self.clock() - started
             log.info("investigation finished", extra={
                 "outcome": outcome, "tool_calls": len(evidence), "elapsed_s": round(elapsed, 1)})
-            return Investigation(outcome, answer, evidence, elapsed)
+            return Investigation(outcome, answer, evidence, elapsed, usage)
 
         while True:
             if self.clock() - started > self.timeout_seconds:
@@ -86,6 +89,7 @@ class Agent:
                 turn = self.provider.complete(system, messages, self.tools.specs)
             except Exception as e:
                 return finish(MODEL_ERROR, f"Model call failed: {type(e).__name__}: {e}")
+            usage.extend(turn.usage)
             messages.append(turn)
 
             # No tool calls: the model is done.

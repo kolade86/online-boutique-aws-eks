@@ -115,18 +115,48 @@ class WorthInvestigatingTest(unittest.TestCase):
             chart_alerts = set(re.findall(r"^\s*- alert: (\w+)", f.read(), re.MULTILINE))
         self.assertEqual(sorted(set(alerts.INVESTIGATE_ALERTS) - chart_alerts), [])
 
+    def chart_rules(self):
+        with open(CHART_RULES, encoding="utf-8") as f:
+            text = f.read()
+        return {rule.split("\n", 1)[0].strip(): rule
+                for rule in re.split(r"^\s*- alert: ", text, flags=re.MULTILINE)[1:]}
+
     def test_every_chart_rule_carries_the_workload_label(self):
         # AlertManager groups by namespace + workload: a rule without it would
         # land in the per-alert-name route instead of its service's group.
-        with open(CHART_RULES, encoding="utf-8") as f:
-            text = f.read()
-        rules = re.split(r"^\s*- alert: ", text, flags=re.MULTILINE)[1:]
-        self.assertEqual(len(rules), len(alerts.INVESTIGATE_ALERTS))
-        for rule in rules:
-            name = rule.split("\n", 1)[0].strip()
+        rules = self.chart_rules()
+        workload_rules = {n: r for n, r in rules.items() if not n.startswith("Sreagent")}
+        self.assertEqual(sorted(workload_rules), sorted(alerts.INVESTIGATE_ALERTS))
+        for name, rule in workload_rules.items():
             with self.subTest(rule=name):
                 self.assertRegex(rule, r'label_replace\(\s*\n(?:.*\n)+?\s*"workload", "\$1", '
                                        r'"(pod|deployment|horizontalpodautoscaler)", ')
+
+    def test_alerts_about_the_agent_never_reach_it(self):
+        """The Sreagent* rules, and any workload alert about the agent's own pod,
+        fail the agent route's matchers, and the agent would refuse them anyway."""
+        matchers = alerts.route_matchers(APP_NS)
+        self.assertIn('workload!="sreagent"', matchers)
+        name_regex = re.fullmatch(r'alertname=~"(.*)"', matchers[1]).group(1)
+
+        agent_rules = {n: r for n, r in self.chart_rules().items() if n.startswith("Sreagent")}
+        self.assertEqual(sorted(agent_rules), ["SreagentCostHigh", "SreagentInvestigationsFailing"])
+        for name, rule in agent_rules.items():
+            with self.subTest(rule=name):
+                self.assertIsNone(re.fullmatch(name_regex, name))         # not by name
+                self.assertIn("workload: sreagent", rule)                 # nor by workload
+                labels = {"alertname": name, "namespace": APP_NS, "severity": "warning",
+                          "workload": "sreagent"}
+                self.assertFalse(alerts.worth_investigating({"labels": labels}, APP_NS)[0])
+
+        # a pod alert about the agent itself matches by name, so only the
+        # workload matcher keeps it off the webhook; the code refuses it too
+        pod_alert = {"alertname": "PodCrashLooping", "namespace": APP_NS, "severity": "critical",
+                     "workload": "sreagent", "pod": "sreagent-6b9f7c8d4-x2k4p"}
+        self.assertIsNotNone(re.fullmatch(name_regex, pod_alert["alertname"]))
+        ok, why = alerts.worth_investigating({"labels": pod_alert}, APP_NS)
+        self.assertFalse(ok)
+        self.assertIn("about itself", why)
 
     def test_rules_that_could_never_fire_are_gone(self):
         with open(CHART_RULES, encoding="utf-8") as f:
@@ -170,7 +200,8 @@ class WorthInvestigatingTest(unittest.TestCase):
             'namespace="online-boutique-dev"',
             'alertname=~"PodCrashLooping|PodNotReady|ContainerOOMKilled|HighCPUUsage|'
             'HighMemoryUsage|DeploymentReplicasMismatch|HpaMaxedOut"',
-            'severity=~"warning|critical"'])
+            'severity=~"warning|critical"',
+            'workload!="sreagent"'])
 
 
 class DeduplicatorTest(unittest.TestCase):

@@ -1,0 +1,15 @@
+{{- /* Grafana dashboards, loaded by Grafana's sidecar from any namespace with
+       the grafana_dashboard label (kube-prometheus-stack's default). The JSON
+       is read as-is, never rendered: its {{legend}} placeholders are Grafana's. */}}
+{{- if ne .Values.services.sreagent.enabled false }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sreagent-dashboard
+  labels:
+    grafana_dashboard: "1"
+    {{- include "online-boutique.labels" . | nindent 4 }}
+data:
+  sreagent.json: |-
+{{ .Files.Get "dashboards/sreagent.json" | indent 4 }}
+{{- end }}

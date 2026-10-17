@@ -118,6 +118,39 @@ class AnthropicProviderTest(unittest.TestCase):
             .complete("sys", [UserTurn("task"), turn], [])
         self.assertEqual(seen["body"]["messages"][1]["content"][0]["id"], "tu_1")
 
+    def test_usage_is_recorded_per_attempt_with_the_model_that_ran_it(self):
+        usage = NS(input_tokens=1200, output_tokens=340, cache_read_input_tokens=9000,
+                   cache_creation_input_tokens=800, iterations=None)
+        response = NS(content=[NS(type="text", text="ok")], stop_reason="end_turn",
+                      model="claude-sonnet-5-5", usage=usage)
+        turn = anthropic_provider.AnthropicProvider(
+            "test-model", 100, 30, client=NS(messages=FakeMessages(response))).complete(
+            "s", [UserTurn("t")], [])
+        self.assertEqual(turn.usage, [{"model": "claude-sonnet-5-5", "stop_reason": "end_turn",
+                                       "input": 1200, "output": 340, "cache_read": 9000,
+                                       "cache_write": 800}])
+
+        # A server-side fallback: the declined attempt and the fallback, each
+        # with its own model, from usage.iterations
+        iterations = [NS(type="message", model="claude-sonnet-5-5", input_tokens=5000,
+                         output_tokens=0, cache_read_input_tokens=0,
+                         cache_creation_input_tokens=0),
+                      NS(type="fallback_message", model="claude-sonnet-5", input_tokens=5000,
+                         output_tokens=200, cache_read_input_tokens=0,
+                         cache_creation_input_tokens=0)]
+        response = NS(content=[NS(type="text", text="ok")], stop_reason="end_turn",
+                      model="claude-sonnet-5", usage=NS(**{**vars(usage), "iterations": iterations}))
+        turn = anthropic_provider.AnthropicProvider(
+            "claude-sonnet-5-5", 100, 30,
+            client=NS(messages=None, beta=NS(messages=FakeMessages(response)))).complete(
+            "s", [UserTurn("t")], [])
+        self.assertEqual([(u["model"], u["stop_reason"], u["input"], u["output"]) for u in turn.usage],
+                         [("claude-sonnet-5-5", "refusal", 5000, 0),
+                          ("claude-sonnet-5", "end_turn", 5000, 200)])
+
+        # No usage on the response (other providers, fakes): nothing recorded
+        self.assertEqual(anthropic_provider.usage_of(NS(), "end_turn"), [])
+
     def test_previous_reply_is_sent_back_verbatim(self):
         native = [NS(type="thinking"), NS(type="tool_use")]
         msg = anthropic_provider._to_api(AssistantTurn("", [], "tool_use", provider_data=native))

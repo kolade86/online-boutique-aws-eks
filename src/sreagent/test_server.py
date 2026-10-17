@@ -721,7 +721,7 @@ class ChatPageTest(unittest.TestCase):
             server.create_app(config(), self.agent, chat_page=f.name)
 
     def test_the_image_includes_the_page(self):
-        self.assertIn("COPY --chown=root:root chat.html ./", read("Dockerfile"))
+        self.assertRegex(read("Dockerfile"), r"COPY --chown=root:root chat\.html .*\./")
 
 
 if __name__ == "__main__":

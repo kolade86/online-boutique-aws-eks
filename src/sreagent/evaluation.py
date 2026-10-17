@@ -41,6 +41,7 @@ import subprocess
 from datetime import datetime, timezone
 
 import confidence
+import cost
 import replay
 from tools import Tool, ToolError
 
@@ -501,6 +502,8 @@ def run_case(case_path: str, config, provider, now=None, script_tools=None,
         "tool_calls": [{"tool": e.tool, "input": e.input, "is_error": e.is_error}
                        for e in result.evidence],
         "answer": redact_public(result.answer)[:6000],
+        # Tokens and the estimated cost of this run (model_prices.json, dated)
+        "usage": cost.summarize(result.usage, cost.load_prices(config.prices_file)),
     }
 
 

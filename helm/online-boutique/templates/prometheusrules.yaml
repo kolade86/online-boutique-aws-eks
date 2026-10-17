@@ -127,3 +127,38 @@ spec:
           annotations:
             summary: "HPA {{`{{ $labels.horizontalpodautoscaler }}`}} is at max replicas"
             description: "HPA {{`{{ $labels.horizontalpodautoscaler }}`}} has been running at maximum capacity for 10 minutes. Consider increasing max replicas."
+{{- if ne .Values.services.sreagent.enabled false }}
+
+    # ==========================================
+    # The SRE agent itself (its /metrics)
+    # ==========================================
+    # Static workload: sreagent. The agent's AlertManager route excludes that
+    # workload (and matches none of these names), so these go to email only.
+    - name: sreagent
+      rules:
+        - alert: SreagentInvestigationsFailing
+          expr: |
+            sum by (namespace) (
+              increase(sreagent_investigations_total{namespace="{{ .Release.Namespace }}", outcome=~"timeout|model_error|model_stopped|tool_limit"}[1h])
+            ) >= {{ .Values.sreagentAlerts.failuresPerHour }}
+          for: 0m
+          labels:
+            severity: warning
+            workload: sreagent
+          annotations:
+            summary: "SRE agent: {{`{{ $value | humanize }}`}} investigations failed in the last hour"
+            description: "Investigations ended in a timeout, a model error or refusal, or the tool-call limit. See the agent's logs and GET /investigations; the sreagent dashboard in Grafana shows outcomes by kind."
+
+        - alert: SreagentCostHigh
+          expr: |
+            sum by (namespace) (
+              increase(sreagent_cost_usd_total{namespace="{{ .Release.Namespace }}"}[24h])
+            ) > {{ .Values.sreagentAlerts.dailyCostUsd }}
+          for: 0m
+          labels:
+            severity: warning
+            workload: sreagent
+          annotations:
+            summary: "SRE agent: estimated model cost {{`{{ $value | humanize }}`}} USD in 24 hours"
+            description: "Estimated from token counts and model_prices.json. Above {{ .Values.sreagentAlerts.dailyCostUsd }} USD a day: check how many investigations ran (sreagent dashboard) and whether an alert keeps firing."
+{{- end }}

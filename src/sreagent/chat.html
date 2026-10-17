@@ -227,6 +227,9 @@
     if (data.confidence && data.confidence.display) {
       parts.push("evidence score " + data.confidence.display);
     }
+    if (data.usage && typeof data.usage.cost_usd === "number") {
+      parts.push("about $" + data.usage.cost_usd.toFixed(3));
+    }
     reply.appendChild(el("div", "meta", parts.join(" · ")));
     reply.appendChild(renderMarkdown(data.answer || "(no answer)"));
 

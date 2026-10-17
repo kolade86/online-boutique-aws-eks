@@ -70,6 +70,18 @@ def format_confidence(assessment, note: str = "") -> list[str]:
     return lines
 
 
+def format_usage(usage: list) -> str:
+    """Tokens and the estimated cost of a run, priced from model_prices.json."""
+    import cost
+    s = cost.summarize(usage, cost.load_prices(os.environ.get("SREAGENT_PRICES_FILE")
+                                               or cost.PRICES_FILE))
+    spent = ("unknown (no price for " + ", ".join(s["unpriced_models"]) + ")"
+             if s["cost_usd"] is None else f"${s['cost_usd']:.4f}")
+    return (f"Tokens: input {s['input']}, output {s['output']}, cache read {s['cache_read']}, "
+            f"cache write {s['cache_write']}   Estimated cost: {spent} "
+            f"(prices checked {s['prices_checked']})")
+
+
 def format_report(result, max_tool_calls: int, header: str = "", assessment=None,
                   note: str = "") -> str:
     from redact import redact_public
@@ -79,6 +91,8 @@ def format_report(result, max_tool_calls: int, header: str = "", assessment=None
     lines += ["", "-" * 72,
               f"Outcome: {result.outcome}   Tool calls: {len(result.evidence)} of "
               f"{max_tool_calls} allowed   Elapsed: {result.elapsed_seconds:.1f}s"]
+    if result.usage:
+        lines.append(format_usage(result.usage))
     for i, e in enumerate(result.evidence, 1):
         status = "ERROR" if e.is_error else "ok"
         lines.append(f"  {i:2}. [{status}] {e.tool} {json.dumps(e.input)}")
@@ -288,6 +302,8 @@ def _eval(config, cases: list, models: list, runs: int, record: bool) -> int:
                       f"{'right' if row['correct'] else 'WRONG'} ({row['why']})  score {shown}  "
                       f"calls {len(run['tool_calls'])}, unavailable {len(run['unavailable'])}")
                 print(f"    {row['detail']}")
+                if run["usage"]["cost_usd"] is not None:
+                    print(f"    estimated cost ${run['usage']['cost_usd']:.4f}")
                 if run["proposal"]:
                     print(f"    proposal {run['proposal']['status']}: {run['proposal']['changes']}")
                 for refusal in run["proposal_refusals"]:

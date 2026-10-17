@@ -16,6 +16,16 @@ externalSecrets:
   remoteKeyPrefix: ""  # e.g. online-boutique-dev -> reads online-boutique-dev-<service>
   refreshInterval: 1h
 
+# Alerts about the SRE agent itself (templates/prometheusrules.yaml). They
+# carry workload: sreagent, so the AlertManager route sends them to email
+# only, never to the agent.
+sreagentAlerts:
+  # Estimated model cost over 24 hours that raises SreagentCostHigh
+  dailyCostUsd: 5
+  # Failed investigations (timeout, model error or refusal, tool limit) in an
+  # hour that raise SreagentInvestigationsFailing
+  failuresPerHour: 3
+
 # Ingress
 ingress:
   enabled: true
@@ -418,6 +428,12 @@ services:
     noHpa: true
     noPdb: true
     serviceAccount: true
+    # Its own metrics at /metrics (no token: counts, durations and cost only).
+    # Rendered as ServiceMonitor sreagent-metrics, which Prometheus selects by
+    # the release: monitoring label. Dashboard: templates/dashboards.yaml.
+    serviceMonitor:
+      port: http
+      path: /metrics
     rbac:
       # Read-only, this namespace only. No Secrets.
       rules:
