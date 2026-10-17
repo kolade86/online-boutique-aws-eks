@@ -71,13 +71,21 @@ class Runner:
         # regression case. Served only by /investigations/<id>/recording.
         self.recordings: deque = deque(maxlen=RECENT_RESULTS)
 
-    def follow_up(self, incident: str, alert: dict) -> None:
-        """An alert for an incident investigated recently: if an agent PR is open for
-        it, add the alert and the current state to that PR. Runs in the background."""
-        name = alert.get("labels", {}).get("alertname", "")
-        if self._pr_opener is None or self.followups.is_recent((incident, name)):
+    def follow_up(self, incident: str, group: list) -> None:
+        """Alerts for an incident investigated recently: if an agent PR is open for
+        it, add the alerts not yet mentioned, and the current state, to that PR as
+        one comment. AlertManager groups by service, so one call can carry several
+        alert names. Runs in the background."""
+        new, names = [], []
+        for a in group:
+            name = a.get("labels", {}).get("alertname", "")
+            if name not in names and not self.followups.is_recent((incident, name)):
+                new.append(a)
+                names.append(name)
+        if self._pr_opener is None or not new:
             return
-        self.followups.mark((incident, name))
+        for name in names:
+            self.followups.mark((incident, name))
 
         def work():
             import pr_tool
@@ -87,10 +95,10 @@ class Runner:
                     return
                 service = incident.split("/", 1)[1]
                 state = self._collect_state(service) if self._collect_state else []
-                body = pr_tool.followup_comment(str(alerts.key_of(alert)), alert=alert,
+                body = pr_tool.followup_comment(str(alerts.key_of(new[0])), alerts=new,
                                                 evidence=state)
                 self._pr_opener.comment(existing["number"], body)
-                log.info("follow-up comment", extra={"incident": incident, "alert": name,
+                log.info("follow-up comment", extra={"incident": incident, "alerts": names,
                                                     "pull_request": existing["number"]})
             except Exception:
                 log.exception("follow-up comment failed", extra={"incident": incident})
@@ -101,7 +109,11 @@ class Runner:
         if not self._busy.acquire(blocking=False):
             return False
         self.dedup.mark(incident)
-        self.followups.mark((incident, key.alertname))
+        # Every alert this investigation covers, not just the first: when
+        # AlertManager re-sends the group, they are not news for the PR.
+        for name in {key.alertname} | {a.get("labels", {}).get("alertname", "")
+                                       for a in payload.get("alerts", [])}:
+            self.followups.mark((incident, name))
         investigation_id = uuid.uuid4().hex[:8]
 
         def work():
@@ -262,24 +274,28 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
         decisions = []
         started = None
         firing = alerts.firing(payload)[:MAX_ALERTS_PER_PAYLOAD]
+        # One decision per incident. AlertManager groups by service, so one
+        # payload can hold several alert names (and pods) for one incident.
+        incidents: dict = {}
         for a in firing:
-            key, incident = alerts.key_of(a), alerts.incident_of(a)
-            if any(d["incident"] == incident for d in decisions):
-                continue  # one decision per incident (several pods or alerts of one service)
+            incidents.setdefault(alerts.incident_of(a), []).append(a)
+        for incident, group in incidents.items():
+            worth = [a for a in group if alerts.worth_investigating(a, config.app_namespace)[0]]
+            # The first alert worth investigating names the decision, so one
+            # that is not (another alert name, a lower severity) cannot hide it
+            key = alerts.key_of(worth[0] if worth else group[0])
             decision = {"key": str(key), "incident": incident}
-            worth, why = alerts.worth_investigating(a, config.app_namespace)
             age = runner.dedup.age(incident)
             if not worth:
+                why = alerts.worth_investigating(group[0], config.app_namespace)[1]
                 decisions.append({**decision, "status": "skipped", "reason": why})
             elif age is not None:
                 decisions.append({**decision, "status": "skipped",
                                   "reason": f"part of incident {incident}, investigated "
                                             f"{int(age // 60)} minute(s) ago"})
-                runner.follow_up(incident, a)
+                runner.follow_up(incident, worth)
             elif started is not None or not runner.try_start_alert(
-                    key, {**payload, "alerts": [
-                        x for x in firing if alerts.incident_of(x) == incident
-                        and alerts.worth_investigating(x, config.app_namespace)[0]]}, incident):
+                    key, {**payload, "alerts": worth}, incident):
                 decisions.append({**decision, "status": "skipped",
                                   "reason": "another investigation is running"})
             else:

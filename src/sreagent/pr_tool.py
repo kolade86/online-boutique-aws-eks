@@ -410,15 +410,31 @@ class ProposalTool:
 
 
 def followup_comment(alert_key: str, *, investigation_id: str = None, report: str = None,
-                     score: str = None, alert: dict = None, evidence: list = None) -> str:
-    """A comment for an open agent PR when another alert arrives for its incident."""
-    lines = ["<!-- sre-agent-followup -->", f"**Another alert for this incident:** `{alert_key}`", ""]
-    if alert:
-        ann = alert.get("annotations", {})
-        lines += [f"- Started: {alert.get('startsAt', '?')}",
-                  f"- Severity: {alert.get('labels', {}).get('severity', '?')}"]
+                     score: str = None, alert: dict = None, alerts: list = None,
+                     evidence: list = None) -> str:
+    """A comment for an open agent PR when other alerts arrive for its incident.
+
+    `alerts` is several alerts that arrived in one notification: AlertManager
+    groups by service, so one call can carry several alert names.
+    """
+    import alerts as alert_ids
+
+    group = list(alerts) if alerts else ([alert] if alert else [])
+    keys = [str(alert_ids.key_of(a)) for a in alerts] if alerts else [alert_key]
+    head = (f"**Another alert for this incident:** `{keys[0]}`" if len(keys) == 1 else
+            "**Other alerts for this incident:** " + ", ".join(f"`{k}`" for k in keys))
+    lines = ["<!-- sre-agent-followup -->", head, ""]
+    for key, a in zip(keys, group):
+        ann = a.get("annotations", {})
+        details = [f"Started: {a.get('startsAt', '?')}",
+                   f"Severity: {a.get('labels', {}).get('severity', '?')}"]
         if ann.get("summary"):
-            lines.append(f"- Summary: {ann['summary']}")
+            details.append(f"Summary: {ann['summary']}")
+        if len(group) == 1:
+            lines += [f"- {d}" for d in details]
+        else:
+            lines += [f"- `{key}`"] + [f"  - {d}" for d in details]
+    if group:
         lines.append("")
     if investigation_id:
         lines += [f"It was investigated (`{investigation_id}`); evidence score: {score or 'not assessed'}. "

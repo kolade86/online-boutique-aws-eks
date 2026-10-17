@@ -40,6 +40,16 @@ class ServiceOfTest(unittest.TestCase):
         self.assertEqual(str(alerts.key_of(alert("cartservice-6b9f7c8d4-aaaaa"))),
                          "PodCrashLooping/ns/cartservice")
 
+    def test_workload_label_comes_first(self):
+        # The chart's rules set `workload`; AlertManager groups by it, and the
+        # agent must put the alert in the same incident as the group.
+        ksm = {"service": "monitoring-kube-state-metrics", "pod": "cartservice-6b9f7c8d4-x2k4p"}
+        self.assertEqual(alerts.service_of({**ksm, "workload": "cartservice"}), "cartservice")
+        self.assertEqual(alerts.service_of({"workload": "adservice", "deployment": "other"}),
+                         "adservice")
+        self.assertEqual(alerts.service_of({"workload": "", "deployment": "checkoutservice"}),
+                         "checkoutservice")       # empty: the old fallbacks still apply
+
     def test_firing_ignores_resolved(self):
         payload = {"alerts": [{"status": "firing"}, {"status": "resolved"}, {}]}
         self.assertEqual(len(alerts.firing(payload)), 2)
@@ -85,7 +95,7 @@ class WorthInvestigatingTest(unittest.TestCase):
              "not on the agent's alert list"),
             ({"alertname": "KubePodCrashLooping", "namespace": APP_NS, "severity": "warning"},
              "not on the agent's alert list"),
-            ({"alertname": "HighGrpcErrorRate", "namespace": APP_NS, "severity": "critical"},
+            ({"alertname": "KubeDeploymentReplicasMismatch", "namespace": APP_NS, "severity": "warning"},
              "not on the agent's alert list"),
             ({"alertname": "PodCrashLooping", "namespace": APP_NS, "severity": "info"},
              "below warning"),
@@ -104,6 +114,44 @@ class WorthInvestigatingTest(unittest.TestCase):
         with open(CHART_RULES, encoding="utf-8") as f:
             chart_alerts = set(re.findall(r"^\s*- alert: (\w+)", f.read(), re.MULTILINE))
         self.assertEqual(sorted(set(alerts.INVESTIGATE_ALERTS) - chart_alerts), [])
+
+    def test_every_chart_rule_carries_the_workload_label(self):
+        # AlertManager groups by namespace + workload: a rule without it would
+        # land in the per-alert-name route instead of its service's group.
+        with open(CHART_RULES, encoding="utf-8") as f:
+            text = f.read()
+        rules = re.split(r"^\s*- alert: ", text, flags=re.MULTILINE)[1:]
+        self.assertEqual(len(rules), len(alerts.INVESTIGATE_ALERTS))
+        for rule in rules:
+            name = rule.split("\n", 1)[0].strip()
+            with self.subTest(rule=name):
+                self.assertRegex(rule, r'label_replace\(\s*\n(?:.*\n)+?\s*"workload", "\$1", '
+                                       r'"(pod|deployment|horizontalpodautoscaler)", ')
+
+    def test_rules_that_could_never_fire_are_gone(self):
+        with open(CHART_RULES, encoding="utf-8") as f:
+            text = f.read()
+        rules = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        for gone in ("HighGrpcErrorRate", "HighGrpcLatency", "HighHttpErrorRate",
+                     "grpc_server_", "http_requests_total"):
+            self.assertNotIn(gone, rules)
+        self.assertIn("No request-level alerts", text)     # the comment saying why
+
+    def test_alertmanager_groups_by_service(self):
+        tftpl = os.path.join(os.path.dirname(__file__), "..", "..", "terraform", "modules",
+                             "observability", "prometheus-values.yaml.tftpl")
+        with open(tftpl, encoding="utf-8") as f:
+            text = f.read()
+        route = text[text.index("    route:\n"):text.index("    receivers:\n")]
+        for line in ("group_by: ['namespace', 'workload']", "group_wait: 30s",
+                     "group_interval: 15m", "repeat_interval: 4h"):
+            self.assertIn(line, route)
+        # alerts without a workload label keep one group per alert name, and
+        # email routes exist whether or not the agent's route is enabled
+        tail = route[route.rindex("%{ endif ~}"):]
+        self.assertIn("group_by: ['alertname', 'namespace']", tail)
+        self.assertIn("'workload=\"\"'", tail)
+        self.assertEqual(tail.count("- receiver: web.hook"), 2)
 
     def test_alertmanager_route_in_terraform_matches_route_matchers(self):
         # The route lives in a Terraform template; keep it and this module in step.
