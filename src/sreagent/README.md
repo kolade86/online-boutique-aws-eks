@@ -232,9 +232,13 @@ port-forward with `kill %1`, or close the terminal.
   - 409: the agent is busy. One investigation runs at a time, shared with
     alerts.
   - A timeout, or a lost connection (usually the port-forward has stopped).
-- **Answers are plain text.** They can contain log lines and other cluster
-  data, so the page never interprets them as HTML. They are also redacted,
-  like every `/ask` result.
+- **Answers are never read as HTML.** They can contain log lines and other
+  cluster data. The page formats a small subset of Markdown (paragraphs,
+  `- ` bullets, `**bold**` and `` `code` ``) by building the elements itself;
+  everything else, including headings and any tags, shows as the characters
+  it is. Answers are also redacted, like every `/ask` result.
+- **The token is cleaned when you enter it.** Spaces and line breaks picked
+  up by a paste are removed. After a 401 the page clears it and says so.
 - **The page needs no token to load,** because it holds no secrets. It is
   served with a Content-Security-Policy that lets only its own script run (by
   hash) and lets it talk only to this server, plus `nosniff`, `no-referrer`
@@ -1093,7 +1097,10 @@ make no network calls and need no packages installed. Two test files are
 skipped when their packages are missing:
 
 - `test_anthropic_provider.py` needs `anthropic`
-- `test_server.py` needs `fastapi` and `httpx`
+- `test_server.py` needs `fastapi` and `httpx`. Its chat page tests also need
+  `node`: they run the page's own script against a small fake DOM
+  ([chat_page_harness.js](chat_page_harness.js)). GitHub's Ubuntu runners
+  include Node
 - `test_values_change.py` and `test_pr_tool.py` need `ruamel.yaml`. They run
   the allow-list and the whole PR flow against an in-memory GitHub, using the
   real chart files. Only the HTTP calls themselves are left untested.
