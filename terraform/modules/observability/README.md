@@ -72,9 +72,11 @@ performance — at 7-day retention.
 
 ## AWS-managed service alarms
 
-CloudWatch alarms on RDS (CPU, free storage, connections, freeable memory),
-ElastiCache Redis (CPU, memory, evictions), and the ALB (5xx, target 5xx,
-unhealthy targets). All notify the same SNS topic as AlertManager.
+CloudWatch alarms on RDS (CPU, free storage, connections, freeable memory)
+and ElastiCache Redis (CPU, memory, evictions). All notify the same SNS topic
+as AlertManager. ALB alarms (5xx, target 5xx, unhealthy targets) are defined
+but created only when `alb_arn_suffix` is passed, which the dev environment
+does not do.
 
 ## Useful outputs
 

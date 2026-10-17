@@ -85,11 +85,11 @@ output "verification_commands" {
   }
 }
 output "terraform_ci_role_arn" {
-  description = "ARN of the plan-only role GitHub Actions assumes for Terraform CI"
+  description = "ARN of the role GitHub Actions assumes for Terraform plan and apply (AdministratorAccess)"
   value       = aws_iam_role.terraform_ci.arn
 }
 
 output "terraform_ci_role_name" {
-  description = "Name of the Terraform CI (plan-only) role"
+  description = "Name of the Terraform CI role (plan and apply)"
   value       = aws_iam_role.terraform_ci.name
 }

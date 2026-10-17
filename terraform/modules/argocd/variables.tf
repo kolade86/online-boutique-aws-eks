@@ -185,7 +185,7 @@ variable "enable_self_heal" {
 }
 
 variable "enable_prune" {
-  description = "Delete resources removed from git. Intentionally disabled for now."
+  description = "Delete resources removed from git. Off by default; the dev environment turns it on."
   type        = bool
   default     = false
 }
