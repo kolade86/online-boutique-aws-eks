@@ -242,7 +242,7 @@ variable "argocd_app_chart_path" {
 }
 
 variable "argocd_enable_automated_sync" {
-  description = "Enable Argo CD automated sync. Off for now: Argo CD observes drift and reports OutOfSync, but only deploys when synced manually."
+  description = "Enable Argo CD automated sync. Off by default; terraform.tfvars turns it on, so Argo CD deploys every commit to main."
   type        = bool
   default     = false
 }
@@ -254,7 +254,7 @@ variable "argocd_enable_self_heal" {
 }
 
 variable "argocd_enable_prune" {
-  description = "Let Argo CD delete resources removed from git. Off for now."
+  description = "Let Argo CD delete resources removed from git. Off by default; terraform.tfvars turns it on."
   type        = bool
   default     = false
 }

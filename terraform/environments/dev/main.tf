@@ -213,10 +213,10 @@ module "observability" {
 # ============================================
 # 8. Argo CD Module (GitOps)
 # ============================================
-# Runs alongside the GitHub Actions Helm deployment for now. Automated sync is
-# OFF, so Argo CD only reports drift until it is synced by hand - the workflow
-# stays the sole writer to the cluster. See the module README for the handover
-# plan before turning automation on.
+# Argo CD is the only deployer of the application namespace: automated sync,
+# self-heal and prune are on (terraform.tfvars). CI commits the image tag to
+# values-dev.yaml and Argo CD deploys that commit; git revert is the rollback.
+# The old Helm deploy workflow is retired (.github/workflows/*.disabled).
 
 module "argocd" {
   source = "../../modules/argocd"
@@ -254,7 +254,7 @@ module "argocd" {
   app_secret_store      = module.platform_services.secret_store_name
   app_secret_key_prefix = "${var.project_name}-${var.environment}"
 
-  # Sync policy - prune stays off until Argo CD is trusted with deletions
+  # Sync policy: all three on in dev (terraform.tfvars)
   enable_automated_sync = var.argocd_enable_automated_sync
   enable_self_heal      = var.argocd_enable_self_heal
   enable_prune          = var.argocd_enable_prune

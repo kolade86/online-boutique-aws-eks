@@ -245,6 +245,6 @@ output "argocd_tls_enabled" {
 }
 
 output "terraform_ci_role_arn" {
-  description = "Plan-only role assumed by the Terraform CI workflow. Read-only: it cannot apply."
+  description = "Role the Terraform workflows assume through GitHub OIDC, for plan (pull requests) and apply (main). It has AdministratorAccess."
   value       = module.cicd.terraform_ci_role_arn
 }

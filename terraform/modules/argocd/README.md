@@ -100,21 +100,22 @@ Change it after first login, then delete `argocd-initial-admin-secret`.
 | revision | `target_revision` (default `main`) |
 | path | `helm/online-boutique` |
 | destination | `app_namespace` on `https://kubernetes.default.svc` |
-| sync | **manual** (`enable_automated_sync = false` in dev), prune off |
+| sync | automated, with self-heal and prune (set in dev's `terraform.tfvars`) |
 
 ### Helm parameters are required, not optional
 
 The application chart is **not self-sufficient**. In `values.yaml`,
-`image.registry`, `image.prefix` and `redis.addr` are empty because the
-GitHub Actions workflow supplies them with `--set` at deploy time. Rendered
+`image.registry`, `image.prefix` and `redis.addr` are empty: they carry the
+AWS account ID and the ElastiCache endpoint, which only Terraform knows. Rendered
 with bare defaults the chart produces image references like `/-frontend:latest`
 and omits the `redis-config` ConfigMap that `cartservice` mounts, so every pod
 would fail.
 
-The module therefore passes `image.registry`, `image.prefix`, `image.tag` and
-`redis.addr` as Argo CD Helm parameters, sourced from Terraform (account ID,
-region, project/environment, and the ElastiCache endpoint). Without them
-Argo CD would deploy a broken application.
+The module therefore passes `image.registry`, `image.prefix` and `redis.addr`
+(and the External Secrets store and key prefix) as Argo CD Helm parameters,
+sourced from Terraform: account ID, region, project/environment, and the
+ElastiCache endpoint. Without them Argo CD would deploy a broken application.
+`image.tag` is not one of them; see below.
 
 ## How a release reaches the cluster
 
@@ -165,8 +166,8 @@ and deletes so the namespace matches git. Removing a service from
 
 ## Deliberately not included
 
-Image Updater, IP allow-listing (`alb.ingress.kubernetes.io/inbound-cidrs`),
-and prune are all out of scope for this iteration.
+Image Updater and IP allow-listing (`alb.ingress.kubernetes.io/inbound-cidrs`)
+are out of scope for this iteration.
 
 ## Security note
 
