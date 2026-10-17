@@ -262,6 +262,7 @@ chain is enforced: [`terraform/README.md`](terraform/README.md).
 | A merged image rollback started a build that wrote a new tag straight over it | [#13](https://github.com/kolade86/online-boutique-aws-eks/pull/13): chart-only changes no longer trigger a build |
 | One fault fired three alerts, and two of them opened identical pull requests (#25, #26) | [#27](https://github.com/kolade86/online-boutique-aws-eks/pull/27): alerts are grouped into one incident per service |
 | Three alert rules queried metrics no service exposes, and every alert name sent its own email | [#42](https://github.com/kolade86/online-boutique-aws-eks/pull/42): the dead rules removed; one email thread per service |
+| A local plan showed 18 changes that weren't real: local Terraform 1.7.5 against CI's 1.16.0, plus Windows line endings in files checked out before `.gitattributes` existed | Matched the versions, checked the files out again, and pinned `required_version = ">= 1.16.0"` so an older Terraform refuses to run |
 
 ## Limitations and next steps
 
