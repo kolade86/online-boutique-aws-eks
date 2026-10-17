@@ -1,4 +1,5 @@
-"""HTTP server: POST /alert (AlertManager webhook), POST /ask, GET /investigations.
+"""HTTP server: POST /alert (AlertManager webhook), POST /ask, GET /investigations,
+and GET /chat, a page for asking questions through /ask.
 
 One investigation runs at a time. /alert answers immediately and investigates
 in a background thread, because an investigation takes longer than
@@ -9,9 +10,13 @@ Alerts that cannot run (busy, recently investigated, resolved) get a 200
 its repeat_interval already re-sends unresolved alerts later.
 """
 
+import base64
+import hashlib
 import hmac
 import json
 import logging
+import os
+import re
 import threading
 import time
 import uuid
@@ -19,6 +24,7 @@ from collections import deque
 from typing import Callable
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 import alerts
@@ -32,6 +38,7 @@ log = logging.getLogger("sreagent.server")
 
 MAX_ALERTS_PER_PAYLOAD = 20
 RECENT_RESULTS = 20
+CHAT_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat.html")
 
 
 class AskRequest(BaseModel):
@@ -185,6 +192,37 @@ class Runner:
         return entry
 
 
+def load_chat_page(path: str = CHAT_PAGE) -> tuple[str, dict]:
+    """The chat page and the headers it is served with.
+
+    Read once at start-up, so a missing or broken page stops the server
+    starting instead of failing on the first request. The page's one inline
+    script is allowed by its hash; nothing else may run, and the page may only
+    talk to this server.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            page = f.read()
+    except OSError as e:
+        raise RuntimeError(f"chat page {path} cannot be read ({e}); the image must include "
+                           "chat.html next to server.py") from None
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.DOTALL)
+    if len(scripts) != 1:
+        raise RuntimeError(f"chat page {path} must have exactly one inline <script>, "
+                           f"found {len(scripts)}")
+    digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode()
+    headers = {
+        "Content-Security-Policy": (
+            f"default-src 'none'; script-src 'sha256-{digest}'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; "
+            "frame-ancestors 'none'"),
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "no-store",
+    }
+    return page, headers
+
+
 def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -194,9 +232,11 @@ def _start_thread(fn: Callable[[], None]) -> None:
 
 
 def create_app(config: Config, agent_factory: Callable[[list], Agent],
-               spawn=_start_thread, pr_opener=None, collect_state=None) -> FastAPI:
+               spawn=_start_thread, pr_opener=None, collect_state=None,
+               chat_page: str = CHAT_PAGE) -> FastAPI:
     if not config.api_token:
         raise ValueError("SREAGENT_API_TOKEN must be set to run the server")
+    chat_html, chat_headers = load_chat_page(chat_page)
 
     app = FastAPI(title="sreagent", docs_url=None, redoc_url=None, openapi_url=None)
     runner = Runner(agent_factory, config, spawn, pr_opener, collect_state)
@@ -211,6 +251,11 @@ def create_app(config: Config, agent_factory: Callable[[list], Agent],
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
+
+    # No token: the page holds no secrets. It asks for the token and sends it to /ask.
+    @app.get("/chat", response_class=HTMLResponse)
+    def chat():
+        return HTMLResponse(chat_html, headers=chat_headers)
 
     @app.post("/alert", dependencies=[Depends(authorized)])
     def alert(payload: dict):

@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sreagent chat</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+    --line: #dcdcd6; --accent: #2f5d8a; --accent-text: #ffffff;
+    --error-bg: #fbeaea; --error-text: #8a1f1f; --question-bg: #e9eff5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93;
+      --line: #34342f; --accent: #6b9fd1; --accent-text: #0f1720;
+      --error-bg: #3a1c1c; --error-text: #f2b8b8; --question-bg: #22303d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 8px 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  input, textarea, button { font: inherit; color: inherit; }
+  input, textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: var(--accent-text); border: 0;
+    border-radius: 6px; padding: 8px 18px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: progress; }
+  #token-state { color: var(--muted); font-size: 13px; }
+  #log { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
+  .turn { display: flex; flex-direction: column; gap: 6px; }
+  .question { align-self: flex-end; max-width: 90%; background: var(--question-bg); border-radius: 8px; padding: 8px 12px; }
+  .reply { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+  .waiting { color: var(--muted); font-style: italic; }
+  .error { background: var(--error-bg); color: var(--error-text); border-color: transparent; }
+  .note { margin-top: 8px; color: var(--muted); }
+  details { margin-top: 8px; font-size: 13px; }
+  summary { cursor: pointer; color: var(--muted); }
+  ol, ul { margin: 6px 0 0; padding-left: 22px; }
+  li { overflow-wrap: anywhere; }
+  .failed { color: var(--error-text); }
+  .id { color: var(--muted); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ask the SRE agent</h1>
+  <p class="hint">Answers usually take 20 to 60 seconds. One investigation runs at a time.
+    The token is kept in this page's memory only and is gone when you reload.</p>
+
+  <div class="panel">
+    <form id="token-form" autocomplete="off">
+      <label for="token">API token</label>
+      <div class="row">
+        <input id="token" type="password" autocomplete="off" spellcheck="false" style="flex:1; min-width: 200px">
+        <button id="set-token" type="submit">Use token</button>
+      </div>
+      <div class="row"><span id="token-state">No token set.</span></div>
+    </form>
+  </div>
+
+  <div id="log" aria-live="polite"></div>
+
+  <div class="panel">
+    <form id="ask-form">
+      <label for="question">Question</label>
+      <textarea id="question" maxlength="2000" placeholder="Are all deployments healthy?"></textarea>
+      <div class="row">
+        <button id="send" type="submit">Send</button>
+        <span class="hint" style="margin:0">Enter sends, Shift+Enter starts a new line.</span>
+      </div>
+    </form>
+  </div>
+</main>
+<script>
+"use strict";
+(function () {
+  // The token lives in this variable only: never in storage, cookies or the URL.
+  var token = "";
+  var busy = false;
+  // Above the agent's worst case: a 300 s investigation limit, checked between
+  // model requests of up to 120 s each.
+  var TIMEOUT_MS = 450000;
+
+  var tokenForm = document.getElementById("token-form");
+  var tokenInput = document.getElementById("token");
+  var tokenState = document.getElementById("token-state");
+  var askForm = document.getElementById("ask-form");
+  var question = document.getElementById("question");
+  var send = document.getElementById("send");
+  var log = document.getElementById("log");
+
+  // Every piece of text goes in as text: answers can hold log lines and
+  // other cluster data, which must never be read as markup.
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) { node.className = className; }
+    if (text !== undefined && text !== null) { node.textContent = String(text); }
+    return node;
+  }
+
+  function takeToken() {
+    var value = tokenInput.value.trim();
+    if (value) {
+      token = value;
+      tokenInput.value = "";
+      tokenState.textContent = "Token set (held in memory until you reload).";
+    }
+  }
+
+  function forgetToken(reason) {
+    token = "";
+    tokenState.textContent = reason;
+  }
+
+  function setBusy(on) {
+    busy = on;
+    send.disabled = on;
+    question.readOnly = on;
+  }
+
+  function scrollDown() {
+    window.scrollTo(0, document.body.scrollHeight);
+  }
+
+  function showError(reply, message) {
+    reply.className = "reply error";
+    reply.textContent = "";
+    reply.appendChild(el("div", "text", message));
+  }
+
+  function describe(input) {
+    try { return JSON.stringify(input); } catch (e) { return ""; }
+  }
+
+  function showAnswer(reply, data) {
+    reply.className = "reply";
+    reply.textContent = "";
+
+    var parts = [];
+    if (data.outcome && data.outcome !== "answered") { parts.push("Outcome: " + data.outcome); }
+    if (typeof data.elapsed_seconds === "number") { parts.push(data.elapsed_seconds + " s"); }
+    if (typeof data.tool_calls === "number") {
+      parts.push(data.tool_calls + " of " + data.max_tool_calls + " tool calls");
+    }
+    if (data.confidence && data.confidence.display) {
+      parts.push("evidence score " + data.confidence.display);
+    }
+    reply.appendChild(el("div", "meta", parts.join(" · ")));
+    reply.appendChild(el("div", "text", data.answer || "(no answer)"));
+
+    if (data.note) { reply.appendChild(el("div", "text note", data.note)); }
+
+    var questions = (data.confidence && data.confidence.open_questions) || [];
+    if (questions.length) {
+      var open = el("details");
+      open.appendChild(el("summary", null, "Open questions (" + questions.length + ")"));
+      var list = el("ul");
+      questions.forEach(function (q) { list.appendChild(el("li", null, q)); });
+      open.appendChild(list);
+      reply.appendChild(open);
+    }
+
+    var calls = data.evidence || [];
+    if (calls.length) {
+      var tools = el("details");
+      tools.appendChild(el("summary", null, "Tools used (" + calls.length + ")"));
+      var steps = el("ol");
+      calls.forEach(function (c) {
+        var item = el("li", null, c.tool + " " + describe(c.input));
+        if (c.is_error) { item.appendChild(el("span", "failed", " (failed)")); }
+        steps.appendChild(item);
+      });
+      tools.appendChild(steps);
+      reply.appendChild(tools);
+    }
+
+    if (data.id) { reply.appendChild(el("div", "id", "Investigation " + data.id)); }
+  }
+
+  function errorMessage(status, body) {
+    if (status === 401) {
+      forgetToken("Token rejected. Enter it again.");
+      return "401: wrong or missing token. Enter the token again above.";
+    }
+    if (status === 409) {
+      return "409: the agent is busy with another investigation. Try again shortly.";
+    }
+    var detail = body && body.detail;
+    if (Array.isArray(detail)) {
+      detail = detail.map(function (d) { return d && d.msg ? d.msg : describe(d); }).join("; ");
+    }
+    if (status === 422) {
+      return "422: the question was not accepted: " + (detail || "invalid input") + ".";
+    }
+    return "Server error " + status + (detail ? ": " + detail : ".");
+  }
+
+  function ask(text) {
+    var turn = el("div", "turn");
+    turn.appendChild(el("div", "question text", text));
+    var reply = el("div", "reply waiting", "Investigating… 0 s");
+    turn.appendChild(reply);
+    log.appendChild(turn);
+    scrollDown();
+
+    var started = Date.now();
+    var ticker = setInterval(function () {
+      reply.textContent = "Investigating… " + Math.round((Date.now() - started) / 1000) + " s";
+    }, 1000);
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, TIMEOUT_MS);
+    setBusy(true);
+
+    fetch("/ask", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ question: text }),
+      signal: controller.signal,
+      credentials: "omit",
+      cache: "no-store"
+    }).then(function (response) {
+      return response.text().then(function (raw) {
+        var body = null;
+        try { body = JSON.parse(raw); } catch (e) { body = { detail: raw.slice(0, 500) }; }
+        if (response.ok) {
+          showAnswer(reply, body);
+        } else {
+          showError(reply, errorMessage(response.status, body));
+        }
+      });
+    }).catch(function (err) {
+      if (err && err.name === "AbortError") {
+        showError(reply, "Timed out after " + TIMEOUT_MS / 60000 + " minutes with no answer. " +
+                         "The investigation may still finish: check GET /investigations.");
+      } else {
+        showError(reply, "Could not reach the agent. Is the port-forward still running?");
+      }
+    }).then(function () {
+      clearInterval(ticker);
+      clearTimeout(timer);
+      setBusy(false);
+      scrollDown();
+    });
+  }
+
+  tokenForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    takeToken();
+  });
+
+  askForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    if (busy) { return; }
+    takeToken();
+    var text = question.value.trim();
+    if (!text) { return; }
+    if (!token) {
+      tokenState.textContent = "Enter the token first.";
+      tokenInput.focus();
+      return;
+    }
+    question.value = "";
+    ask(text);
+  });
+
+  question.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      askForm.requestSubmit();
+    }
+  });
+})();
+</script>
+</body>
+</html>
