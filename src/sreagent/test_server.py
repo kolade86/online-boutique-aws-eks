@@ -560,6 +560,81 @@ class ChatPageTest(unittest.TestCase):
         self.assertIn('fetch("/ask"', page)
         self.assertIn('"Authorization": "Bearer " + token', page)
 
+    # The page's own script, run under Node against a minimal fake DOM
+    # (chat_page_harness.js): one session with an answer, a 401, and a send
+    # without a token.
+    MARKDOWN = ("First paragraph with **bold** and `kubectl get pods`.\nSecond line.\n\n"
+                "- one\n- two **b**\n\n"
+                "<script>alert(1)</script> <img src=x onerror=alert(1)>\n"
+                "## A heading, **unclosed bold and `unclosed code")
+
+    def run_page(self, answer):
+        import json
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        body = {"answer": answer, "evidence": [], "elapsed_seconds": 1.5, "tool_calls": 1,
+                "max_tool_calls": 15, "outcome": "answered"}
+        out = subprocess.run([node, os.path.join(HERE, "chat_page_harness.js"),
+                              os.path.join(HERE, "chat.html"), json.dumps(body)],
+                             capture_output=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr.decode("utf-8", "replace"))
+        return json.loads(out.stdout.decode("utf-8"))
+
+    @staticmethod
+    def nodes(tree, tag=None):
+        """Every element node in the tree (or those with this tag), depth first."""
+        found = []
+        if "tag" in tree:
+            if tag is None or tree["tag"] == tag:
+                found.append(tree)
+            for child in tree["children"]:
+                found += ChatPageTest.nodes(child, tag)
+        return found
+
+    @staticmethod
+    def text(tree):
+        return tree["text"] if "text" in tree else "".join(map(ChatPageTest.text, tree["children"]))
+
+    def test_markdown_subset_renders_as_elements(self):
+        answer = [n for n in self.nodes(self.run_page(self.MARKDOWN)["reply"])
+                  if n["class"] == "answer"][0]
+        paragraphs = self.nodes(answer, "p")
+        self.assertEqual(len(paragraphs), 2)
+        self.assertEqual(self.text(paragraphs[0]),
+                         "First paragraph with bold and kubectl get pods.\nSecond line.")
+        self.assertEqual([self.text(n) for n in self.nodes(answer, "strong")], ["bold", "b"])
+        self.assertEqual([self.text(n) for n in self.nodes(answer, "code")], ["kubectl get pods"])
+        lists = self.nodes(answer, "ul")
+        self.assertEqual(len(lists), 1)
+        self.assertEqual([self.text(li) for li in self.nodes(lists[0], "li")], ["one", "two b"])
+        # anything outside the subset stays as the characters it was
+        self.assertIn("## A heading, **unclosed bold and `unclosed code", self.text(paragraphs[1]))
+
+    def test_script_and_img_tags_in_an_answer_stay_plain_text(self):
+        reply = self.run_page(self.MARKDOWN)["reply"]
+        tags = {n["tag"] for n in self.nodes(reply)}
+        self.assertEqual(tags - {"div", "p", "ul", "li", "strong", "code"}, set())
+        self.assertIn("<script>alert(1)</script> <img src=x onerror=alert(1)>", self.text(reply))
+
+    def test_token_is_trimmed_and_cleared_after_a_401(self):
+        session = self.run_page("ok")
+        self.assertEqual(session["tokenFieldAfterSet"], "")
+        self.assertEqual(session["statusAfterSet"], "Token set (held in memory until you reload).")
+        # pasted as "  abc-123_XYZ\r\n": sent without the spaces and line break
+        self.assertEqual(session["firstRequest"]["headers"]["Authorization"], "Bearer abc-123_XYZ")
+        self.assertEqual(session["firstRequest"]["url"], "/ask")
+        self.assertFalse(session["sendDisabledAfterAnswer"])
+
+        self.assertIn("401: wrong or missing token", self.text(session["errorReply"]))
+        self.assertEqual(session["statusAfter401"], "Token rejected and cleared. Enter it again above.")
+        self.assertEqual(session["statusClassAfter401"], "warn")
+        # the token really is gone: the next send is not made
+        self.assertEqual(session["requestsAfterNoToken"], 2)
+        self.assertEqual(session["statusAfterNoToken"], "Enter the token first.")
+
     def test_server_refuses_to_start_without_the_page(self):
         import tempfile
         missing = os.path.join(tempfile.gettempdir(), "no-such-dir", "chat.html")

@@ -40,6 +40,13 @@
   }
   button:disabled { opacity: 0.5; cursor: progress; }
   #token-state { color: var(--muted); font-size: 13px; }
+  #token-state.warn { color: var(--error-text); font-weight: 600; }
+  .answer p { margin: 0 0 8px; }
+  .answer ul { margin: 0 0 8px; }
+  .answer code {
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+  }
   #log { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
   .turn { display: flex; flex-direction: column; gap: 6px; }
   .question { align-self: flex-end; max-width: 90%; background: var(--question-bg); border-radius: 8px; padding: 8px 12px; }
@@ -115,17 +122,76 @@
   }
 
   function takeToken() {
-    var value = tokenInput.value.trim();
+    // A token has no spaces: drop every space and line break a paste brings along
+    var value = tokenInput.value.replace(/\s+/g, "");
     if (value) {
       token = value;
       tokenInput.value = "";
+      tokenState.className = "";
       tokenState.textContent = "Token set (held in memory until you reload).";
     }
   }
 
   function forgetToken(reason) {
     token = "";
+    tokenState.className = "warn";
     tokenState.textContent = reason;
+  }
+
+  // A small, safe subset of Markdown: paragraphs, "- " bullet lists, **bold**
+  // and `code`. Every element is built with createElement and every piece of
+  // text goes in as a text node, so anything else (headings, links, tags such
+  // as <script> or <img>) stays exactly the characters it was.
+  var INLINE = /`([^`\n]+)`|\*\*([^*\n]+?)\*\*/g;
+  var BULLET = /^\s*- (.*)$/;
+
+  function appendInline(parent, text) {
+    var last = 0;
+    var match;
+    INLINE.lastIndex = 0;
+    while ((match = INLINE.exec(text)) !== null) {
+      if (match.index > last) {
+        parent.appendChild(document.createTextNode(text.slice(last, match.index)));
+      }
+      if (match[1] !== undefined) {
+        parent.appendChild(el("code", null, match[1]));
+      } else {
+        parent.appendChild(el("strong", null, match[2]));
+      }
+      last = INLINE.lastIndex;
+    }
+    if (last < text.length) {
+      parent.appendChild(document.createTextNode(text.slice(last)));
+    }
+  }
+
+  function renderMarkdown(text) {
+    var box = el("div", "answer");
+    var paragraph = null;
+    var list = null;
+    String(text).replace(/\r\n?/g, "\n").split("\n").forEach(function (line) {
+      var bullet = BULLET.exec(line);
+      if (bullet) {
+        paragraph = null;
+        if (!list) { list = el("ul"); box.appendChild(list); }
+        var item = el("li");
+        appendInline(item, bullet[1]);
+        list.appendChild(item);
+      } else if (line.trim() === "") {
+        paragraph = null;
+        list = null;
+      } else {
+        list = null;
+        if (paragraph) {
+          paragraph.appendChild(document.createTextNode("\n"));
+        } else {
+          paragraph = el("p", "text");
+          box.appendChild(paragraph);
+        }
+        appendInline(paragraph, line);
+      }
+    });
+    return box;
   }
 
   function setBusy(on) {
@@ -162,7 +228,7 @@
       parts.push("evidence score " + data.confidence.display);
     }
     reply.appendChild(el("div", "meta", parts.join(" · ")));
-    reply.appendChild(el("div", "text", data.answer || "(no answer)"));
+    reply.appendChild(renderMarkdown(data.answer || "(no answer)"));
 
     if (data.note) { reply.appendChild(el("div", "text note", data.note)); }
 
@@ -195,7 +261,7 @@
 
   function errorMessage(status, body) {
     if (status === 401) {
-      forgetToken("Token rejected. Enter it again.");
+      forgetToken("Token rejected and cleared. Enter it again above.");
       return "401: wrong or missing token. Enter the token again above.";
     }
     if (status === 409) {
