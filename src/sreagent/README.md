@@ -182,8 +182,9 @@ python server.py                                   # listens on :8080 (PORT)
 | `POST /alert` | bearer | AlertManager webhook payload. Replies at once with one decision per alert key; the investigation runs in the background |
 | `POST /ask` | bearer | `{"question": "..."}`. Runs synchronously and returns the answer. Never opens a PR |
 | `GET /investigations` | bearer | The last 20 results (answer, outcome, tools called), newest first |
+| `GET /chat` | none | A page for asking questions in a browser. It sends them to `/ask` with the token you type in. See [Chat page](#chat-page) |
 
-Every endpoint except `/healthz` needs `Authorization: Bearer <SREAGENT_API_TOKEN>`.
+Every endpoint except `/healthz` and `/chat` needs `Authorization: Bearer <SREAGENT_API_TOKEN>`.
 The server refuses to start without a token.
 
 From a second terminal:
@@ -199,6 +200,47 @@ Invoke-RestMethod http://localhost:8080/investigations -Headers $h | ConvertTo-J
 
 `/alert` does not rewrite `startsAt` the way the CLI does. To post a saved
 file, update its time first.
+
+### Chat page
+
+`GET /chat` serves a page for asking the agent questions instead of using
+curl. In Git Bash, against the agent in the cluster:
+
+```bash
+ns=online-boutique-dev
+kubectl port-forward -n "$ns" svc/sreagent 8080:8080 >/dev/null &
+# Copies the token to the clipboard, for pasting into the page. It never shows on screen.
+kubectl get secret sreagent -n "$ns" -o go-template='{{index .data "api-token" | base64decode}}' | clip
+start http://localhost:8080/chat
+```
+
+Paste the token into the page, then ask. When you are done, stop the
+port-forward with `kill %1`, or close the terminal.
+
+- **The token stays in the page's memory.** It is not saved anywhere: not in
+  browser storage, cookies or the URL. Reloading the page forgets it.
+- **Answers take 20 to 60 seconds.** The page shows a counter while it waits
+  and gives up after 7.5 minutes, longer than the agent's own limit
+  (`SREAGENT_TIMEOUT_SECONDS`, 300 s, checked between model requests of up
+  to 120 s). Nothing between the browser and the agent cuts the request
+  shorter: uvicorn sets no request timeout, and `kubectl port-forward` has no
+  idle timeout of its own.
+- **Each answer shows** the duration, the tool calls used, the evidence
+  score with its open questions, and the list of tools with their inputs.
+- **Errors are shown in the conversation:**
+  - 401: wrong token. The page forgets it, so you type it again.
+  - 409: the agent is busy. One investigation runs at a time, shared with
+    alerts.
+  - A timeout, or a lost connection (usually the port-forward has stopped).
+- **Answers are plain text.** They can contain log lines and other cluster
+  data, so the page never interprets them as HTML. They are also redacted,
+  like every `/ask` result.
+- **The page needs no token to load,** because it holds no secrets. It is
+  served with a Content-Security-Policy that lets only its own script run (by
+  hash) and lets it talk only to this server, plus `nosniff`, `no-referrer`
+  and `no-store`.
+- **The page is [chat.html](chat.html),** read once at start-up. If it is
+  missing, the server refuses to start.
 
 ### Which alerts are investigated
 

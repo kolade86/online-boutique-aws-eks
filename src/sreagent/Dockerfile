@@ -18,6 +18,7 @@ COPY --from=builder /install /usr/local
 RUN useradd --system --uid 10001 --no-create-home sreagent
 WORKDIR /app
 COPY --chown=root:root *.py ./
+COPY --chown=root:root chat.html ./
 USER 10001
 
 EXPOSE 8080

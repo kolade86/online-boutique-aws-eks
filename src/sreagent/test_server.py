@@ -1,5 +1,6 @@
 """Tests for the HTTP endpoints, auth, deduplication and one-at-a-time limit."""
 
+import os
 import unittest
 
 try:
@@ -495,6 +496,86 @@ class ServerPullRequestTest(unittest.TestCase):
         self.spawn.run_all()
         self.assertIsNone(client.get("/investigations", headers=AUTH).json()[0]["pull_request"])
         self.assertEqual(self.gh.writes, [])
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def read(name):
+    with open(os.path.join(HERE, name), encoding="utf-8") as f:
+        return f.read()
+
+
+@unittest.skipIf(server is None, "fastapi/httpx not installed")
+class ChatPageTest(unittest.TestCase):
+    def setUp(self):
+        self.agent = StubAgent()
+        self.client = TestClient(server.create_app(config(), self.agent, spawn=DeferredSpawn()))
+
+    def test_chat_needs_no_token_and_serves_the_page_with_security_headers(self):
+        import base64
+        import hashlib
+        import re
+
+        resp = self.client.get("/chat")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.headers["content-type"].startswith("text/html"))
+        self.assertEqual(resp.text, read("chat.html"))
+        self.assertIn('<input id="token" type="password"', resp.text)
+        self.assertIn('<textarea id="question"', resp.text)
+
+        script, = re.findall(r"<script>(.*?)</script>", resp.text, re.DOTALL)
+        digest = base64.b64encode(hashlib.sha256(script.encode("utf-8")).digest()).decode()
+        self.assertEqual(resp.headers["content-security-policy"],
+                         f"default-src 'none'; script-src 'sha256-{digest}'; "
+                         "style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; "
+                         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        self.assertEqual(resp.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(resp.headers["referrer-policy"], "no-referrer")
+        self.assertEqual(resp.headers["cache-control"], "no-store")
+
+    def test_ask_still_requires_the_token(self):
+        for headers in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": TOKEN}):
+            with self.subTest(headers=headers):
+                resp = self.client.post("/ask", json={"question": "q"}, headers=headers)
+                self.assertEqual(resp.status_code, 401)
+        self.assertEqual(self.agent.tasks, [])
+        resp = self.client.post("/ask", json={"question": "Are all deployments healthy?"},
+                                headers=AUTH)
+        self.assertEqual(resp.status_code, 200)
+        # what the page shows: the answer, the tools used and the duration
+        body = resp.json()
+        for key in ("answer", "evidence", "elapsed_seconds", "tool_calls", "max_tool_calls",
+                    "outcome", "confidence", "note", "id"):
+            self.assertIn(key, body)
+
+    def test_page_renders_text_only_and_keeps_the_token_in_memory(self):
+        page = read("chat.html")
+        for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write",
+                       "localStorage", "sessionStorage", "document.cookie",
+                       "http://", "https://", "<link", "src="):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, page)
+        self.assertIn("textContent", page)
+        self.assertIn('fetch("/ask"', page)
+        self.assertIn('"Authorization": "Bearer " + token', page)
+
+    def test_server_refuses_to_start_without_the_page(self):
+        import tempfile
+        missing = os.path.join(tempfile.gettempdir(), "no-such-dir", "chat.html")
+        with self.assertRaisesRegex(RuntimeError, "chat page .* cannot be read"):
+            server.create_app(config(), self.agent, chat_page=missing)
+
+    def test_server_refuses_a_page_without_exactly_one_script(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+            f.write("<html><script>a()</script><script>b()</script></html>")
+        self.addCleanup(os.remove, f.name)
+        with self.assertRaisesRegex(RuntimeError, "exactly one inline <script>, found 2"):
+            server.create_app(config(), self.agent, chat_page=f.name)
+
+    def test_the_image_includes_the_page(self):
+        self.assertIn("COPY --chown=root:root chat.html ./", read("Dockerfile"))
 
 
 if __name__ == "__main__":
