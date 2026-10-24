@@ -78,10 +78,37 @@ a plan file it just generated — so what executes is exactly what is printed
 immediately above it in the log. A `terraform-apply` concurrency group prevents
 two runs racing for the state lock.
 
+## State and locking
+
+State lives in the S3 bucket `online-boutique-dev-terraform-state`, created by
+[`bootstrap-backend.sh`](../bootstrap-backend.sh) with versioning, encryption
+and public access blocked. Locking uses S3's native lock file
+(`use_lockfile = true` in `environments/dev/backend.tf`): Terraform writes
+`terraform.tfstate.tflock` next to the state while it holds the lock. There is
+no DynamoDB table.
+
+- **A stale lock.** If a run is killed while it holds the lock, the next run
+  fails with "Error acquiring the state lock" and prints the lock ID. Make
+  sure nothing is still running, then clear it from
+  `terraform/environments/dev`:
+
+  ```bash
+  terraform force-unlock <LOCK_ID>
+  ```
+
+- **An interrupted apply.** An apply stopped part-way (a cancelled run, a
+  lost connection) can leave resources created in AWS but missing from state.
+  The next plan then tries to create them again, and fails because they
+  exist. Bring each one into state, then plan again:
+
+  ```bash
+  terraform import '<resource address>' <AWS ID>
+  ```
+
 ## Local Terraform still works
 
 CI is the normal path, not the only one. The same commands work locally as a
-fallback — same remote state, same lock table, same provider versions via the
+fallback — same remote state, same lock file, same provider versions via the
 committed `.terraform.lock.hcl`:
 
 ```bash

@@ -1,6 +1,7 @@
 #!/bin/bash
-# Bootstrap Terraform Backend - Create S3 Bucket and DynamoDB Table
-# This script creates the required AWS resources for Terraform remote state
+# Bootstrap Terraform Backend - Create the S3 bucket for remote state
+# State locking uses a lock file in the same bucket (use_lockfile in
+# backend.tf), so no DynamoDB table is needed.
 
 set -e  # Exit on any error
 
@@ -9,7 +10,6 @@ PROJECT_NAME="online-boutique"
 ENVIRONMENT="dev"
 AWS_REGION="us-east-1"
 BUCKET_NAME="${PROJECT_NAME}-${ENVIRONMENT}-terraform-state"
-DYNAMODB_TABLE="${PROJECT_NAME}-${ENVIRONMENT}-terraform-locks"
 
 echo "=========================================="
 echo "Creating Terraform Backend Resources"
@@ -18,7 +18,6 @@ echo "Project: ${PROJECT_NAME}"
 echo "Environment: ${ENVIRONMENT}"
 echo "Region: ${AWS_REGION}"
 echo "Bucket: ${BUCKET_NAME}"
-echo "DynamoDB Table: ${DYNAMODB_TABLE}"
 echo ""
 
 # 1. Create S3 bucket for Terraform state
@@ -60,45 +59,30 @@ aws s3api put-public-access-block \
 
 echo "✅ Public access blocked"
 
-# 5. Create DynamoDB table for state locking
-echo "🗄️  Creating DynamoDB table..."
-aws dynamodb create-table \
-  --table-name "${DYNAMODB_TABLE}" \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region "${AWS_REGION}"
-
-echo "✅ DynamoDB table created"
-
-# Wait for table to be active
-echo "⏳ Waiting for DynamoDB table to be active..."
-aws dynamodb wait table-exists --table-name "${DYNAMODB_TABLE}" --region "${AWS_REGION}"
-
 echo ""
 echo "=========================================="
 echo "✅ Backend resources created successfully!"
 echo "=========================================="
 echo ""
 echo "📝 Next Steps:"
-echo "1. Create backend.tf in terraform/environments/${ENVIRONMENT}/"
-echo "2. Add the following configuration:"
+echo "1. terraform/environments/${ENVIRONMENT}/backend.tf already points at this"
+echo "   bucket, with use_lockfile = true for state locking:"
 echo ""
 echo "-------------------------------------------"
 cat << EOF
 terraform {
   backend "s3" {
-    bucket         = "${BUCKET_NAME}"
-    key            = "terraform.tfstate"
-    region         = "${AWS_REGION}"
-    encrypt        = true
-    dynamodb_table = "${DYNAMODB_TABLE}"
+    bucket       = "${BUCKET_NAME}"
+    key          = "terraform.tfstate"
+    region       = "${AWS_REGION}"
+    encrypt      = true
+    use_lockfile = true
   }
 }
 EOF
 echo "-------------------------------------------"
 echo ""
-echo "3. Initialize Terraform:"
+echo "2. Initialize and apply (Terraform >= 1.16.0):"
 echo "   cd terraform/environments/${ENVIRONMENT}"
 echo "   terraform init"
 echo "   terraform apply"
