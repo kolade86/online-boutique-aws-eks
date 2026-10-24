@@ -1,0 +1,6 @@
+Deployment frontend: revision 7, generation 7 (observed 7)
+Live spec.replicas: 5; status: replicas 5, ready 2, updated 5, available 2
+No kubectl.kubernetes.io/last-applied-configuration annotation: the last apply was not a client-side apply
+Field managers of spec.replicas: kube-controller-manager (Update, subresource scale, 12m ago)
+ReplicaSets, newest revision first (a rollout adds a new one; a replica-count change resizes the current one):
+  frontend-6098b2cc2: revision 7 (current), desired 5, ready 2, image tag v20261024-123304-3bc626af, created 3h ago

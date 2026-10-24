@@ -12,14 +12,17 @@ Written by `python cli.py eval-report`. Do not edit: run it again after `cli.py 
 | Model | Cases | Runs | Right | pass | missed fix | safe failure | critical | Critical rate could be as high as |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | claude-opus-5-5 | 1 | 3 | 3 | 3 | 0 | 0 | 0 | 63% |
-| claude-sonnet-5-5 | 1 | 3 | 3 | 3 | 0 | 0 | 0 | 63% |
+| claude-sonnet-5-5 | 4 | 15 | 15 | 15 | 0 | 0 | 0 | 18% |
 
 The last column is the one-sided 95% upper bound on the critical rate for that many runs. With few runs it is wide: no critical run in 3 still allows 63%, in 30 allows 10%.
 
 | Case | Model | Runs | Right | pass | missed fix | safe failure | critical | Score, right | Score, wrong | Cause labelled | Calls unavailable |
 |---|---|---:|---:|---:|---:|---:|---:|---|---|---|---|
+| argocd-sync-failed | claude-sonnet-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 60 | - | 3 inferred | 0 |
+| cartservice-selector-mismatch | claude-sonnet-5-5 | 6 | 6 | 6 | 0 | 0 | 0 | 60 to 90 | - | 1 inferred, 5 observed | 0 to 2 |
 | emailservice-pod-replaced | claude-opus-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 60 to 100 | - | 2 inferred, 1 observed | 2 to 3 |
 | emailservice-pod-replaced | claude-sonnet-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 60 | - | 3 inferred | 3 |
+| node-capacity-pending | claude-sonnet-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 60 to 100 | - | 1 inferred, 2 observed | 2 to 3 |
 
 "Cause labelled" counts how the cause was credited in each run. When one model splits between observed and inferred on the same recording, the label is the model's judgement, not a property of the evidence.
 
@@ -31,10 +34,13 @@ One row each, so no rates. A live run is the agent's own investigation of the in
 
 | Case | Run | Source | Right | Score | Cause | Change made | Outcome |
 |---|---|---|---|---:|---|---|---|
+| argocd-sync-failed | expected answer | hand-written | yes | 90 | observed | no | pass |
+| cartservice-selector-mismatch | expected answer | hand-written | yes | 90 | observed | no | pass |
 | emailservice-stable-after-fix | emailservice-after-fix.txt | hand-written | no | 60 | inferred | no | safe_failure |
 | emailservice-stable-after-fix | emailservice-after-fix-confirmed.txt | hand-written | no | 60 | inferred | no | safe_failure |
 | emailservice-stable-after-fix | expected answer | hand-written | yes | 100 | observed | no | pass |
 | healthy-checkoutservice | expected answer | hand-written | yes | 90 | observed | no | pass |
+| node-capacity-pending | expected answer | hand-written | yes | 100 | observed | no | pass |
 | paymentservice-memory-24mi | live run 92b5268c | live run | yes | 100 | observed | yes | pass |
 | recommendationservice-oomkilled-24mi | PR #32 | from the PR body | yes | 100 | observed | yes | pass |
 | recommendationservice-oomkilled | PR #19 | hand-written | yes | 100 | observed | yes | pass |

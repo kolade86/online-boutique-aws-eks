@@ -1,11 +1,23 @@
 {{- /*
-A ServiceAccount, and optionally a namespaced Role bound to it, for services
-that set `serviceAccount: true` (and `rbac.rules`). Only sreagent does; every
-other service keeps running as the namespace's default ServiceAccount.
-A Role, never a ClusterRole: permissions stop at this namespace.
+A ServiceAccount, and the read access granted to it, for services that set
+`serviceAccount: true`. Only sreagent does; every other service keeps running
+as the namespace's default ServiceAccount.
+
+What `rbac` can grant, all bound to that ServiceAccount:
+  rules              a Role in this namespace
+  bindClusterRoles   existing ClusterRoles (e.g. the built-in "view"), bound
+                     by a RoleBinding: the access stops at this namespace
+  clusterRules       a ClusterRole + ClusterRoleBinding, for cluster-scoped
+                     resources only (nodes)
+  namespaceRules     {namespace: rules}: a Role + RoleBinding in another
+                     namespace (Argo CD's)
+Names outside this namespace carry the release namespace, so two
+environments in one cluster do not collide.
 */}}
 {{- range $name, $svc := .Values.services }}
 {{- if and (ne $svc.enabled false) $svc.serviceAccount }}
+{{- $rbac := $svc.rbac | default dict }}
+{{- $scoped := printf "%s-%s" $.Release.Namespace $name }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -14,7 +26,7 @@ metadata:
   labels:
     app: {{ $name }}
     {{- include "online-boutique.labels" $ | nindent 4 }}
-{{- if and $svc.rbac $svc.rbac.rules }}
+{{- if $rbac.rules }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -24,7 +36,7 @@ metadata:
     app: {{ $name }}
     {{- include "online-boutique.labels" $ | nindent 4 }}
 rules:
-  {{- toYaml $svc.rbac.rules | nindent 2 }}
+  {{- toYaml $rbac.rules | nindent 2 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -37,6 +49,82 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- range $role := $rbac.bindClusterRoles }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-{{ $role }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $role }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- if $rbac.clusterRules }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $scoped }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+rules:
+  {{- toYaml $rbac.clusterRules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $scoped }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $scoped }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- range $namespace, $rules := $rbac.namespaceRules }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $scoped }}
+  namespace: {{ $namespace }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+rules:
+  {{- toYaml $rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $scoped }}
+  namespace: {{ $namespace }}
+  labels:
+    app: {{ $name }}
+    {{- include "online-boutique.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $scoped }}
 subjects:
   - kind: ServiceAccount
     name: {{ $name }}

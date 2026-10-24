@@ -272,6 +272,18 @@ class ObservedRuleTest(unittest.TestCase):
         self.assertEqual(s.not_observed,
                          "nothing cited shows the failure in the cluster (pods, events, logs or metrics)")
 
+    def test_get_resource_is_the_explaining_side(self):
+        # The selector-mismatch shape: pods are fine (list_pods), the Service's
+        # selector and its empty EndpointSlice explain the failure (get_resource)
+        ev = calls("list_pods", "get_resource", "get_resource")
+        s = c.score(assessment(cause_evidence=[1, 2], decisive_check=check("selector vs labels", 2, 3)), ev)
+        self.assertTrue(s.observed)
+        # ... and on its own it is not an observed cause: nothing shows the pods' side
+        alone = c.score(assessment(cause_evidence=[2], decisive_check=check("selector", 2, 3)), ev)
+        self.assertFalse(alone.observed)
+        self.assertEqual(alone.not_observed,
+                         "nothing cited shows the failure in the cluster (pods, events, logs or metrics)")
+
     def test_a_failed_decisive_call_does_not_count(self):
         ev = calls("list_pods", "describe_deployment", errors=(2,))
         s = c.score(assessment(decisive_check=check("field managers", 2)), ev)

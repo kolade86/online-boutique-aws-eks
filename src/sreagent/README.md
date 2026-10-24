@@ -40,7 +40,7 @@ Every tool call is recorded as evidence.
 | `tools.py` | Tool registry. Every output is redacted, then truncated, before the model sees it |
 | `redact.py` | Secret redaction and truncation |
 | `prometheus_tools.py` | `prometheus_query`, `prometheus_query_range` |
-| `k8s_tools.py` | `list_pods`, `list_deployments`, `describe_deployment`, `list_hpas`, `list_events`, `get_pod_logs` |
+| `k8s_tools.py` | `list_pods`, `list_deployments`, `describe_deployment`, `list_hpas`, `list_events`, `get_pod_logs`, `get_resource` |
 | `github_tools.py` | `recent_chart_commits`, `read_repo_file` |
 | `prompts.py` | System prompts; turns an AlertManager payload into a task |
 | `config.py` | Environment variables |
@@ -117,6 +117,11 @@ python cli.py tool get_pod_logs pod=<a pod name from list_pods> tail_lines=20
 python cli.py tool read_repo_file path=helm/online-boutique/values.yaml "search=  emailservice:"
 python cli.py tool read_repo_file path=helm/online-boutique/values.yaml start_line=261 max_lines=40
 python cli.py tool recent_chart_commits limit=3
+python cli.py tool get_resource kind=services            # one line each: type, selector, ports
+python cli.py tool get_resource kind=endpointslices      # ready and not-ready endpoints per Service
+python cli.py tool get_resource kind=applications        # Argo CD: sync, health, the last sync's errors
+python cli.py tool get_resource kind=nodes               # readiness, pressure, taints, allocatable
+python cli.py tool get_resource kind=services name=cartservice   # one object, trimmed
 ```
 
 The `tool` command takes `key=value` arguments, not JSON, because Windows
@@ -165,9 +170,10 @@ python cli.py ask "Are all deployments healthy?"
 ```
 
 **Local runs use your own kubeconfig credentials.** These are probably
-cluster-admin. The agent only ever makes get/list/log calls in
-`APP_NAMESPACE`, but locally that is enforced by this code alone. In the
-cluster, the namespaced read-only Role in the chart enforces it too.
+cluster-admin. The agent only ever makes get/list/log calls: in
+`APP_NAMESPACE`, plus, through `get_resource`'s allow-list, Argo CD
+Applications in `ARGOCD_NAMESPACE` and nodes. Locally that is enforced by
+this code alone. In the cluster, the chart's RBAC enforces it too.
 
 ## The HTTP server
 
@@ -452,9 +458,22 @@ The agent ships like the other services:
 
 It differs in four ways:
 
-- **Read-only access to its namespace.** It runs as its own ServiceAccount,
-  with a namespaced Role giving get/list/watch on pods, pods/log, events,
-  deployments, replicasets and HPAs. It cannot read Secrets.
+- **Read-only access, and no Secrets anywhere.** It runs as its own
+  ServiceAccount (`templates/rbac.yaml`, values under `services.sreagent.rbac`):
+
+  | Grant | Where | What |
+  |---|---|---|
+  | RoleBinding to the built-in `view` ClusterRole | its namespace only | Pods, logs, events, Deployments, ReplicaSets, HPAs, Services, EndpointSlices, ConfigMaps, Ingresses, Jobs. Kubernetes keeps Secrets out of `view` |
+  | ClusterRole and ClusterRoleBinding `<namespace>-sreagent` | cluster | get/list on nodes, nothing else |
+  | Role and RoleBinding `<namespace>-sreagent` | `argocd` | get/list on `applications.argoproj.io` |
+
+  - `view` replaced the agent's own Role, which granted a subset of it: one
+    grant, not two to keep in step. On EKS 1.35, `view` includes
+    EndpointSlices, so no extra rule is needed.
+  - `view` grows when an installed chart aggregates into it
+    (`rbac.authorization.k8s.io/aggregate-to-view`). What the model can read
+    is narrower: `get_resource`'s allow-list. A test renders the chart and
+    fails if any role it creates names Secrets, a wildcard or a write verb.
 - **Keys in AWS Secrets Manager.** External Secrets syncs them into the
   cluster. They are never in Git, tfvars or Terraform state (see below).
 - **Its own image tag.** `services.sreagent.imageTag` in `values-dev.yaml`
@@ -590,12 +609,16 @@ kubectl get secret sreagent-webhook -n monitoring -o jsonpath='{.metadata.ownerR
 ns=online-boutique-dev
 kubectl get pods -n "$ns" -l app=sreagent                     # 1/1 Running
 kubectl get alertmanager -n monitoring                         # RECONCILED True
-# RBAC: may read pods; may not read Secrets, delete, or look outside its namespace
+# RBAC: reads its namespace, nodes and Argo CD Applications; never Secrets, never writes
 sa="system:serviceaccount:$ns:sreagent"
-kubectl auth can-i list pods   -n "$ns" --as="$sa"            # yes
-kubectl auth can-i get secrets -n "$ns" --as="$sa"            # no
-kubectl auth can-i delete pods -n "$ns" --as="$sa"            # no
-kubectl auth can-i list pods   -n kube-system --as="$sa"      # no
+kubectl auth can-i list pods   -n "$ns" --as="$sa"                            # yes
+kubectl auth can-i list endpointslices.discovery.k8s.io -n "$ns" --as="$sa"   # yes
+kubectl auth can-i list nodes  --as="$sa"                                     # yes
+kubectl auth can-i list applications.argoproj.io -n argocd --as="$sa"         # yes
+kubectl auth can-i get secrets -n "$ns" --as="$sa"                            # no
+kubectl auth can-i get secrets -n argocd --as="$sa"                           # no
+kubectl auth can-i delete pods -n "$ns" --as="$sa"                            # no
+kubectl auth can-i list pods   -n kube-system --as="$sa"                      # no
 
 # Ask it something, without the token appearing on any command line
 kubectl port-forward -n "$ns" svc/sreagent 8080:8080 >/dev/null &
@@ -814,12 +837,16 @@ it. The code checks this from the tools the cited calls used:
 | Side | Tools | Shows |
 |---|---|---|
 | The workload | `list_pods`, `list_events`, `get_pod_logs`, `prometheus_query`, `prometheus_query_range` | What happened to the pods. This is also what the alert already says |
-| The explanation | `read_repo_file`, `recent_chart_commits`, `describe_deployment`, `list_deployments`, `list_hpas` | The setting, change or controller state behind it |
+| The explanation | `read_repo_file`, `recent_chart_commits`, `describe_deployment`, `list_deployments`, `list_hpas`, `get_resource` | The setting, change or controller state behind it |
 
 - The cause or the decisive check must cite a call from the workload side.
 - **The decisive check must cite a call from the explanation side.**
 - Otherwise the cause is scored as inferred, and the reason says which part
   was missing.
+- `get_resource` is on the explanation side only. What it returns is the
+  configuration or controller state behind a failure: a Service's selector,
+  an Argo CD sync result, a node's allocatable CPU. Counted on both sides,
+  one `get_resource` call could meet the rule on its own.
 
 **Why.** On 2026-10-11 Claude Haiku 4.5 answered the emailservice replay
 wrongly: it blamed readiness probes. It marked that cause observed, citing
@@ -1051,12 +1078,18 @@ python cli.py capture regressions/paymentservice-oomkilled.json --service paymen
 - **For a healthy cluster,** ask the agent a question through `/ask`, then
   capture with `--id` and no alert file.
 
-**Redaction.** Everything people read has node names, IP addresses and AWS
-account IDs (including inside ECR image URLs) replaced. That covers
-reports, PR bodies, `/investigations` and saved CLI output. The
-replacements are placeholders numbered consistently within a document:
-`<node-1>`, `<ip-2>`, `<account-id>`. The model still sees the real values,
-because which node something ran on can matter to a diagnosis.
+**Redaction.** Everything people read has node names, IP addresses,
+instance IDs, load balancer hostnames and AWS account IDs (including inside
+ECR image URLs) replaced. That covers reports, PR bodies, `/investigations`
+and saved CLI output. The replacements are placeholders numbered
+consistently within a document: `<node-1>`, `<ip-2>`, `<instance-1>`,
+`<lb-1>`, `<account-id>`.
+
+The Kubernetes tools' output is redacted the same way before the model sees
+it. One mapping is kept for the process, so `<node-2>` in `list_pods` is
+`<node-2>` in `get_resource kind=nodes`: the model can still tell which pods
+share a node. `get_resource` takes the placeholder as a node's name and
+reads the real one. Prometheus output is not redacted for the model.
 
 ## Model choice
 
@@ -1115,6 +1148,7 @@ control.
 | `GITHUB_REPO` | (none) | Required, as `owner/name` |
 | `GITHUB_TOKEN` | (none) | Optional for reads; needed for private repos |
 | `APP_NAMESPACE` | the pod's own namespace | Required outside the cluster |
+| `ARGOCD_NAMESPACE` | `argocd` | Where `get_resource` reads Argo CD Applications. Must match the chart's `rbac.namespaceRules` |
 | `PROMETHEUS_URL` | `http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090` | |
 | `KUBE_CONTEXT` | current context | kubeconfig context to use locally |
 | `SREAGENT_MODEL` | `claude-sonnet-5-5` | Used by `/alert`, `/ask` and the CLI. See [Model choice](#model-choice) |
@@ -1172,6 +1206,79 @@ still going and predicted another scale-up.
 - The case motivated four additions: `describe_deployment`,
   `recent_chart_commits`, the rollout and no-prediction guidance, and the
   current time in the task.
+
+Three synthetic cases cover causes outside the allow-list. Each must be
+explained, and none may open a pull request:
+
+| Case | Mode | The fault |
+|---|---|---|
+| [cartservice-selector-mismatch](regressions/cartservice-selector-mismatch.json) | ask | The Service's selector was changed by hand and matches no pods |
+| [argocd-sync-failed](regressions/argocd-sync-failed.json) | ask | Argo CD's sync fails (no ExternalSecret CRD), so a new tag never rolls out |
+| [node-capacity-pending](regressions/node-capacity-pending.json) | alert | Pods Pending, Insufficient cpu on every node. Lowering requests is a wrong answer, and a critical outcome if proposed |
+
+- **Synthetic means no live capture.** Every output was produced by the real
+  tool code from hand-built Kubernetes objects, and each recorded call says
+  `"source": "synthetic"`. The Services, ports, requests and image tags are
+  the chart's at the case's commit, so the repository tools agree with the
+  story.
+- **The node case leaves out what the agent cannot see:** the node group's
+  maximum (AWS) and the cluster autoscaler's status (`kube-system`).
+
+### Recording a selector mismatch live
+
+This breaks the cart in the dev cluster for a few minutes: run it only in a
+throwaway sandbox. The agent must already run an image with `get_resource`.
+Bash (Git Bash on Windows), from the repository root, with your own
+kubeconfig.
+
+```bash
+ns=online-boutique-dev
+cd src/sreagent
+
+# 1. Pause Argo CD's automated sync, or self-heal reverts the change in seconds
+kubectl patch application online-boutique -n argocd --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":null}}}'
+kubectl get application online-boutique -n argocd -o jsonpath='{.spec.syncPolicy}'; echo   # no "automated"
+
+# 2. Point the Service at a label no pod has
+kubectl patch service cartservice -n "$ns" --type merge \
+  -p '{"spec":{"selector":{"app":"cartservice-canary"}}}'
+kubectl get endpointslices -n "$ns" -l kubernetes.io/service-name=cartservice   # ENDPOINTS <unset>
+
+# 3. Wait a minute or two (load generator traffic puts errors in the frontend's
+#    logs), then ask the agent and save its record
+kubectl port-forward -n "$ns" svc/sreagent 8080:8080 >/dev/null &
+auth() { kubectl get secret sreagent -n "$ns" -o go-template='Authorization: Bearer {{index .data "api-token" | base64decode}}'; }
+auth | curl -s -H @- -H 'Content-Type: application/json' \
+  -d '{"question": "Customers say the cart is broken: adding items and checking out both fail with an error page. What is wrong?"}' \
+  http://localhost:8080/ask
+# keep this file outside the repository: it holds node names and IPs
+auth | curl -s -H @- http://localhost:8080/investigations > ~/investigations.json
+
+# 4. Capture while the fault is still live: the agent's calls, and the standard pack
+python cli.py capture regressions/cartservice-selector-mismatch-live.json --service cartservice \
+  --investigations ~/investigations.json
+
+# 5. Restore the selector, then automated sync as Terraform sets it
+kubectl patch service cartservice -n "$ns" --type merge -p '{"spec":{"selector":{"app":"cartservice"}}}'
+kubectl patch application online-boutique -n argocd --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+kubectl get application online-boutique -n argocd -o jsonpath='{.status.sync.status}'; echo   # Synced
+kubectl get endpointslices -n "$ns" -l kubernetes.io/service-name=cartservice   # two endpoints
+kill %1
+```
+
+Then, for the new case file:
+
+- Copy `expected` from the synthetic case (with the label you used).
+- Read every recorded file before committing: redaction is by pattern.
+- Run `python cli.py lint`.
+- Run `python cli.py eval cartservice-selector-mismatch-live --models claude-sonnet-5-5 --runs 3`,
+  then `python cli.py eval-report`.
+
+If step 5 is missed, the cart stays broken and Argo CD stays manual. The
+next `terraform apply` restores the sync policy (the Application is a
+Terraform resource), and Argo CD's self-heal then restores the selector.
 
 How the cases are run and judged: [Evaluation](#evaluation).
 

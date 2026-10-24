@@ -1,0 +1,6 @@
+Deployment cartservice: revision 7, generation 7 (observed 7)
+Live spec.replicas: 2; status: replicas 2, ready 2, updated 2, available 2
+No kubectl.kubernetes.io/last-applied-configuration annotation: the last apply was not a client-side apply
+Field managers of spec.replicas: kube-controller-manager (Update, subresource scale, 12m ago)
+ReplicaSets, newest revision first (a rollout adds a new one; a replica-count change resizes the current one):
+  cartservice-371c17149: revision 7 (current), desired 2, ready 2, image tag v20261024-123304-3bc626af, created 1h35m ago

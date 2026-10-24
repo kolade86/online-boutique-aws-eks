@@ -1,0 +1,2 @@
+frontend-8c4fa2815-8ldzk: Running, ready 1/1, restarts 0, age 6d, node <node-1>, owner ReplicaSet/frontend-8c4fa2815
+frontend-8c4fa2815-dlb2d: Running, ready 1/1, restarts 0, age 6d, node <node-2>, owner ReplicaSet/frontend-8c4fa2815

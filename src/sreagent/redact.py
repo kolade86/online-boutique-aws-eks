@@ -39,15 +39,23 @@ def redact(text: str) -> str:
     return text
 
 
-# --- Infrastructure identifiers, for anything people read ---------------------------
-# Reports, pull request bodies (in a public repository), /investigations and
-# the CLI. Not applied to what the model sees: which node or pod IP something
-# ran on can matter to a diagnosis.
+# --- Infrastructure identifiers -----------------------------------------------------
+# Applied to everything people read - reports, pull request bodies (in a public
+# repository), /investigations and the CLI - and to the Kubernetes tools'
+# output before the model sees it. The model gets placeholders that stay the
+# same across its calls (k8s_tools.KubeReader keeps one mapping), so it can
+# still tell which pods share a node.
 
 _OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
 _INFRA = [
     # EC2 node names: ip-10-0-11-231.ec2.internal, ip-10-0-1-5.us-east-1.compute.internal
     ("node", re.compile(r"\bip-(?:\d{1,3}-){3}\d{1,3}(?:\.[a-z0-9-]+)*\.(?:ec2|compute)\.internal\b")),
+    # Resource-name node hostnames: i-0123456789abcdef0.ec2.internal
+    ("node", re.compile(r"\bi-[0-9a-f]{8,17}(?:\.[a-z0-9-]+)*\.(?:ec2|compute)\.internal\b")),
+    # EC2 instance IDs, also inside a node's providerID (aws:///us-east-1a/i-...)
+    ("instance", re.compile(r"\bi-(?:[0-9a-f]{17}|[0-9a-f]{8})\b")),
+    # Load balancer hostnames: k8s-...-1234567890.us-east-1.elb.amazonaws.com
+    ("lb", re.compile(r"\b[a-z0-9][a-z0-9.-]*\.elb\.amazonaws\.com\b")),
     # IPv4 addresses (a port after them is kept)
     ("ip", re.compile(rf"(?<![\d.]){_OCTET}(?:\.{_OCTET}){{3}}(?![\d.])")),
 ]

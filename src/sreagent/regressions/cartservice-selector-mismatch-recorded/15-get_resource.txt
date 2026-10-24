@@ -1,0 +1,15 @@
+service cartservice in online-boutique-dev (trimmed):
+metadata:
+  name: cartservice
+  namespace: online-boutique-dev
+  labels:
+    app: cartservice
+spec:
+  type: ClusterIP
+  selector:
+    app: cartservice-canary
+  ports:
+  - name: grpc
+    port: 7070
+    targetPort: 7070
+    protocol: TCP

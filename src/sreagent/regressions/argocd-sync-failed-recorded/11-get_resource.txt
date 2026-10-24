@@ -1,0 +1,15 @@
+1 applications in argocd:
+online-boutique: source helm/online-boutique@main, sync OutOfSync at c80d462c, health Healthy; last operation Failed 35m ago at c80d462c: one or more synchronization tasks are not valid (retried 5 times).
+    failed: ExternalSecret/sreagent SyncFailed: The Kubernetes API could not find external-secrets.io/ExternalSecret for requested resource online-boutique-dev/sreagent. Make sure the "ExternalSecret" CRD is installed on the destination cluster.
+    condition SyncError: Failed sync attempt to c80d462c8f847f7df5ff56442c2c0a38e52063de: one or more synchronization tasks are not valid (retried 5 times).
+    resources: 24, not synced or not healthy: 13
+      ExternalSecret/sreagent: OutOfSync, health Missing
+      Deployment/adservice: OutOfSync, health Healthy
+      Deployment/cartservice: OutOfSync, health Healthy
+      Deployment/checkoutservice: OutOfSync, health Healthy
+      Deployment/currencyservice: OutOfSync, health Healthy
+      Deployment/emailservice: OutOfSync, health Healthy
+      Deployment/frontend: OutOfSync, health Healthy
+      Deployment/loadgenerator: OutOfSync, health Healthy
+      Deployment/paymentservice: OutOfSync, health Healthy
+      Deployment/productcatalogservice: OutOfSync, health Healthy

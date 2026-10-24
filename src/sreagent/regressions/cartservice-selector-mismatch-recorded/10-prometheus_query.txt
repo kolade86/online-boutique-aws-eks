@@ -1,0 +1,3 @@
+2 series
+{pod="cartservice-371c17149-gwfxm"} = 0
+{pod="cartservice-371c17149-w94hf"} = 0

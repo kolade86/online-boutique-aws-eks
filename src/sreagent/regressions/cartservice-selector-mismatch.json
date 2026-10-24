@@ -1,0 +1,309 @@
+{
+  "id": "cartservice-selector-mismatch",
+  "format": 2,
+  "mode": "ask",
+  "synthetic": true,
+  "scenario": "The cartservice Service's selector was changed by hand to app=cartservice-canary, with Argo CD's automated sync turned off, so it selects no pods. Both cartservice pods run and are ready; the frontend gets 'connection refused' on cartservice:7070. A live capture of the same fault is described in README.md, 'Recording a selector mismatch live'.",
+  "expected": {
+    "kind": "not_fixable_by_config",
+    "must_mention_any": [
+      [
+        "selector"
+      ],
+      [
+        "cartservice-canary"
+      ],
+      [
+        "endpoint",
+        "no pods",
+        "matches no",
+        "no matching pod",
+        "selects no"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": null
+  },
+  "expected_diagnosis": "The cartservice Service selects app=cartservice-canary, which no pod has, so its EndpointSlice is empty and the frontend's calls to cartservice:7070 are refused, while both cartservice pods (app=cartservice) run and are ready. The chart is right; the live Service differs from it (Argo CD shows Service/cartservice OutOfSync, automated sync off). Fix: sync the Application from Git (or restore the selector) and turn automated sync back on. No values change.",
+  "expected_assessment": {
+    "note": "Hand-written on 2026-10-24 from the synthetic recording: what a right answer's assessment looks like.",
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "cartservice"
+        }
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-9e9cb0eb5-ftcj7"
+        }
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services",
+          "name": "cartservice"
+        }
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices"
+        }
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications"
+        }
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "cartservice"
+        }
+      }
+    ],
+    "assessment": {
+      "conclusion": "cause_found",
+      "cause": "The cartservice Service selects app=cartservice-canary, which no pod has: its EndpointSlice has 0 endpoints, so calls to cartservice:7070 are refused while both cartservice pods run ready",
+      "cause_support": "observed",
+      "cause_evidence": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "decisive_check": {
+        "what": "The Service selector app=cartservice-canary against the pods' label app=cartservice: the cartservice EndpointSlice has 0 endpoints, every other Service's has its pods",
+        "evidence": [
+          1,
+          3,
+          4
+        ]
+      },
+      "alternatives": [
+        {
+          "cause": "cartservice pods down or crash-looping",
+          "result": "ruled_out",
+          "evidence": [
+            1
+          ]
+        },
+        {
+          "cause": "a bad rollout or new cartservice image",
+          "result": "ruled_out",
+          "evidence": [
+            6
+          ]
+        }
+      ],
+      "timing": "not_checked",
+      "timing_evidence": [],
+      "unverified": [
+        {
+          "what": "who changed the selector, and when: no event records it",
+          "could_change_diagnosis": false
+        }
+      ]
+    },
+    "answer": "The cartservice Service's selector is app=cartservice-canary, but the cartservice pods are labelled app=cartservice, so the selector matches no pods and its EndpointSlice has 0 endpoints. The frontend's calls to cartservice:7070 are refused. Both cartservice pods are Running and ready. No configuration change: the chart renders the right selector, and Argo CD shows Service/cartservice OutOfSync with automated sync off. A person should sync the Application from Git to restore the selector, then turn automated sync back on."
+  },
+  "replay": {
+    "question": "Customers say the cart is broken: adding items and checking out both fail with an error page. What is wrong?",
+    "now": "2026-10-24T14:10:00Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "c80d462c8f84",
+    "note": "Synthetic: no live capture. Every output was produced by the real tool code (k8s_tools, prometheus_tools, through the tool registry) from hand-built Kubernetes objects; the Services, ports, requests and image tags are the chart's at c80d462c8f84. Generated on 2026-10-24. Log recordings for the cartservice pod (default, tail_lines 50 and 60) and the frontend pod (tail_lines 50 and 60) were added after the first Sonnet runs, which asked for them.",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-recorded/01-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "cartservice-selector-mismatch-recorded/02-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-recorded/03-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "cartservice-selector-mismatch-recorded/04-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "cartservice-selector-mismatch-recorded/05-list_deployments.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-recorded/06-describe_deployment.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "cartservice-selector-mismatch-recorded/07-list_hpas.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"cartservice-.*\",container!=\"\"})",
+          "minutes": 60
+        },
+        "file": "cartservice-selector-mismatch-recorded/08-prometheus_query_range.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"online-boutique-dev\",pod=~\"cartservice-.*\",container!=\"\"}[5m]))",
+          "minutes": 60
+        },
+        "file": "cartservice-selector-mismatch-recorded/09-prometheus_query_range.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"online-boutique-dev\",pod=~\"cartservice-.*\"})"
+        },
+        "file": "cartservice-selector-mismatch-recorded/10-prometheus_query.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "cartservice-selector-mismatch-recorded/11-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-9e9cb0eb5-ftcj7"
+        },
+        "file": "cartservice-selector-mismatch-recorded/12-get_pod_logs.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "cartservice-selector-mismatch-recorded/13-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services"
+        },
+        "file": "cartservice-selector-mismatch-recorded/14-get_resource.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services",
+          "name": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-recorded/15-get_resource.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices"
+        },
+        "file": "cartservice-selector-mismatch-recorded/16-get_resource.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications"
+        },
+        "file": "cartservice-selector-mismatch-recorded/17-get_resource.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications",
+          "name": "online-boutique"
+        },
+        "file": "cartservice-selector-mismatch-recorded/18-get_resource.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-371c17149-gwfxm"
+        },
+        "file": "cartservice-selector-mismatch-recorded/19-get_pod_logs.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-371c17149-gwfxm",
+          "tail_lines": 50
+        },
+        "file": "cartservice-selector-mismatch-recorded/20-get_pod_logs.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-371c17149-gwfxm",
+          "tail_lines": 60
+        },
+        "file": "cartservice-selector-mismatch-recorded/21-get_pod_logs.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-9e9cb0eb5-ftcj7",
+          "tail_lines": 50
+        },
+        "file": "cartservice-selector-mismatch-recorded/22-get_pod_logs.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-9e9cb0eb5-ftcj7",
+          "tail_lines": 60
+        },
+        "file": "cartservice-selector-mismatch-recorded/23-get_pod_logs.txt",
+        "source": "synthetic"
+      }
+    ]
+  }
+}

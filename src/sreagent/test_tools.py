@@ -65,6 +65,16 @@ class RedactTest(unittest.TestCase):
                          "arn:aws:iam::<account-id>:role/r arn:aws:sns:us-east-1:<account-id>:t")
         self.assertEqual(redact_public("token=abcdef123456 on 10.1.2.3"), "token=[REDACTED] on <ip-1>")
 
+    def test_instance_ids_resource_name_hosts_and_load_balancers(self):
+        from redact import redact_infra
+        self.assertEqual(
+            redact_infra("aws:///us-east-1a/i-0abc123def4567890 old i-1a2b3c4d; host "
+                         "i-0abc123def4567890.ec2.internal; lb k8s-onlinebo-frontend-1a2b3c4d5e-"
+                         "1234567890.us-east-1.elb.amazonaws.com"),
+            "aws:///us-east-1a/<instance-1> old <instance-2>; host <node-1>; lb <lb-1>")
+        text = "pod cartservice-7f9c8d-x2kq; i-am-fine; hi-0abc12345678"
+        self.assertEqual(redact_infra(text), text)
+
     def test_infra_redaction_leaves_ordinary_numbers(self):
         from redact import redact_infra
         text = ("v1.29.3 4.295e7 1.2.3 999.1.1.1 1.2.3.4.5 count 123456789012 "
@@ -256,10 +266,189 @@ class KubeFormatTest(unittest.TestCase):
         self.assertIn("Field managers of spec.replicas: none recorded", out)
 
     def test_rejects_invalid_names(self):
-        tools = {t.name: t for t in k8s_tools.make_tools(NS(namespace="ns"))}
+        tools = {t.name: t for t in k8s_tools.make_tools(k8s_tools.KubeReader("ns", core=object()))}
         for bad in ("../etc", "Pod_Name", "a b", ""):
             with self.subTest(name=bad), self.assertRaises(ToolError):
                 tools["get_pod_logs"].handler({"pod": bad})
+
+
+def _raw(obj):
+    """What a typed client returns with _preload_content=False."""
+    return NS(data=json.dumps(obj).encode())
+
+
+NODE_NAME = "ip-10-0-11-231.ec2.internal"
+NODE = {
+    "metadata": {
+        "name": NODE_NAME, "uid": "5f1c-uid", "resourceVersion": "991",
+        "creationTimestamp": "2026-10-20T10:00:00Z",
+        "managedFields": [{"manager": "kubelet", "fieldsV1": {"f:status": {}}}],
+        "labels": {"kubernetes.io/hostname": NODE_NAME,
+                   "node.kubernetes.io/instance-type": "t3.large",
+                   "topology.kubernetes.io/zone": "us-east-1a",
+                   "eks.amazonaws.com/nodegroup": "online-boutique-dev-ng"},
+        "annotations": {"alpha.kubernetes.io/provided-node-ip": "10.0.11.231",
+                        "csi.volume.kubernetes.io/nodeid": '{"ebs.csi.aws.com":"i-0abc123def4567890"}'}},
+    "spec": {"providerID": "aws:///us-east-1a/i-0abc123def4567890", "taints": []},
+    "status": {
+        "addresses": [{"type": "InternalIP", "address": "10.0.11.231"},
+                      {"type": "Hostname", "address": NODE_NAME},
+                      {"type": "InternalDNS", "address": NODE_NAME}],
+        "allocatable": {"cpu": "1930m", "memory": "7220184Ki", "pods": "35"},
+        "capacity": {"cpu": "2", "memory": "8047576Ki", "pods": "35"},
+        "conditions": [{"type": "MemoryPressure", "status": "False"},
+                       {"type": "Ready", "status": "True", "reason": "KubeletReady",
+                        "lastHeartbeatTime": "2026-10-24T12:00:00Z"}],
+        "nodeInfo": {"kubeletVersion": "v1.35.8-eks", "machineID": "ec2abc", "systemUUID": "ec2def",
+                     "bootID": "b00t"},
+        "images": [{"names": [f"registry/image-{i}:v1"], "sizeBytes": 1} for i in range(200)]},
+}
+
+
+class GetResourceTest(unittest.TestCase):
+    """get_resource: the allow-list of kinds and namespaces, trimming, the size
+    cap, and redaction of node data - through the registry, as the model sees it."""
+
+    def setUp(self):
+        self.calls = []
+
+        def record(name, value):
+            def call(*args, **kwargs):
+                self.calls.append((name, args))
+                return value(*args) if callable(value) else value
+            return call
+
+        svc = {"metadata": {"name": "cartservice"},
+               "spec": {"type": "ClusterIP", "selector": {"app": "cartservice-v2"},
+                        "ports": [{"name": "grpc", "port": 7070, "targetPort": 7070}]}}
+        self.core = NS(
+            list_namespaced_service=record("list_services", _raw({"items": [svc]})),
+            read_namespaced_service=record("read_service", _raw(svc)),
+            list_node=record("list_nodes", _raw({"items": [NODE]})),
+            read_node=record("read_node", lambda name: _raw(NODE)),
+            list_namespaced_config_map=record("list_cm", None),
+            read_namespaced_config_map=record("read_cm", None),
+            list_namespaced_pod=record("list_pods", NS(items=[self._pod()])),
+        )
+        self.custom = NS(list_namespaced_custom_object=record(
+            "list_apps", {"items": [{"metadata": {"name": "online-boutique"},
+                                     "status": {"sync": {"status": "OutOfSync"}}}]}))
+        self.kube = k8s_tools.KubeReader("online-boutique-dev", core=self.core, apps=None,
+                                         autoscaling=None, apis={"custom": self.custom})
+        self.registry = ToolRegistry(k8s_tools.make_tools(self.kube), 6000)
+
+    @staticmethod
+    def _pod():
+        return NS(metadata=NS(name="cartservice-abc", creation_timestamp=None, owner_references=[]),
+                  status=NS(phase="Running", container_statuses=[]), spec=NS(node_name=NODE_NAME))
+
+    def run_tool(self, **args):
+        return self.registry.run("get_resource", args)
+
+    def test_secrets_are_rejected_in_any_spelling_without_an_api_call(self):
+        for kind in ("secrets", "Secret", "secret", " SECRETS "):
+            with self.subTest(kind=kind):
+                out, is_error = self.run_tool(kind=kind)
+                self.assertTrue(is_error)
+                self.assertIn("Secrets are never readable", out)
+        self.assertEqual(self.calls, [])
+
+    def test_unlisted_kinds_are_rejected(self):
+        for kind in ("pods", "deployments", "roles", "clusterroles", "serviceaccounts",
+                     "customresourcedefinitions", "networkpolicies", ""):
+            with self.subTest(kind=kind):
+                out, is_error = self.run_tool(kind=kind)
+                self.assertTrue(is_error)
+        self.assertEqual(self.calls, [])
+
+    def test_each_kind_is_read_only_in_its_one_namespace(self):
+        for args in ({"kind": "services", "namespace": "kube-system"},
+                     {"kind": "services", "namespace": "argocd"},
+                     {"kind": "configmaps", "namespace": "monitoring"},
+                     {"kind": "applications", "namespace": "online-boutique-dev"},
+                     {"kind": "services", "namespace": "../x"}):
+            with self.subTest(args=args):
+                out, is_error = self.run_tool(**args)
+                self.assertTrue(is_error)
+        self.assertEqual(self.calls, [])
+        self.run_tool(kind="services", namespace="online-boutique-dev")
+        self.run_tool(kind="applications")
+        self.assertEqual(self.calls, [("list_services", ("online-boutique-dev",)),
+                                      ("list_apps", ("argoproj.io", "v1alpha1", "argocd", "applications"))])
+
+    def test_a_list_is_one_summary_line_per_object(self):
+        out, is_error = self.run_tool(kind="service")
+        self.assertFalse(is_error)
+        self.assertEqual(out, "1 services in online-boutique-dev:\n"
+                              "cartservice: ClusterIP, selector app=cartservice-v2, ports grpc 7070->7070/TCP")
+
+    def test_node_data_is_redacted_list_and_detail(self):
+        listed, _ = self.run_tool(kind="nodes")
+        detail, is_error = self.run_tool(kind="nodes", name="<node-1>")
+        self.assertFalse(is_error, detail)
+        for out in (listed, detail):
+            for leak in ("10.0.11.231", "ip-10-0-11-231", "i-0abc123def4567890"):
+                self.assertNotIn(leak, out)
+        self.assertTrue(listed.startswith("1 nodes:\n<node-1>: Ready True, taints none, "
+                                          "allocatable cpu 1930m"), listed)
+        self.assertIn("aws:///us-east-1a/<instance-1>", detail)
+        # the placeholder was read back as the real name, never shown to the model
+        self.assertEqual(self.calls[-1], ("read_node", (NODE_NAME,)))
+
+    def test_one_placeholder_mapping_across_tools(self):
+        pods, _ = self.registry.run("list_pods", {})
+        nodes, _ = self.run_tool(kind="nodes")
+        self.assertIn("node <node-1>", pods)
+        self.assertTrue(nodes.startswith("1 nodes:\n<node-1>:"))
+        out, is_error = self.run_tool(kind="nodes", name="<node-7>")
+        self.assertTrue(is_error)
+        self.assertIn("list nodes first", out)
+
+    def test_detail_drops_noise(self):
+        self.run_tool(kind="nodes")
+        out, _ = self.run_tool(kind="nodes", name="<node-1>")
+        for noise in ("managedFields", "uid", "resourceVersion", "images", "machineID",
+                      "systemUUID", "bootID", "lastHeartbeatTime", "annotations"):
+            self.assertNotIn(noise, out)
+        self.assertIn("allocatable", out)
+        self.assertIn("kubeletVersion", out)
+
+    def test_output_is_capped(self):
+        big = {"metadata": {"name": "big"}, "data": {f"key{i}": "x" * 10000 for i in range(40)}}
+        self.core.read_namespaced_config_map = lambda name, ns, **kw: _raw(big)
+        self.core.list_namespaced_config_map = lambda ns, **kw: _raw(
+            {"items": [{"metadata": {"name": f"cm{i:03d}"}, "data": {}} for i in range(200)]})
+        tool = {t.name: t for t in k8s_tools.make_tools(self.kube)}["get_resource"]
+        detail = tool.handler({"kind": "configmaps", "name": "big"})
+        self.assertLessEqual(len(detail), k8s_tools.MAX_RESOURCE_CHARS + 60)
+        self.assertIn("[truncated", detail)
+        listed = tool.handler({"kind": "configmaps"})
+        self.assertIn(f"... and {200 - k8s_tools.MAX_ITEMS} more", listed)
+
+    def test_rbac_refusal_is_a_tool_error(self):
+        def forbidden(*a, **kw):
+            raise type("ApiException", (Exception,), {"status": 403})()
+        self.core.list_node = forbidden
+        out, is_error = self.run_tool(kind="nodes")
+        self.assertTrue(is_error)
+        self.assertIn("Not permitted to read nodes (403)", out)
+
+    def test_replay_finds_the_recording_and_rejects_what_live_rejects(self):
+        import os
+        import tempfile
+        import replay
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "svc.txt"), "w", encoding="utf-8") as f:
+                f.write("recorded services")
+            spec = {"repo_ref": "HEAD", "namespace": "online-boutique-dev",
+                    "recorded": [{"tool": "get_resource", "input": {"kind": "services"}, "file": "svc.txt"}]}
+            registry = replay.replay_registry(spec, d, 6000)
+            self.assertEqual(registry.run("get_resource", {"kind": "Service",
+                                                           "namespace": "online-boutique-dev"}),
+                             ("recorded services", False))
+            out, is_error = registry.run("get_resource", {"kind": "secrets"})
+            self.assertTrue(is_error)
+            self.assertIn("Secrets are never readable", out)
 
 
 class ReadRepoFileTest(unittest.TestCase):

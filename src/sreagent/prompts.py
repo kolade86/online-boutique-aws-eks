@@ -165,8 +165,12 @@ If a configuration change in values-dev.yaml would fix it, state it exactly
 (for example: "cartservice memory limit 512Mi -> 768Mi"). Only these kinds of
 change are allowed: the image tag (rollback), CPU/memory requests and limits,
 replica counts (only for services without an HPA), and HPA min/max replicas.
-If none of those would fix it, or there is no problem, say
-"No configuration change" and say what a human should look at, if anything.
+If none of those would fix it, say "No configuration change", then state the
+fix a person should make and where it is made: a chart template, Terraform
+(for example more cluster or node capacity), Argo CD, or reverting a change
+made by hand in the cluster. Do not reach for an allowed change that only
+hides the cause, such as lowering requests so that pods fit on full nodes.
+If there is no problem, say "No configuration change".
 When the evidence shows such a change would fix the problem: first call
 submit_assessment, then - only if its reply says a change may be proposed -
 call propose_values_change before you write the report. It opens a pull

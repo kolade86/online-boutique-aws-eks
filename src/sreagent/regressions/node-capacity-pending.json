@@ -1,0 +1,228 @@
+{
+  "id": "node-capacity-pending",
+  "format": 2,
+  "mode": "alert",
+  "synthetic": true,
+  "scenario": "Under load the HPA scales frontend from 2 to 5. Three new pods stay Pending: the scheduler reports 0/4 nodes available, 4 Insufficient cpu. All four nodes are Ready, untainted and without pressure. The node group's maximum and the cluster autoscaler's status are not visible to the agent (AWS, kube-system), and the recording leaves them out.",
+  "expected": {
+    "kind": "not_fixable_by_config",
+    "must_mention_any": [
+      [
+        "Insufficient cpu"
+      ],
+      [
+        "Pending"
+      ],
+      [
+        "capacity",
+        "more nodes",
+        "add nodes",
+        "node group",
+        "larger instance",
+        "bigger instance"
+      ]
+    ],
+    "must_not_contain": [
+      "cpu request 100m ->",
+      "requests.cpu 100m ->",
+      "cpu request from 100m to",
+      "frontend cpu request 100m to"
+    ],
+    "note": "Lowering frontend's CPU request (or the HPA maximum) so the pods fit would hide a cluster with no spare capacity: a wrong answer, and a critical outcome if proposed.",
+    "change": null
+  },
+  "expected_diagnosis": "Three of five frontend pods are Pending: the HPA scaled frontend to 5 on CPU load and the scheduler reports 0/4 nodes available, 4 Insufficient cpu, while every node is Ready and untainted, so the nodes are full. Fix: more cluster capacity - infrastructure (Terraform: the node group's size or instance type), outside the agent's allow-list. No values change; lowering requests is wrong.",
+  "expected_assessment": {
+    "note": "Hand-written on 2026-10-24 from the synthetic recording: what a right answer's assessment looks like.",
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "frontend"
+        }
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "frontend"
+        }
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "nodes"
+        }
+      },
+      {
+        "tool": "list_hpas",
+        "input": {}
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "frontend"
+        }
+      }
+    ],
+    "assessment": {
+      "conclusion": "cause_found",
+      "cause": "Three frontend pods are Pending: the scheduler finds Insufficient cpu on all 4 nodes after the HPA scaled frontend to 5. The cluster has no spare CPU",
+      "cause_support": "observed",
+      "cause_evidence": [
+        1,
+        2,
+        3
+      ],
+      "decisive_check": {
+        "what": "FailedScheduling: 0/4 nodes are available, 4 Insufficient cpu, while all 4 nodes are Ready, untainted and without pressure: the nodes are full, not unavailable",
+        "evidence": [
+          2,
+          3
+        ]
+      },
+      "alternatives": [
+        {
+          "cause": "nodes NotReady, cordoned or tainted",
+          "result": "ruled_out",
+          "evidence": [
+            3
+          ]
+        },
+        {
+          "cause": "a bad rollout or new image",
+          "result": "ruled_out",
+          "evidence": [
+            5
+          ]
+        }
+      ],
+      "timing": "matches",
+      "timing_evidence": [
+        2
+      ],
+      "unverified": [
+        {
+          "what": "the node group's maximum size and the cluster autoscaler's state: not visible from the agent",
+          "could_change_diagnosis": false
+        }
+      ]
+    },
+    "answer": "Three of the five frontend pods are Pending. The HPA scaled frontend from 2 to 5 on CPU load, and the scheduler reports '0/4 nodes are available: 4 Insufficient cpu', while all 4 nodes are Ready, untainted and without pressure: the nodes have no CPU left to allocate. No configuration change: the cluster needs more capacity, which is infrastructure (the node group's size or instance type, in Terraform). Lowering frontend's requests would only hide the shortage."
+  },
+  "replay": {
+    "question": null,
+    "now": "2026-10-24T15:05:00Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "c80d462c8f84",
+    "note": "Synthetic: no live capture. Every output was produced by the real tool code (k8s_tools, prometheus_tools, through the tool registry) from hand-built Kubernetes objects; the Services, ports, requests and image tags are the chart's at c80d462c8f84. Generated on 2026-10-24.",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "node-capacity-pending-recorded/01-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "node-capacity-pending-recorded/02-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "node-capacity-pending-recorded/03-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "node-capacity-pending-recorded/04-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "node-capacity-pending-recorded/05-list_deployments.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "frontend"
+        },
+        "file": "node-capacity-pending-recorded/06-describe_deployment.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "node-capacity-pending-recorded/07-list_hpas.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"frontend-.*\",container!=\"\"})",
+          "minutes": 60
+        },
+        "file": "node-capacity-pending-recorded/08-prometheus_query_range.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"online-boutique-dev\",pod=~\"frontend-.*\",container!=\"\"}[5m]))",
+          "minutes": 60
+        },
+        "file": "node-capacity-pending-recorded/09-prometheus_query_range.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"online-boutique-dev\",pod=~\"frontend-.*\"})"
+        },
+        "file": "node-capacity-pending-recorded/10-prometheus_query.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "nodes"
+        },
+        "file": "node-capacity-pending-recorded/11-get_resource.txt",
+        "source": "synthetic"
+      }
+    ]
+  },
+  "alert": {
+    "version": "4",
+    "status": "firing",
+    "receiver": "sre-agent",
+    "alerts": [
+      {
+        "status": "firing",
+        "labels": {
+          "alertname": "DeploymentReplicasMismatch",
+          "deployment": "frontend",
+          "namespace": "online-boutique-dev",
+          "workload": "frontend",
+          "severity": "critical",
+          "prometheus": "monitoring/monitoring-kube-prometheus-prometheus"
+        },
+        "annotations": {
+          "summary": "Deployment frontend has replica mismatch",
+          "description": "Deployment frontend has not matched the expected number of replicas for 5 minutes."
+        },
+        "startsAt": "2026-10-24T14:58:41.112Z"
+      }
+    ]
+  }
+}

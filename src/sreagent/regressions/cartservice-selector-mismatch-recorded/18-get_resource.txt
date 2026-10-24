@@ -1,0 +1,51 @@
+application online-boutique in argocd (trimmed):
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: online-boutique
+  namespace: argocd
+  generation: 412
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: online-boutique-dev
+  source:
+    repoURL: https://github.com/kolade86/online-boutique-aws-eks.git
+    path: helm/online-boutique
+    targetRevision: main
+    helm:
+      valueFiles:
+      - values.yaml
+      - values-dev.yaml
+  syncPolicy: {}
+status:
+  sync:
+    status: OutOfSync
+    revision: c80d462c8f847f7df5ff56442c2c0a38e52063de
+  health:
+    status: Healthy
+  operationState:
+    phase: Succeeded
+    message: successfully synced (all tasks run)
+    startedAt: '2026-10-24T12:33:00Z'
+    finishedAt: '2026-10-24T12:34:00Z'
+    syncResult:
+      revision: c80d462c8f847f7df5ff56442c2c0a38e52063de
+      resources: []
+  resources:
+  - version: v1
+    kind: Service
+    namespace: online-boutique-dev
+    name: cartservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  history:
+  - revision: c80d462c8f847f7df5ff56442c2c0a38e52063de
+    deployedAt: '2026-10-24T12:34:00Z'
+    id: 58
+  conditions: []
+  reconciledAt: '2026-10-24T14:09:00Z'
+  sourceType: Helm
+  resourcesTotal: 23

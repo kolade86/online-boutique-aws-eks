@@ -1,0 +1,4 @@
+1 applications in argocd:
+online-boutique: source helm/online-boutique@main, sync OutOfSync at c80d462c, health Healthy; last operation Succeeded 1h36m ago at c80d462c: successfully synced (all tasks run)
+    resources: 23, not synced or not healthy: 1
+      Service/cartservice: OutOfSync, health Healthy
