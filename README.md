@@ -310,8 +310,11 @@ With an AWS account:
 
 1. Set the repository variables `AWS_ACCOUNT_ID`, `AWS_REGION` and
    `PROJECT_NAME`. The workflows have no hardcoded account.
-2. Run `./bootstrap-backend.sh`, then `terraform apply` in
-   `terraform/environments/dev`. Allow 20 to 30 minutes.
+2. Run `./bootstrap-backend.sh`. It creates the state bucket
+   `online-boutique-dev-<account-id>-terraform-state` and prints the init
+   command. In `terraform/environments/dev`, run
+   `terraform init -reconfigure -backend-config="bucket=<that name>"`, then
+   `terraform apply`. Allow 20 to 30 minutes.
 3. Run `aws eks update-kubeconfig --region us-east-1 --name online-boutique-dev-cluster`.
 4. Run `bash src/sreagent/load-secrets.sh` to load the Anthropic key and the
    GitHub token into Secrets Manager. Do this before the build, so the agent
