@@ -1,0 +1,2 @@
+frontend-9e9cb0eb5-ftcj7: Running, ready 1/1, restarts 0, age 1h35m, node <node-2>, owner ReplicaSet/frontend-9e9cb0eb5
+frontend-9e9cb0eb5-mg6kq: Running, ready 1/1, restarts 0, age 1h34m, node <node-4>, owner ReplicaSet/frontend-9e9cb0eb5

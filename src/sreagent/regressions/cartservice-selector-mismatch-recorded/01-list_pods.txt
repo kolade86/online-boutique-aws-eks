@@ -1,0 +1,2 @@
+cartservice-371c17149-gwfxm: Running, ready 1/1, restarts 0, age 1h35m, node <node-1>, owner ReplicaSet/cartservice-371c17149
+cartservice-371c17149-w94hf: Running, ready 1/1, restarts 0, age 1h34m, node <node-2>, owner ReplicaSet/cartservice-371c17149

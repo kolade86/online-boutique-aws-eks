@@ -1,0 +1,204 @@
+{
+  "id": "argocd-sync-failed",
+  "format": 2,
+  "mode": "ask",
+  "synthetic": true,
+  "scenario": "Argo CD tries to sync c80d462 (the new image tag) and fails before applying anything: the chart's ExternalSecret has no CRD in the cluster (the External Secrets operator was removed). Every Deployment still runs v20261017-165354-bece33f8.",
+  "expected": {
+    "kind": "not_fixable_by_config",
+    "must_mention_any": [
+      [
+        "ExternalSecret"
+      ],
+      [
+        "CRD",
+        "CustomResourceDefinition",
+        "External Secrets"
+      ],
+      [
+        "sync"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": null
+  },
+  "expected_diagnosis": "Argo CD's sync of c80d462 failed: the ExternalSecret sreagent cannot be applied because the cluster has no external-secrets.io ExternalSecret CRD, so the sync is invalid and nothing from the commit was applied. The Deployments still run v20261017-165354-bece33f8; values-dev.yaml has v20261024-123304-3bc626af. Fix: reinstall the External Secrets operator and its CRDs (Terraform, platform-services), then let Argo CD retry. No values change.",
+  "expected_assessment": {
+    "note": "Hand-written on 2026-10-24 from the synthetic recording: what a right answer's assessment looks like.",
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {}
+      },
+      {
+        "tool": "list_deployments",
+        "input": {}
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/values-dev.yaml"
+        }
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications"
+        }
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications",
+          "name": "online-boutique"
+        }
+      }
+    ],
+    "assessment": {
+      "conclusion": "cause_found",
+      "cause": "Argo CD's sync of c80d462 failed: the ExternalSecret CRD is not installed, so the sync is invalid and nothing was applied; the pods still run the old tag",
+      "cause_support": "observed",
+      "cause_evidence": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "decisive_check": {
+        "what": "values-dev.yaml at c80d462 has v20261024-123304-3bc626af, the Deployments run v20261017-165354-bece33f8, and the Application's last sync of c80d462 failed: ExternalSecret sreagent, CRD not found",
+        "evidence": [
+          2,
+          3,
+          5
+        ]
+      },
+      "alternatives": [
+        {
+          "cause": "the image tag was never committed",
+          "result": "ruled_out",
+          "evidence": [
+            3
+          ]
+        },
+        {
+          "cause": "the new pods fail to start",
+          "result": "ruled_out",
+          "evidence": [
+            1
+          ]
+        }
+      ],
+      "timing": "not_checked",
+      "timing_evidence": [],
+      "unverified": [
+        {
+          "what": "why the External Secrets CRDs are missing",
+          "could_change_diagnosis": false
+        }
+      ]
+    },
+    "answer": "Argo CD tried to sync c80d462 and failed: 'one or more synchronization tasks are not valid', because the cluster has no ExternalSecret CRD (external-secrets.io) for the ExternalSecret sreagent. Nothing from the commit was applied, so every Deployment still runs v20261017-165354-bece33f8 while values-dev.yaml has v20261024-123304-3bc626af. No configuration change: a person should reinstall the External Secrets operator and its CRDs (Terraform, platform-services module); Argo CD then syncs the commit."
+  },
+  "replay": {
+    "question": "Build Images finished about 45 minutes ago and committed a new image tag to values-dev.yaml, but the pods still run the old image. Why has it not rolled out?",
+    "now": "2026-10-24T13:25:00Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "c80d462c8f84",
+    "note": "Synthetic: no live capture. Every output was produced by the real tool code (k8s_tools, prometheus_tools, through the tool registry) from hand-built Kubernetes objects; the Services, ports, requests and image tags are the chart's at c80d462c8f84. Generated on 2026-10-24.",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "argocd-sync-failed-recorded/01-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "argocd-sync-failed-recorded/02-list_pods.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "argocd-sync-failed-recorded/03-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "argocd-sync-failed-recorded/04-list_events.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "argocd-sync-failed-recorded/05-list_deployments.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "frontend"
+        },
+        "file": "argocd-sync-failed-recorded/06-describe_deployment.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "argocd-sync-failed-recorded/07-list_hpas.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (container_memory_working_set_bytes{namespace=\"online-boutique-dev\",pod=~\"frontend-.*\",container!=\"\"})",
+          "minutes": 60
+        },
+        "file": "argocd-sync-failed-recorded/08-prometheus_query_range.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query_range",
+        "input": {
+          "query": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"online-boutique-dev\",pod=~\"frontend-.*\",container!=\"\"}[5m]))",
+          "minutes": 60
+        },
+        "file": "argocd-sync-failed-recorded/09-prometheus_query_range.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "prometheus_query",
+        "input": {
+          "query": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"online-boutique-dev\",pod=~\"frontend-.*\"})"
+        },
+        "file": "argocd-sync-failed-recorded/10-prometheus_query.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications"
+        },
+        "file": "argocd-sync-failed-recorded/11-get_resource.txt",
+        "source": "synthetic"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications",
+          "name": "online-boutique"
+        },
+        "file": "argocd-sync-failed-recorded/12-get_resource.txt",
+        "source": "synthetic"
+      }
+    ]
+  }
+}

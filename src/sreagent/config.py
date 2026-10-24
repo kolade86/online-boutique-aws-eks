@@ -26,6 +26,7 @@ class Config:
     tool_output_max_chars: int
     prometheus_url: str
     app_namespace: str
+    argocd_namespace: str
     kube_context: str | None
     github_repo: str
     github_token: str | None
@@ -71,6 +72,8 @@ class Config:
             tool_output_max_chars=integer("SREAGENT_TOOL_OUTPUT_MAX_CHARS", 6000),
             prometheus_url=env.get("PROMETHEUS_URL", IN_CLUSTER_PROMETHEUS),
             app_namespace=env.get("APP_NAMESPACE") or _service_account_namespace(),
+            # Where Argo CD's Applications are; get_resource reads them only there
+            argocd_namespace=env.get("ARGOCD_NAMESPACE") or "argocd",
             kube_context=env.get("KUBE_CONTEXT") or None,
             github_repo=repo,
             github_token=env.get("GITHUB_TOKEN") or None,

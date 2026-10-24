@@ -434,23 +434,34 @@ services:
     serviceMonitor:
       port: http
       path: /metrics
+    # Read-only everywhere, and no Secrets anywhere (templates/rbac.yaml).
+    # What the model can request is narrower still: get_resource's allow-list
+    # of kinds and namespaces (src/sreagent/k8s_tools.py).
     rbac:
-      # Read-only, this namespace only. No Secrets.
-      rules:
+      # The built-in "view" ClusterRole, bound in this namespace only: pods,
+      # logs, events, Deployments, ReplicaSets, HPAs, Services, EndpointSlices
+      # (checked on EKS 1.35), ConfigMaps, Ingresses, Jobs. Kubernetes keeps
+      # Secrets out of "view" by design.
+      bindClusterRoles: ["view"]
+      # Nodes are cluster-scoped: a ClusterRole with nothing else in it
+      clusterRules:
         - apiGroups: [""]
-          resources: ["pods", "pods/log", "events"]
-          verbs: ["get", "list", "watch"]
-        - apiGroups: ["apps"]
-          resources: ["deployments", "replicasets"]
-          verbs: ["get", "list", "watch"]
-        - apiGroups: ["autoscaling"]
-          resources: ["horizontalpodautoscalers"]
-          verbs: ["get", "list", "watch"]
+          resources: ["nodes"]
+          verbs: ["get", "list"]
+      # Argo CD's Applications, in Argo CD's namespace (ARGOCD_NAMESPACE below)
+      namespaceRules:
+        argocd:
+          - apiGroups: ["argoproj.io"]
+            resources: ["applications"]
+            verbs: ["get", "list"]
     env:
       - name: PORT
         value: "8080"
       - name: GITHUB_REPO
         value: "kolade86/online-boutique-aws-eks"  # change for a fork
+      # Where get_resource reads Argo CD Applications: matches rbac.namespaceRules
+      - name: ARGOCD_NAMESPACE
+        value: "argocd"
       # Validate proposed changes but open no PRs until this is "true"
       - name: SREAGENT_OPEN_PRS
         value: "true"

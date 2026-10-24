@@ -1,0 +1,5 @@
+frontend-6098b2cc2-96527: Pending, ready 0/0, restarts 0, age 12m, node None, owner ReplicaSet/frontend-6098b2cc2
+frontend-6098b2cc2-fc94m: Running, ready 1/1, restarts 0, age 2h59m, node <node-1>, owner ReplicaSet/frontend-6098b2cc2
+frontend-6098b2cc2-ggv4f: Pending, ready 0/0, restarts 0, age 12m, node None, owner ReplicaSet/frontend-6098b2cc2
+frontend-6098b2cc2-r7lcl: Running, ready 1/1, restarts 0, age 3h, node <node-2>, owner ReplicaSet/frontend-6098b2cc2
+frontend-6098b2cc2-sk8fk: Pending, ready 0/0, restarts 0, age 12m, node None, owner ReplicaSet/frontend-6098b2cc2

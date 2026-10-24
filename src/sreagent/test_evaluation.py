@@ -343,7 +343,33 @@ class RegressionCasesTest(unittest.TestCase):
             ("paymentservice-memory-24mi", "live run 92b5268c"): (100, ev.PASS),
             ("recommendationservice-oomkilled", "PR #19"): (100, ev.PASS),
             ("recommendationservice-oomkilled-24mi", "PR #32"): (100, ev.PASS),
+            # Synthetic, get_resource on the explaining side: questions, 50 + 10 + 10 + 20
+            ("cartservice-selector-mismatch", "expected answer"): (90, ev.PASS),
+            ("argocd-sync-failed", "expected answer"): (90, ev.PASS),
+            # an alert, so timing counts too: capped at 100
+            ("node-capacity-pending", "expected answer"): (100, ev.PASS),
         })
+
+    @needs_packages
+    def test_causes_outside_the_allow_list_open_no_pull_request(self):
+        """Selector, Argo CD sync and node capacity: right with no change; for the alert
+        case, lowering the CPU request so the pods fit is a critical outcome, however
+        well the cause was observed."""
+        for case_id in ("cartservice-selector-mismatch", "argocd-sync-failed", "node-capacity-pending"):
+            path, case = [(p, c) for p, c in self.cases if c["id"] == case_id][0]
+            with self.subTest(case=case_id):
+                self.assertEqual((case["expected"]["kind"], case["expected"]["change"]),
+                                 ("not_fixable_by_config", None))
+                self.assertTrue(all(r["source"] == "synthetic" for r in case["replay"]["recorded"]))
+        path, case = [(p, c) for p, c in self.cases if c["id"] == "node-capacity-pending"][0]
+        _, script, _, source = ev.scripts_for(REGRESSIONS, case)[0]
+        lower = {"tool": "propose_values_change",
+                 "input": {"changes": [{"path": "services.frontend.resources.requests.cpu", "value": "50m"}],
+                           "reason": "let the pending pods fit"}}
+        calls = [c for c in script["calls"] if c["tool"] != "propose_values_change"] + [lower]
+        run = ev.run_script(case, path, {"calls": calls, "answer": source["answer"]})
+        self.assertEqual(run["proposal"]["changes"], {"services.frontend.resources.requests.cpu": "50m"})
+        self.assertEqual(ev.judge(case, run)["outcome"], ev.CRITICAL)
 
     def test_the_live_run_is_a_pass_because_of_its_change(self):
         # paymentservice, PR #36: an observed cause and the memory change the case expects

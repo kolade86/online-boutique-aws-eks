@@ -62,8 +62,12 @@ INCONCLUSIVE_SCORE = 20
 # from list_events alone and scored 73.
 WORKLOAD_TOOLS = frozenset({"list_pods", "list_events", "get_pod_logs",
                             "prometheus_query", "prometheus_query_range"})
+# get_resource is explaining-side only: it returns the configuration and
+# controller state behind a failure (a Service's selector, an Argo CD sync
+# result, a node's allocatable capacity), not what happened to the pods. In
+# both groups, one get_resource call could meet the rule on its own.
 EXPLAINING_TOOLS = frozenset({"read_repo_file", "recent_chart_commits", "describe_deployment",
-                              "list_deployments", "list_hpas"})
+                              "list_deployments", "list_hpas", "get_resource"})
 
 # Limits the strict JSON schema cannot express; enforced here.
 MAX_TEXT = 300

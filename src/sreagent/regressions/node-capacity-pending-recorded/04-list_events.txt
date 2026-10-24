@@ -1,0 +1,4 @@
+Pod events, newest first:
+1m ago Warning FailedScheduling Pod/frontend-6098b2cc2-sk8fk [default-scheduler] (x9 since 12m ago): 0/4 nodes are available: 4 Insufficient cpu. preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
+1m ago Warning FailedScheduling Pod/frontend-6098b2cc2-ggv4f [default-scheduler] (x9 since 12m ago): 0/4 nodes are available: 4 Insufficient cpu. preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
+1m ago Warning FailedScheduling Pod/frontend-6098b2cc2-96527 [default-scheduler] (x9 since 12m ago): 0/4 nodes are available: 4 Insufficient cpu. preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.

@@ -91,15 +91,26 @@ def _normalise(args: dict) -> str:
 def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
                     repo_root: str = REPO_ROOT) -> ToolRegistry:
     """The agent's own tool list, answered from the recording."""
+    namespace = spec.get("namespace", "online-boutique-dev")
+    argocd_namespace = spec.get("argocd_namespace", "argocd")
+
+    def canonical(name, args):
+        # get_resource validates its input before looking anything up, as live:
+        # a replay rejects a Secret or another namespace the same way, and
+        # finds the recording whether or not the model named the namespace
+        if name == "get_resource":
+            return k8s_tools.canonical_resource_args(args or {}, namespace, argocd_namespace)
+        return args
+
     recorded = {}
     for item in spec.get("recorded", []):
         with open(os.path.join(case_dir, item["file"]), encoding="utf-8") as f:
-            recorded[(item["tool"], _normalise(item.get("input")))] = (f.read(),
-                                                                      item.get("is_error", False))
+            recorded[(item["tool"], _normalise(canonical(item["tool"], item.get("input"))))] = (
+                f.read(), item.get("is_error", False))
 
     def from_recording(name):
         def handler(args):
-            key = (name, _normalise(args))
+            key = (name, _normalise(canonical(name, args)))
             if key in recorded:
                 output, is_error = recorded[key]
                 if is_error:      # the call failed when it was recorded: fail the same way
@@ -109,9 +120,9 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
                             "not made when the case was recorded. Treat it as unavailable.")
         return handler
 
-    namespace = spec.get("namespace", "online-boutique-dev")
     live = (prometheus_tools.make_tools(prometheus_tools.PrometheusClient("http://replay.invalid"))
-            + k8s_tools.make_tools(k8s_tools.KubeReader(namespace, core=object())))
+            + k8s_tools.make_tools(k8s_tools.KubeReader(namespace, core=object(),
+                                                        argocd_namespace=argocd_namespace)))
     tools = [Tool(t.name, t.description, t.input_schema, from_recording(t.name), t.keep, t.strict)
              for t in live]
     git = LocalGit(spec["repo_ref"], spec.get("values_file", "helm/online-boutique/values-dev.yaml"),

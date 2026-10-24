@@ -1,0 +1,24 @@
+adservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=200m mem=180Mi, lim cpu=300m mem=300Mi
+cartservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=200m mem=128Mi, lim cpu=500m mem=512Mi
+checkoutservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+currencyservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+emailservice: desired 1, ready 1, updated 1, available 1, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+frontend: desired 5, ready 2, updated 5, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=128Mi, lim cpu=500m mem=512Mi
+loadgenerator: desired 1, ready 1, updated 1, available 1, generation 7/observed 7
+    main: image tag v20261024-123304-3bc626af; req cpu=300m mem=256Mi, lim cpu=500m mem=512Mi
+paymentservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+productcatalogservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+recommendationservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+shippingservice: desired 2, ready 2, updated 2, available 2, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=100m mem=64Mi, lim cpu=200m mem=128Mi
+sreagent: desired 1, ready 1, updated 1, available 1, generation 7/observed 7
+    server: image tag v20261024-123304-3bc626af; req cpu=50m mem=128Mi, lim cpu=500m mem=384Mi

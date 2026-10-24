@@ -1,0 +1,170 @@
+application online-boutique in argocd (trimmed):
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: online-boutique
+  namespace: argocd
+  generation: 412
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: online-boutique-dev
+  source:
+    repoURL: https://github.com/kolade86/online-boutique-aws-eks.git
+    path: helm/online-boutique
+    targetRevision: main
+    helm:
+      valueFiles:
+      - values.yaml
+      - values-dev.yaml
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+status:
+  sync:
+    status: OutOfSync
+    revision: c80d462c8f847f7df5ff56442c2c0a38e52063de
+  health:
+    status: Healthy
+  operationState:
+    operation:
+      sync:
+        revision: c80d462c8f847f7df5ff56442c2c0a38e52063de
+      retry:
+        limit: 5
+    phase: Failed
+    message: one or more synchronization tasks are not valid (retried 5 times).
+    startedAt: '2026-10-24T12:37:02Z'
+    finishedAt: '2026-10-24T12:49:40Z'
+    retryCount: 5
+    syncResult:
+      revision: c80d462c8f847f7df5ff56442c2c0a38e52063de
+      resources:
+      - group: external-secrets.io
+        version: v1
+        kind: ExternalSecret
+        namespace: online-boutique-dev
+        name: sreagent
+        status: SyncFailed
+        message: The Kubernetes API could not find external-secrets.io/ExternalSecret for requested resource online-boutique-dev/sreagent.
+          Make sure the "ExternalSecret" CRD is installed on the destination cluster.
+        syncPhase: Sync
+  resources:
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: adservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: cartservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: checkoutservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: currencyservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: emailservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: frontend
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: loadgenerator
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: paymentservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: productcatalogservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: recommendationservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: shippingservice
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: apps
+    version: v1
+    kind: Deployment
+    namespace: online-boutique-dev
+    name: sreagent
+    status: OutOfSync
+    health:
+      status: Healthy
+  - group: external-secrets.io
+    version: v1
+    kind: ExternalSecret
+    namespace: online-boutique-dev
+    name: sreagent
+    status: OutOfSync
+    health:
+      status: Missing
+  history:
+  - revision: 382f2f2b5912a7680a5ac3d7045316966e09557f
+    deployedAt: '2026-10-17T16:59:12Z'
+    id: 57
+  conditions:
+  - type: SyncError
+    message: 'Failed sync attempt to c80d462c8f847f7df5ff56442c2c0a38e52063de: one or more synchronization tasks are not valid
+      (retried 5 times).'
+    lastTransitionTime: '2026-10-24T12:49:40Z'
+  reconciledAt: '2026-10-24T13:24:00Z'
+  sourceType: Helm
+  resourcesTotal: 24

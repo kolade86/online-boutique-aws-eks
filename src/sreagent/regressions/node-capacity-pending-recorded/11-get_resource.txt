@@ -1,0 +1,5 @@
+4 nodes:
+<node-3>: Ready True, taints none, allocatable cpu 1930m mem 7220184Ki pods 35 (capacity cpu 2 mem 8047576Ki), t3.large in us-east-1a, node group online-boutique-dev-ng, age 3d
+<node-2>: Ready True, taints none, allocatable cpu 1930m mem 7220184Ki pods 35 (capacity cpu 2 mem 8047576Ki), t3.large in us-east-1a, node group online-boutique-dev-ng, age 3d
+<node-4>: Ready True, taints none, allocatable cpu 1930m mem 7220184Ki pods 35 (capacity cpu 2 mem 8047576Ki), t3.large in us-east-1b, node group online-boutique-dev-ng, age 3d
+<node-1>: Ready True, taints none, allocatable cpu 1930m mem 7220184Ki pods 35 (capacity cpu 2 mem 8047576Ki), t3.large in us-east-1b, node group online-boutique-dev-ng, age 3d

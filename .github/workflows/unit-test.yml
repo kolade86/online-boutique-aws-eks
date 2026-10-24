@@ -171,6 +171,12 @@ jobs:
         # httpx is only for FastAPI's TestClient, so not in requirements.txt
         run: pip install -r requirements.txt httpx
 
+      # test_chart_rbac.py renders the chart's RBAC with helm template
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v4.0.4'
+
       - name: Run tests
         working-directory: src/sreagent
         run: |

@@ -1,0 +1,7 @@
+Controller events (HPA, Deployment, ReplicaSet, ...), newest first:
+12m ago Normal SuccessfulRescale HorizontalPodAutoscaler/frontend [horizontal-pod-autoscaler] (x1): New size: 5; reason: cpu resource utilization (percentage of request) above target
+12m ago Normal ScalingReplicaSet Deployment/frontend [deployment-controller] (x1): Scaled up replica set frontend-6098b2cc2 from 2 to 5
+Pod events, newest first:
+1m ago Warning FailedScheduling Pod/frontend-6098b2cc2-sk8fk [default-scheduler] (x9 since 12m ago): 0/4 nodes are available: 4 Insufficient cpu. preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
+1m ago Warning FailedScheduling Pod/frontend-6098b2cc2-ggv4f [default-scheduler] (x9 since 12m ago): 0/4 nodes are available: 4 Insufficient cpu. preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
+1m ago Warning FailedScheduling Pod/frontend-6098b2cc2-96527 [default-scheduler] (x9 since 12m ago): 0/4 nodes are available: 4 Insufficient cpu. preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
