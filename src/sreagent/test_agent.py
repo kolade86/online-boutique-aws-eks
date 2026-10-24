@@ -14,9 +14,11 @@ class FakeProvider:
     def __init__(self, turns):
         self.turns = list(turns)
         self.requests = []
+        self.allow_tools = []
 
-    def complete(self, system, messages, tools):
+    def complete(self, system, messages, tools, allow_tools=True):
         self.requests.append(list(messages))
+        self.allow_tools.append(allow_tools)
         if isinstance(self.turns[0], Exception):
             raise self.turns.pop(0)
         return self.turns.pop(0)
@@ -128,6 +130,8 @@ class AgentLoopTest(unittest.TestCase):
         refused = provider.requests[2][-1].results[0]
         self.assertTrue(refused.is_error)
         self.assertEqual(refused.content, agent.BUDGET_EXHAUSTED)
+        # the turn after the refusal is the final one: tools off
+        self.assertEqual(provider.allow_tools, [True, True, False])
 
     def test_using_exactly_the_budget_is_a_normal_answer(self):
         provider = FakeProvider([tool_turn(call("t", "1"), call("t", "2")), answer("done")])
@@ -144,9 +148,12 @@ class AgentLoopTest(unittest.TestCase):
 
         result = make_agent(provider, tools, max_tool_calls=1).run("sys", "task")
 
+        # Only a provider that ignores allow_tools gets here: tools were off in the final turn
         self.assertEqual(result.outcome, agent.TOOL_LIMIT)
         self.assertEqual(len(result.evidence), 1)
         self.assertEqual(len(provider.requests), 3)
+        self.assertEqual(provider.allow_tools, [True, True, False])
+
 
     def test_timeout(self):
         clock = FakeClock()
@@ -244,6 +251,77 @@ class AgentLoopTest(unittest.TestCase):
         self.assertIn("[REDACTED]", sent)
         self.assertIn("truncated", sent)
         self.assertLess(len(sent), 300)
+
+
+class FinalTurnTest(unittest.TestCase):
+    """At the tool-call limit the model gets one final turn, with tools off, to
+    answer from what it has. Live run 6aaeabea (cartservice-selector-mismatch-live)
+    found the cause in calls 13-14 and ended with no answer, as tool_limit."""
+
+    ASSESSMENT = {"conclusion": "cause_found", "cause": "x", "cause_support": "observed",
+                  "cause_evidence": [1], "decisive_check": {"what": "y", "evidence": [1]},
+                  "alternatives": [], "timing": "not_checked", "timing_evidence": [],
+                  "unverified": []}
+
+    def run_agent(self, turns, max_tool_calls=2, extra_tools=()):
+        import confidence
+        self.provider = FakeProvider(turns)
+        self.assessment = confidence.AssessmentTool(70, 85)
+        tools = ToolRegistry([Tool("t", "", {}, lambda args: "ok"), self.assessment.tool(),
+                              *extra_tools], 1000)
+        a = make_agent(self.provider, tools, max_tool_calls=max_tool_calls)
+        self.assessment.attach_to(a)
+        return a.run("sys", "task")
+
+    def test_the_live_run_now_ends_with_an_answer(self):
+        # As 6aaeabea: the budget spent, one more call asked for, no assessment.
+        # Before, the model was offered tools again, asked for one, and the run
+        # ended "Tool-call limit reached without a final answer".
+        result = self.run_agent([tool_turn(call("t", "1"), call("t", "2")),
+                                 tool_turn(call("t", "3")),                 # refused
+                                 answer("## Diagnosis\nthe Service selects no pods")])
+        self.assertEqual(result.outcome, agent.ANSWERED_AT_LIMIT)
+        self.assertEqual(result.answer, "## Diagnosis\nthe Service selects no pods")
+        self.assertEqual(self.provider.allow_tools, [True, True, False])
+        self.assertEqual(len(self.provider.requests), 3)    # no assessment reminder after it
+        self.assertIsNone(self.assessment.latest)            # never assessed: nothing to gate a change
+
+    def test_an_assessment_made_before_the_limit_still_counts(self):
+        # submit_assessment is not budgeted: in the same round as the refused call it runs
+        result = self.run_agent([tool_turn(call("t", "1"), call("t", "2")),
+                                 tool_turn(call(confidence_name(), "3", **self.ASSESSMENT),
+                                           call("t", "4")),                 # t refused
+                                 answer("report")])
+        self.assertEqual(result.outcome, agent.ANSWERED_AT_LIMIT)
+        self.assertEqual([e.tool for e in result.evidence], ["t", "t", confidence_name()])
+        self.assertIsNotNone(self.assessment.latest)
+        self.assertEqual(self.provider.allow_tools, [True, True, False])
+
+    def test_no_change_can_be_proposed_in_the_final_turn(self):
+        # The final turn has no tools: a model that had not proposed cannot now,
+        # whatever its assessment. Here the provider ignores allow_tools and tries.
+        proposed = []
+        propose = Tool("propose_values_change", "", {}, lambda args: proposed.append(args) or "opened")
+        result = self.run_agent([tool_turn(call("t", "1"), call("t", "2")),
+                                 tool_turn(call("t", "3")),                 # refused
+                                 tool_turn(call("propose_values_change", "4", changes=[]))],
+                                extra_tools=[propose])
+        self.assertEqual(result.outcome, agent.TOOL_LIMIT)
+        self.assertEqual(proposed, [])
+
+    def test_using_exactly_the_budget_keeps_tools_for_the_assessment(self):
+        # No call was refused, so there is no final turn yet: the assessment can follow
+        result = self.run_agent([tool_turn(call("t", "1"), call("t", "2")),
+                                 tool_turn(call(confidence_name(), "3", **self.ASSESSMENT)),
+                                 answer("report")])
+        self.assertEqual(result.outcome, agent.ANSWERED)
+        self.assertEqual(self.provider.allow_tools, [True, True, True])
+        self.assertIsNotNone(self.assessment.latest)
+
+
+def confidence_name():
+    import confidence
+    return confidence.TOOL_NAME
 
 
 if __name__ == "__main__":

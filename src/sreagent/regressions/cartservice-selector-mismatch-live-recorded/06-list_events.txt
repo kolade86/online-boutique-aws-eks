@@ -1,0 +1,38 @@
+Controller events (HPA, Deployment, ReplicaSet, ...), newest first:
+5m ago Warning FailedGetResourceMetric HorizontalPodAutoscaler/checkoutservice [horizontal-pod-autoscaler] (x34 since 1h11m ago): failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+5m ago Warning FailedComputeMetricsReplicas HorizontalPodAutoscaler/checkoutservice [horizontal-pod-autoscaler] (x34 since 1h11m ago): invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+5m ago Normal SuccessfulCreate ReplicaSet/checkoutservice-68b846677f [replicaset-controller] (x1): Created pod: checkoutservice-68b846677f-ftj7c
+5m ago Normal SuccessfulCreate ReplicaSet/checkoutservice-68b846677f [replicaset-controller] (x1): Created pod: checkoutservice-68b846677f-8dm6r
+5m ago Warning FailedGetResourceMetric HorizontalPodAutoscaler/checkoutservice [horizontal-pod-autoscaler] (x3 since 1h2m ago): failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
+5m ago Warning FailedComputeMetricsReplicas HorizontalPodAutoscaler/checkoutservice [horizontal-pod-autoscaler] (x3 since 1h2m ago): invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
+15m ago Normal SuccessfulDelete ReplicaSet/checkoutservice-6b6f5dc4bb [replicaset-controller] (x1): Deleted pod: checkoutservice-6b6f5dc4bb-xb8fk
+15m ago Normal ScalingReplicaSet Deployment/checkoutservice [deployment-controller] (x1): Scaled down replica set checkoutservice-6b6f5dc4bb from 1 to 0
+15m ago Normal SuccessfulCreate ReplicaSet/checkoutservice-68b846677f [replicaset-controller] (x1): Created pod: checkoutservice-68b846677f-rrlbw
+15m ago Normal SuccessfulDelete ReplicaSet/checkoutservice-6b6f5dc4bb [replicaset-controller] (x1): Deleted pod: checkoutservice-6b6f5dc4bb-swszc
+15m ago Normal ScalingReplicaSet Deployment/checkoutservice [deployment-controller] (x1): Scaled down replica set checkoutservice-6b6f5dc4bb from 2 to 1
+15m ago Normal ScalingReplicaSet Deployment/checkoutservice [deployment-controller] (x1): Scaled up replica set checkoutservice-68b846677f from 1 to 2
+15m ago Normal SuccessfulCreate ReplicaSet/checkoutservice-68b846677f [replicaset-controller] (x1): Created pod: checkoutservice-68b846677f-v5h4c
+15m ago Normal ScalingReplicaSet Deployment/checkoutservice [deployment-controller] (x1): Scaled up replica set checkoutservice-68b846677f from 0 to 1
+Pod events, newest first:
+5m ago Normal Started Pod/checkoutservice-68b846677f-ftj7c [kubelet] (x1): Container started
+5m ago Normal Created Pod/checkoutservice-68b846677f-8dm6r [kubelet] (x1): Container created
+5m ago Normal Started Pod/checkoutservice-68b846677f-8dm6r [kubelet] (x1): Container started
+5m ago Normal Pulled Pod/checkoutservice-68b846677f-ftj7c [kubelet] (x1): Successfully pulled image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:v20261024-132143-64b84b83" in 1.081s (1.081s including waiting). Image size: 11975342 bytes.
+5m ago Normal Created Pod/checkoutservice-68b846677f-ftj7c [kubelet] (x1): Container created
+5m ago Warning Unhealthy Pod/checkoutservice-68b846677f-v5h4c [kubelet] (x1): Readiness probe failed: timeout: failed to connect service "<ip-1>:5050" within 1s: context deadline exceeded
+5m ago Normal Scheduled Pod/checkoutservice-68b846677f-8dm6r [default-scheduler] (x1): Successfully assigned online-boutique-dev/checkoutservice-68b846677f-8dm6r to <node-1>
+5m ago Normal Pulled Pod/checkoutservice-68b846677f-8dm6r [kubelet] (x1): Container image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:v20261024-132143-64b84b83" already present on machine and can be accessed by the pod
+5m ago Normal Scheduled Pod/checkoutservice-68b846677f-ftj7c [default-scheduler] (x1): Successfully assigned online-boutique-dev/checkoutservice-68b846677f-ftj7c to <node-4>
+5m ago Normal Pulling Pod/checkoutservice-68b846677f-ftj7c [kubelet] (x1): Pulling image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:v20261024-132143-64b84b83"
+5m ago Normal Killing Pod/checkoutservice-68b846677f-rrlbw [kubelet] (x1): Stopping container server
+5m ago Normal Killing Pod/checkoutservice-68b846677f-v5h4c [kubelet] (x1): Stopping container server
+15m ago Normal Killing Pod/checkoutservice-6b6f5dc4bb-xb8fk [kubelet] (x1): Stopping container server
+15m ago Normal Pulled Pod/checkoutservice-68b846677f-rrlbw [kubelet] (x1): Container image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:v20261024-132143-64b84b83" already present on machine and can be accessed by the pod
+15m ago Normal Created Pod/checkoutservice-68b846677f-rrlbw [kubelet] (x1): Container created
+15m ago Normal Started Pod/checkoutservice-68b846677f-rrlbw [kubelet] (x1): Container started
+15m ago Normal Scheduled Pod/checkoutservice-68b846677f-rrlbw [default-scheduler] (x1): Successfully assigned online-boutique-dev/checkoutservice-68b846677f-rrlbw to <node-1>
+15m ago Warning FailedScheduling Pod/checkoutservice-68b846677f-rrlbw [default-scheduler] (x3 since 15m ago): 0/4 nodes are available: 4 Insufficient cpu. no new claims to deallocate, preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
+15m ago Normal Killing Pod/checkoutservice-6b6f5dc4bb-swszc [kubelet] (x1): Stopping container server
+15m ago Normal Pulled Pod/checkoutservice-68b846677f-v5h4c [kubelet] (x1): Successfully pulled image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-checkoutservice:v20261024-132143-64b84b83" in 1.164s (1.164s including waiting). Image size: 11975342 bytes.
+15m ago Normal Created Pod/checkoutservice-68b846677f-v5h4c [kubelet] 
+... [truncated 746 characters]

@@ -518,7 +518,7 @@ class ScriptedModel:
                        for i, c in enumerate(calls)]
         self._turns.append(AssistantTurn(answer, [], "end_turn"))
 
-    def complete(self, system, messages, tools):
+    def complete(self, system, messages, tools, allow_tools=True):
         from model import AssistantTurn
         return self._turns.pop(0) if self._turns else AssistantTurn("done", [], "end_turn")
 

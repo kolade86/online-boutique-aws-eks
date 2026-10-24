@@ -1,0 +1,32 @@
+service cartservice in online-boutique-dev (trimmed):
+kind: Service
+apiVersion: v1
+metadata:
+  name: cartservice
+  namespace: online-boutique-dev
+  creationTimestamp: '2026-10-24T12:30:25Z'
+  labels:
+    app: cartservice
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: online-boutique
+  annotations:
+    argocd.argoproj.io/tracking-id: online-boutique:/Service:online-boutique-dev/cartservice
+spec:
+  ports:
+  - name: grpc
+    protocol: TCP
+    port: 7070
+    targetPort: 7070
+  selector:
+    app: cartservice-canary
+  clusterIP: <ip-9>
+  clusterIPs:
+  - <ip-9>
+  type: ClusterIP
+  sessionAffinity: None
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  internalTrafficPolicy: Cluster
+status:
+  loadBalancer: {}

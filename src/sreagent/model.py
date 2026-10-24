@@ -69,6 +69,10 @@ Message = Union[UserTurn, AssistantTurn, ToolResultsTurn]
 
 class ModelProvider(Protocol):
     def complete(self, system: str, messages: list[Message],
-                 tools: list[ToolSpec]) -> AssistantTurn:
-        """Send the conversation so far and return the model's next turn."""
+                 tools: list[ToolSpec], allow_tools: bool = True) -> AssistantTurn:
+        """Send the conversation so far and return the model's next turn.
+
+        allow_tools=False asks for an answer with no tool call. The tools are
+        still sent: earlier turns contain tool calls, which the API cannot
+        accept without their definitions."""
         ...
