@@ -80,9 +80,16 @@ two runs racing for the state lock.
 
 ## State and locking
 
-State lives in the S3 bucket `online-boutique-dev-terraform-state`, created by
-[`bootstrap-backend.sh`](../bootstrap-backend.sh) with versioning, encryption
-and public access blocked. Locking uses S3's native lock file
+State lives in the S3 bucket `online-boutique-dev-<account-id>-terraform-state`,
+created by [`bootstrap-backend.sh`](../bootstrap-backend.sh) with versioning,
+encryption and public access blocked. The account ID in the name means each
+AWS account gets its own bucket, so a new sandbox never collides with an old
+sandbox's bucket (S3 bucket names are global). `backend.tf` therefore leaves
+the bucket out (a partial backend configuration) and it is passed to
+`terraform init` with `-backend-config`: the bootstrap script prints the exact
+command, and the Plan and Apply workflows build the name from the
+`AWS_ACCOUNT_ID` repo variable. Terraform Checks runs `init -backend=false`, so
+it needs no bucket. Locking uses S3's native lock file
 (`use_lockfile = true` in `environments/dev/backend.tf`): Terraform writes
 `terraform.tfstate.tflock` next to the state while it holds the lock. There is
 no DynamoDB table.
@@ -113,7 +120,9 @@ committed `.terraform.lock.hcl`:
 
 ```bash
 cd terraform/environments/dev
-terraform init
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+terraform init -reconfigure \
+  -backend-config="bucket=online-boutique-dev-${ACCOUNT_ID}-terraform-state"
 terraform plan
 terraform apply
 ```

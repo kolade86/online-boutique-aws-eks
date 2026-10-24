@@ -1,5 +1,8 @@
 #!/bin/bash
 # Bootstrap Terraform Backend - Create the S3 bucket for remote state
+# The bucket name includes the AWS account ID, so each account gets its own
+# and a new sandbox never collides with an old one's bucket. backend.tf leaves
+# the bucket out (partial configuration); pass it at init time.
 # State locking uses a lock file in the same bucket (use_lockfile in
 # backend.tf), so no DynamoDB table is needed.
 
@@ -9,7 +12,8 @@ set -e  # Exit on any error
 PROJECT_NAME="online-boutique"
 ENVIRONMENT="dev"
 AWS_REGION="us-east-1"
-BUCKET_NAME="${PROJECT_NAME}-${ENVIRONMENT}-terraform-state"
+AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+BUCKET_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${AWS_ACCOUNT_ID}-terraform-state"
 
 echo "=========================================="
 echo "Creating Terraform Backend Resources"
@@ -17,6 +21,7 @@ echo "=========================================="
 echo "Project: ${PROJECT_NAME}"
 echo "Environment: ${ENVIRONMENT}"
 echo "Region: ${AWS_REGION}"
+echo "Account: ${AWS_ACCOUNT_ID}"
 echo "Bucket: ${BUCKET_NAME}"
 echo ""
 
@@ -64,26 +69,10 @@ echo "=========================================="
 echo "✅ Backend resources created successfully!"
 echo "=========================================="
 echo ""
-echo "📝 Next Steps:"
-echo "1. terraform/environments/${ENVIRONMENT}/backend.tf already points at this"
-echo "   bucket, with use_lockfile = true for state locking:"
+echo "📝 Next Steps (Terraform >= 1.16.0):"
+echo "backend.tf leaves the bucket out; pass it to init:"
 echo ""
-echo "-------------------------------------------"
-cat << EOF
-terraform {
-  backend "s3" {
-    bucket       = "${BUCKET_NAME}"
-    key          = "terraform.tfstate"
-    region       = "${AWS_REGION}"
-    encrypt      = true
-    use_lockfile = true
-  }
-}
-EOF
-echo "-------------------------------------------"
-echo ""
-echo "2. Initialize and apply (Terraform >= 1.16.0):"
 echo "   cd terraform/environments/${ENVIRONMENT}"
-echo "   terraform init"
+echo "   terraform init -reconfigure -backend-config=\"bucket=${BUCKET_NAME}\""
 echo "   terraform apply"
 echo ""
