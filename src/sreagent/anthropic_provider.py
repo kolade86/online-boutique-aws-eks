@@ -23,7 +23,7 @@ class AnthropicProvider:
             timeout=request_timeout, max_retries=2)
 
     def complete(self, system: str, messages: list[Message],
-                 tools: list[ToolSpec]) -> AssistantTurn:
+                 tools: list[ToolSpec], allow_tools: bool = True) -> AssistantTurn:
         request = dict(
             model=self._model,
             max_tokens=self._max_tokens,
@@ -35,6 +35,10 @@ class AnthropicProvider:
             # minimum cacheable size are simply not cached.
             cache_control={"type": "ephemeral"},
         )
+        if not allow_tools:
+            # The final turn at the tool-call limit: answer in text. The tool
+            # definitions stay, so the request prefix (and its cache) is unchanged.
+            request["tool_choice"] = {"type": "none"}
         if self._model in FALLBACK_MODELS:
             response = self._client.beta.messages.create(
                 **request, betas=[FALLBACK_BETA], fallbacks="default")

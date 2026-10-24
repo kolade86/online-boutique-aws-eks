@@ -1,0 +1,24 @@
+Controller events (HPA, Deployment, ReplicaSet, ...), newest first:
+14m ago Normal SuccessfulDelete ReplicaSet/cartservice-7f79fbf56b [replicaset-controller] (x1): Deleted pod: cartservice-7f79fbf56b-7ws84
+14m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-7f79fbf56b from 1 to 0
+15m ago Normal SuccessfulCreate ReplicaSet/cartservice-5bd9f4d6cf [replicaset-controller] (x1): Created pod: cartservice-5bd9f4d6cf-p5flb
+15m ago Normal SuccessfulDelete ReplicaSet/cartservice-7f79fbf56b [replicaset-controller] (x1): Deleted pod: cartservice-7f79fbf56b-pdlk7
+15m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-7f79fbf56b from 2 to 1
+15m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-5bd9f4d6cf from 1 to 2
+15m ago Normal SuccessfulCreate ReplicaSet/cartservice-5bd9f4d6cf [replicaset-controller] (x1): Created pod: cartservice-5bd9f4d6cf-q5bxs
+15m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-5bd9f4d6cf from 0 to 1
+Pod events, newest first:
+14m ago Normal Killing Pod/cartservice-7f79fbf56b-7ws84 [kubelet] (x1): Stopping container server
+15m ago Normal Pulled Pod/cartservice-5bd9f4d6cf-p5flb [kubelet] (x1): Successfully pulled image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:v20261024-132143-64b84b83" in 868ms (868ms including waiting). Image size: 17684578 bytes.
+15m ago Normal Created Pod/cartservice-5bd9f4d6cf-p5flb [kubelet] (x1): Container created
+15m ago Normal Started Pod/cartservice-5bd9f4d6cf-p5flb [kubelet] (x1): Container started
+15m ago Normal Scheduled Pod/cartservice-5bd9f4d6cf-p5flb [default-scheduler] (x1): Successfully assigned online-boutique-dev/cartservice-5bd9f4d6cf-p5flb to <node-3>
+15m ago Normal Pulling Pod/cartservice-5bd9f4d6cf-p5flb [kubelet] (x1): Pulling image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:v20261024-132143-64b84b83"
+15m ago Warning FailedScheduling Pod/cartservice-5bd9f4d6cf-p5flb [default-scheduler] (x2 since 15m ago): 0/4 nodes are available: 4 Insufficient cpu. no new claims to deallocate, preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.
+15m ago Normal Killing Pod/cartservice-7f79fbf56b-pdlk7 [kubelet] (x1): Stopping container server
+15m ago Warning Unhealthy Pod/cartservice-5bd9f4d6cf-q5bxs [kubelet] (x1): Readiness probe failed: timeout: health rpc did not complete within 1s
+15m ago Normal Pulled Pod/cartservice-5bd9f4d6cf-q5bxs [kubelet] (x1): Successfully pulled image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:v20261024-132143-64b84b83" in 1.659s (1.659s including waiting). Image size: 17684578 bytes.
+15m ago Normal Created Pod/cartservice-5bd9f4d6cf-q5bxs [kubelet] (x1): Container created
+15m ago Normal Started Pod/cartservice-5bd9f4d6cf-q5bxs [kubelet] (x1): Container started
+15m ago Normal Pulling Pod/cartservice-5bd9f4d6cf-q5bxs [kubelet] (x1): Pulling image "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-cartservice:v20261024-132143-64b84b83"
+15m ago Normal Scheduled Pod/cartservice-5bd9f4d6cf-q5bxs [default-scheduler] (x1): Successfully assigned online-boutique-dev/cartservice-5bd9f4d6cf-q5bxs to <node-2>

@@ -1,0 +1,2 @@
+cartservice-5bd9f4d6cf-p5flb: Running, ready 1/1, restarts 0, age 15m, node <node-3>, owner ReplicaSet/cartservice-5bd9f4d6cf
+cartservice-5bd9f4d6cf-q5bxs: Running, ready 1/1, restarts 0, age 15m, node <node-2>, owner ReplicaSet/cartservice-5bd9f4d6cf

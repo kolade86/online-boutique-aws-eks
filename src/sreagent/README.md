@@ -25,9 +25,20 @@ Two limits stop a runaway investigation:
 
 - **Tool-call limit** (`SREAGENT_MAX_TOOL_CALLS`, default 15). The system
   prompt tells the model its budget. Once the limit is reached, further calls
-  are refused and the model gets one more turn to answer. Then the outcome is
-  `answered_at_tool_limit`, not `answered`, so you can see it ran out. If it
-  asks for tools again, the run stops with `tool_limit`.
+  are refused and the model gets one final turn **with tools switched off**
+  (`tool_choice: none`) to answer from the evidence it has. The outcome is
+  then `answered_at_tool_limit`, not `answered`, so you can see it ran out.
+  - **Before this,** the final turn still offered tools. Live run 6aaeabea
+    (`regressions/cartservice-selector-mismatch-live.json`) asked for one
+    more, and ended with `tool_limit` and no answer, although calls 13-14 had
+    found the cause.
+  - **The rules for a change are the same.** A model that has not assessed
+    or proposed by then cannot do so in the final turn, so no pull request
+    comes from it. `submit_assessment` doesn't count against the budget: a
+    model that used exactly the limit can still submit one before the final
+    turn.
+  - **`tool_limit`** now means a provider ignored the switch and asked for
+    tools anyway.
 - **Wall-clock timeout** (`SREAGENT_TIMEOUT_SECONDS`).
 
 Every tool call is recorded as evidence.

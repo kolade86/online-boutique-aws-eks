@@ -348,6 +348,9 @@ class RegressionCasesTest(unittest.TestCase):
             ("argocd-sync-failed", "expected answer"): (90, ev.PASS),
             # an alert, so timing counts too: capped at 100
             ("node-capacity-pending", "expected answer"): (100, ev.PASS),
+            # The live capture: 15 calls, then tool_limit with no answer and no
+            # assessment (before the final turn at the limit existed)
+            ("cartservice-selector-mismatch-live", "live run 6aaeabea"): (None, ev.SAFE_FAILURE),
         })
 
     @needs_packages

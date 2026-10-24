@@ -1,0 +1,285 @@
+{
+  "id": "cartservice-selector-mismatch-live",
+  "format": 2,
+  "mode": "ask",
+  "live_capture": true,
+  "scenario": "Live capture on 2026-10-24 in the dev sandbox, following README.md 'Recording a selector mismatch live': Argo CD automated sync paused, the cartservice Service's selector patched to app=cartservice-canary, the agent asked through /ask (investigation 6aaeabea), then restored. The load generator was scaled to 0, so the frontend's logs show only health checks. The live run used all 15 tool calls and ended as tool_limit with no answer, although calls 13-14 had found the cause; the agent now gets a final turn without tools at the limit (agent.py). Outputs were recorded by running the agent's calls again at capture time; Prometheus calls were not recorded. The pod logs are recorded as the agent saw them, as Python bytes reprs (b'...').",
+  "expected": {
+    "kind": "not_fixable_by_config",
+    "must_mention_any": [
+      [
+        "selector"
+      ],
+      [
+        "cartservice-canary"
+      ],
+      [
+        "endpoint",
+        "no pods",
+        "matches no",
+        "no matching pod",
+        "selects no"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": null
+  },
+  "replay": {
+    "question": "Customers say the cart is broken: adding items and checking out both fail with an error page. What is wrong?",
+    "now": "2026-10-24T13:42:04Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "f111beeb0d2c",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "cartservice-selector-mismatch-live-recorded/01-list_pods.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/02-list_events.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-5bd9f4d6cf-p5flb",
+          "tail_lines": 40
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/03-get_pod_logs.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-6d95f4558-2j6cf",
+          "tail_lines": 40
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/04-get_pod_logs.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/05-describe_deployment.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "checkoutservice"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/06-list_events.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "frontend"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/07-list_events.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "checkoutservice-68b846677f-8dm6r",
+          "tail_lines": 40
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/08-get_pod_logs.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/09-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "cartservice-selector-mismatch-live-recorded/10-list_deployments.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/11-list_events.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services",
+          "name": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/12-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices",
+          "name": "cartservice-mq6ds"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/13-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-recorded/14-list_pods.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "cartservice-selector-mismatch-live-recorded/15-list_hpas.txt",
+        "source": "standard pack"
+      }
+    ],
+    "note": "Captured with `cli.py capture` on 2026-10-24: 13 call(s) the agent made (run again at capture time), 2 from the standard pack. Redacted."
+  },
+  "live_run": {
+    "id": "6aaeabea",
+    "kind": "ask",
+    "subject": "Customers say the cart is broken: adding items and checking out both fail with an error page. What is wrong?",
+    "started_at": "2026-10-24T13:37:22Z",
+    "finished_at": "2026-10-24T13:37:52Z",
+    "model": "claude-sonnet-5-5",
+    "outcome": "tool_limit",
+    "answer": "Tool-call limit reached without a final answer.",
+    "note": "",
+    "confidence": {
+      "score": null,
+      "display": "not assessed",
+      "observed": false,
+      "min_for_pr": 70,
+      "min_for_rollback": 85,
+      "reasons": [],
+      "open_questions": [],
+      "submissions": []
+    },
+    "pull_request": null,
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {},
+        "is_error": false
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "is_error": false
+      },
+      {
+        "tool": "recent_chart_commits",
+        "input": {
+          "limit": 5
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-5bd9f4d6cf-p5flb",
+          "tail_lines": 40
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-6d95f4558-2j6cf",
+          "tail_lines": 40
+        },
+        "is_error": false
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "cartservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "checkoutservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "frontend"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "checkoutservice-68b846677f-8dm6r",
+          "tail_lines": 40
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "is_error": false
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "cartservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services",
+          "name": "cartservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices",
+          "name": "cartservice-mq6ds"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/templates"
+        },
+        "is_error": false
+      }
+    ]
+  }
+}

@@ -111,7 +111,15 @@ class AnthropicProviderTest(unittest.TestCase):
         self.assertEqual(seen["body"]["model"], "claude-sonnet-5-5")
         self.assertEqual(seen["body"]["max_tokens"], 16000)
         self.assertNotIn("thinking", seen["body"])  # Sonnet 5.5 default: adaptive
+        self.assertNotIn("tool_choice", seen["body"])
         self.assertEqual(turn.tool_calls[0].name, "list_pods")
+
+        # The final turn at the tool-call limit: tools still defined, none may be called
+        anthropic_provider.AnthropicProvider("claude-sonnet-5-5", 16000, 30, client=client) \
+            .complete("sys", [UserTurn("task")], [ToolSpec("list_pods", "d", {"type": "object"})],
+                      allow_tools=False)
+        self.assertEqual(seen["body"]["tool_choice"], {"type": "none"})
+        self.assertEqual([t["name"] for t in seen["body"]["tools"]], ["list_pods"])
 
         # The reply goes back verbatim on the next request
         anthropic_provider.AnthropicProvider("claude-sonnet-5-5", 16000, 30, client=client) \

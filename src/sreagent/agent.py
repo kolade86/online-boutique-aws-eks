@@ -7,6 +7,11 @@
 Two limits stop a runaway investigation: a maximum number of tool calls, and
 a wall-clock timeout. Every tool call is recorded as evidence.
 
+When the tool-call budget runs out, the calls over it are refused, and the
+model gets one final turn with tools switched off (allow_tools=False) to
+answer from the evidence it has. Nothing else changes: a change still needs
+an assessment that passes, submitted before the budget ran out.
+
 One optional hook: before_finish() may return a reminder when the model
 answers too early (it never submitted its evidence assessment). The loop
 sends it once and continues; the report kept is the one already written.
@@ -23,14 +28,16 @@ log = logging.getLogger("sreagent.agent")
 
 # Outcomes
 ANSWERED = "answered"            # the model gave a final answer
-ANSWERED_AT_LIMIT = "answered_at_tool_limit"  # answered only after tools were refused
-TOOL_LIMIT = "tool_limit"        # kept asking for tools after the budget ran out
+ANSWERED_AT_LIMIT = "answered_at_tool_limit"  # answered in the final turn, after tools were refused
+TOOL_LIMIT = "tool_limit"        # asked for tools even in the final turn, which offers none
 TIMEOUT = "timeout"              # wall-clock limit reached
 MODEL_STOPPED = "model_stopped"  # refusal or max_tokens instead of a normal answer
 MODEL_ERROR = "model_error"      # the model API call failed
 
 BUDGET_EXHAUSTED = ("Not run: the tool-call limit for this investigation has been "
-                    "reached. Give your final answer now, using the evidence you have.")
+                    "reached, and no more tools can be called. Give your final answer now, "
+                    "using the evidence you have. If it does not settle the cause, say what "
+                    "is known, what is not, and which check would settle it.")
 
 
 @dataclass
@@ -72,7 +79,7 @@ class Agent:
         evidence: list[Evidence] = []
         self.evidence = evidence   # visible to tools during the run (submit_assessment cites it)
         usage: list = []
-        refused_last_round = False
+        final = False   # a call was refused: the next turn is the last, with tools off
         report = None   # the final answer written before a reminder, if one was sent
 
         def finish(outcome: str, answer: str) -> Investigation:
@@ -86,7 +93,8 @@ class Agent:
                 return finish(TIMEOUT, f"Stopped after {self.timeout_seconds:.0f}s without a final answer.")
 
             try:
-                turn = self.provider.complete(system, messages, self.tools.specs)
+                turn = self.provider.complete(system, messages, self.tools.specs,
+                                              allow_tools=not final)
             except Exception as e:
                 return finish(MODEL_ERROR, f"Model call failed: {type(e).__name__}: {e}")
             usage.extend(turn.usage)
@@ -95,18 +103,21 @@ class Agent:
             # No tool calls: the model is done.
             if not turn.tool_calls:
                 if turn.stop_reason in ("end_turn", "stop_sequence"):
-                    reminder = self.before_finish() if report is None and self.before_finish else None
+                    # No reminder in the final turn: it could not act on one
+                    reminder = (self.before_finish()
+                                if report is None and self.before_finish and not final else None)
                     if reminder:
                         report = turn.text
                         messages.append(UserTurn(reminder))
                         continue
-                    return finish(ANSWERED_AT_LIMIT if refused_last_round else ANSWERED,
+                    return finish(ANSWERED_AT_LIMIT if final else ANSWERED,
                                   report if report is not None else turn.text)
                 return finish(MODEL_STOPPED, report if report is not None
                               else f"[stop_reason={turn.stop_reason}] {turn.text}")
 
-            # It was told the budget is spent and asked for more tools anyway.
-            if refused_last_round:
+            # The final turn offered no tools and it asked for some anyway
+            # (a provider that ignores allow_tools): stop, keeping any text.
+            if final:
                 return finish(TOOL_LIMIT, report or turn.text
                               or "Tool-call limit reached without a final answer.")
 
@@ -116,7 +127,7 @@ class Agent:
                 used = sum(1 for e in evidence if e.tool not in self.unbudgeted)
                 if call.name not in self.unbudgeted and used >= self.max_tool_calls:
                     results.append(ToolResult(call.id, BUDGET_EXHAUSTED, is_error=True))
-                    refused_last_round = True
+                    final = True
                     continue
                 output, is_error = self.tools.run(call.name, call.input)
                 evidence.append(Evidence(call.name, call.input, output, is_error))

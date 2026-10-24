@@ -1,0 +1,22 @@
+endpointslice cartservice-mq6ds in online-boutique-dev (trimmed):
+kind: EndpointSlice
+apiVersion: discovery.k8s.io/v1
+metadata:
+  name: cartservice-mq6ds
+  generateName: cartservice-
+  namespace: online-boutique-dev
+  generation: 20
+  creationTimestamp: '2026-10-24T12:30:25Z'
+  labels:
+    app: cartservice
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: online-boutique
+    endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+    kubernetes.io/service-name: cartservice
+  ownerReferences:
+  - apiVersion: v1
+    kind: Service
+    name: cartservice
+addressType: IPv4
+endpoints: null
+ports: null

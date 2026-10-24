@@ -27,7 +27,7 @@ class ScriptedModel:
         self.turns.append(AssistantTurn(answer, [], "end_turn"))
         self.seen = []
 
-    def complete(self, system, messages, tools):
+    def complete(self, system, messages, tools, allow_tools=True):
         self.seen.append(messages[-1])
         return self.turns.pop(0)
 
