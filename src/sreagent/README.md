@@ -23,8 +23,13 @@ See [Deploying to the cluster](#deploying-to-the-cluster).
 
 Two limits stop a runaway investigation:
 
-- **Tool-call limit** (`SREAGENT_MAX_TOOL_CALLS`, default 15). The system
-  prompt tells the model its budget. Once the limit is reached, further calls
+- **Tool-call limit**, one for each kind of run. The system prompt tells
+  the model its budget.
+  - **Alerts:** `SREAGENT_MAX_TOOL_CALLS`, default 15.
+  - **Questions** (`/ask`, the chat page, `cli.py ask`, and replays of `ask`
+    cases): `SREAGENT_MAX_TOOL_CALLS_ASK`, default 20. A question has no
+    alert to start from, so it searches wider: the live selector-mismatch
+    question used all 15 calls. Once the limit is reached, further calls
   are refused and the model gets one final turn **with tools switched off**
   (`tool_choice: none`) to answer from the evidence it has. The outcome is
   then `answered_at_tool_limit`, not `answered`, so you can see it ran out.
@@ -322,8 +327,10 @@ payloads. The tests check that every one of them is skipped.
   services, the first new one is investigated and the rest are skipped as busy.
 - **Skips return 200, not an error.** Otherwise AlertManager would retry. Its
   `repeat_interval` (1h) re-sends alerts that are still firing.
-- **Per-investigation limits:** `SREAGENT_MAX_TOOL_CALLS` and
-  `SREAGENT_TIMEOUT_SECONDS`, as for the CLI.
+- **Per-investigation limits:** `SREAGENT_MAX_TOOL_CALLS` (alerts),
+  `SREAGENT_MAX_TOOL_CALLS_ASK` (questions) and `SREAGENT_TIMEOUT_SECONDS`,
+  as for the CLI. Each record in `/investigations` shows the budget it ran
+  with (`max_tool_calls`).
 - **State is in memory.** A restart forgets the dedup history and the recent
   results. That is acceptable with one replica; at worst an alert is
   investigated twice.
@@ -900,7 +907,7 @@ making new tool calls. Every submission and its score is kept, both in
   it is reminded once ("call submit_assessment for the report you just
   wrote"), and the report it already wrote is kept. If it still doesn't
   assess, the result shows **not assessed** and nothing can be proposed.
-  `submit_assessment` doesn't count against `SREAGENT_MAX_TOOL_CALLS`.
+  `submit_assessment` doesn't count against the tool-call budget.
 - **The latest assessment decides.** Before a PR is opened, the rule is
   checked again against the latest assessment.
 
@@ -1163,7 +1170,8 @@ control.
 | `PROMETHEUS_URL` | `http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090` | |
 | `KUBE_CONTEXT` | current context | kubeconfig context to use locally |
 | `SREAGENT_MODEL` | `claude-sonnet-5-5` | Used by `/alert`, `/ask` and the CLI. See [Model choice](#model-choice) |
-| `SREAGENT_MAX_TOOL_CALLS` | `15` | Per investigation |
+| `SREAGENT_MAX_TOOL_CALLS` | `15` | Per alert investigation |
+| `SREAGENT_MAX_TOOL_CALLS_ASK` | `20` | Per question: `/ask`, the chat page, `cli.py ask`, replays of `ask` cases |
 | `SREAGENT_TIMEOUT_SECONDS` | `300` | Per investigation |
 | `SREAGENT_MODEL_TIMEOUT_SECONDS` | `120` | Per model request |
 | `SREAGENT_MAX_TOKENS` | `16000` | Max output tokens per model turn. Includes Sonnet 5.5's thinking |

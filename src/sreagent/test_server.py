@@ -38,6 +38,8 @@ class StubAgent:
     def __init__(self):
         self.tasks = []
         self.extra_tools = []   # tool names given to each run
+        self.budgets = []       # max_tool_calls given to each run
+        self.systems = []       # the system prompt of each run
         self.calls = ["list_pods", "list_events", "recent_chart_commits"]
         self.assess = None      # args for submit_assessment
         self.propose = None     # args for propose_values_change
@@ -46,9 +48,10 @@ class StubAgent:
         self.evidence = []
         self._current = []
 
-    def __call__(self, extra_tools):
+    def __call__(self, extra_tools, max_tool_calls):
         self._current = list(extra_tools)
         self.extra_tools.append([t.name for t in extra_tools])
+        self.budgets.append(max_tool_calls)
         return self
 
     def _call(self, tool, args):
@@ -61,6 +64,7 @@ class StubAgent:
 
     def run(self, system, task):
         self.tasks.append(task)
+        self.systems.append(system)
         self.evidence = [Evidence(name, {}, "output", False) for name in self.calls]
         tools = {t.name: t for t in self._current}
         if self.assess and "submit_assessment" in tools:
@@ -118,6 +122,34 @@ class ServerTest(unittest.TestCase):
                 self.assertEqual(self.client.post("/ask", json={"question": "q"},
                                                   headers=headers).status_code, 401)
         self.assertEqual(self.client.get("/investigations").status_code, 401)
+
+    def test_questions_and_alerts_have_their_own_budgets(self):
+        # /ask: 20 by default; alerts stay at 15. The prompt, the run and the record agree.
+        resp = self.client.post("/ask", json={"question": "Is the cart working?"}, headers=AUTH)
+        self.assertEqual(resp.json()["max_tool_calls"], 20)
+        self.post_alert(alert())
+        self.spawn.run_all()
+        self.assertEqual(self.agent.budgets, [20, 15])
+        self.assertIn("at most 20 tool calls", self.agent.systems[0])
+        self.assertIn("at most 15 tool calls", self.agent.systems[1])
+        records = self.client.get("/investigations", headers=AUTH).json()
+        self.assertEqual({r["kind"]: r["max_tool_calls"] for r in records}, {"ask": 20, "alert": 15})
+
+    def test_each_budget_is_set_on_its_own(self):
+        agent = StubAgent()
+        client = TestClient(server.create_app(
+            config(SREAGENT_MAX_TOOL_CALLS="12", SREAGENT_MAX_TOOL_CALLS_ASK="25"), agent,
+            spawn=self.spawn))
+        client.post("/ask", json={"question": "q"}, headers=AUTH)
+        client.post("/alert", json=payload(alert()), headers=AUTH)
+        self.spawn.run_all()
+        self.assertEqual(agent.budgets, [25, 12])
+
+    def test_a_bad_ask_budget_stops_the_agent_at_start_up(self):
+        from config import ConfigError
+        for value in ("0", "-3", "twenty"):
+            with self.subTest(value=value), self.assertRaises(ConfigError):
+                config(SREAGENT_MAX_TOOL_CALLS_ASK=value)
 
     def test_server_refuses_to_start_without_token(self):
         with self.assertRaises(ValueError):

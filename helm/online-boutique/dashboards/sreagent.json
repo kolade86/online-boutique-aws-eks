@@ -569,7 +569,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Over the dashboard's time range. With few investigations a percentile is interpolated between bucket edges; the average is exact. The budget is SREAGENT_MAX_TOOL_CALLS (15 by default).",
+      "description": "Over the dashboard's time range. With few investigations a percentile is interpolated between bucket edges; the average is exact. Alerts and questions are counted together; each has its own budget: SREAGENT_MAX_TOOL_CALLS for alerts (15 by default), SREAGENT_MAX_TOOL_CALLS_ASK for questions (20 by default).",
       "gridPos": {
         "h": 6,
         "w": 12,

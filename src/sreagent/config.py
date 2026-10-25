@@ -21,7 +21,8 @@ class Config:
     model: str
     max_tokens: int
     model_timeout_seconds: float
-    max_tool_calls: int
+    max_tool_calls: int          # alerts
+    max_tool_calls_ask: int      # /ask questions, the chat page and `cli.py ask`
     investigation_timeout_seconds: float
     tool_output_max_chars: int
     prometheus_url: str
@@ -68,6 +69,9 @@ class Config:
             max_tokens=integer("SREAGENT_MAX_TOKENS", 16000),
             model_timeout_seconds=integer("SREAGENT_MODEL_TIMEOUT_SECONDS", 120),
             max_tool_calls=integer("SREAGENT_MAX_TOOL_CALLS", 15),
+            # A question has no alert to start from, so it searches wider: the
+            # live selector-mismatch question needed more than 15 calls
+            max_tool_calls_ask=integer("SREAGENT_MAX_TOOL_CALLS_ASK", 20),
             investigation_timeout_seconds=integer("SREAGENT_TIMEOUT_SECONDS", 300),
             tool_output_max_chars=integer("SREAGENT_TOOL_OUTPUT_MAX_CHARS", 6000),
             prometheus_url=env.get("PROMETHEUS_URL", IN_CLUSTER_PROMETHEUS),
@@ -94,6 +98,11 @@ class Config:
                 os.path.dirname(os.path.abspath(__file__)), "model_prices.json"),
             port=integer("PORT", 8080),
         )
+
+
+def tool_budget(config: Config, kind: str) -> int:
+    """The tool-call budget for "ask" (a question) or "investigate" (an alert)."""
+    return config.max_tool_calls_ask if kind == "ask" else config.max_tool_calls
 
 
 def _flag(env, name: str, default: bool) -> bool:

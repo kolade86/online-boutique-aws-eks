@@ -353,6 +353,16 @@ class RegressionCasesTest(unittest.TestCase):
             ("cartservice-selector-mismatch-live", "live run 6aaeabea"): (None, ev.SAFE_FAILURE),
         })
 
+    def test_replays_use_the_live_budget_for_each_kind(self):
+        # 17 calls fit a question's budget (20); an alert's (15) refuses the 16th
+        calls = [{"tool": "list_pods", "input": {"app": f"x{i}"}} for i in range(17)]
+        outcomes = {}
+        for case_id in ("healthy-checkoutservice", "node-capacity-pending"):
+            path, case = [(p, c) for p, c in self.cases if c["id"] == case_id][0]
+            run = ev.run_script(case, path, {"calls": calls, "answer": "done"})
+            outcomes[run["mode"]] = (run["outcome"], len(run["tool_calls"]))
+        self.assertEqual(outcomes, {"ask": ("answered", 17), "alert": ("tool_limit", 15)})
+
     @needs_packages
     def test_causes_outside_the_allow_list_open_no_pull_request(self):
         """Selector, Argo CD sync and node capacity: right with no change; for the alert
