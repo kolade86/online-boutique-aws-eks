@@ -5,6 +5,8 @@
 # standalone `terraform init -backend=false` used for validation, and the root
 # module is what actually pins versions.
 terraform/modules/*/.terraform.lock.hcl
+# The state bucket for one AWS account, written by bootstrap-backend.sh
+terraform/environments/*/backend.hcl
 **/.terraform/*
 *.tfstate
 *.tfstate.*

@@ -108,7 +108,8 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           set +e
-          terraform plan -input=false -no-color > plan.txt 2>&1
+          # Wait for a lock another run holds rather than failing at once
+          terraform plan -input=false -no-color -lock-timeout=5m > plan.txt 2>&1
           echo "exitcode=$?" >> "$GITHUB_OUTPUT"
           set -e
           cat plan.txt
