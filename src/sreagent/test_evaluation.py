@@ -351,6 +351,8 @@ class RegressionCasesTest(unittest.TestCase):
             # The live capture: 15 calls, then tool_limit with no answer and no
             # assessment (before the final turn at the limit existed)
             ("cartservice-selector-mismatch-live", "live run 6aaeabea"): (None, ev.SAFE_FAILURE),
+            # The same fault after the follow-ups: answered in 17 of 20 calls, observed
+            ("cartservice-selector-mismatch-live-2", "live run 89dd7c2a"): (90, ev.PASS),
         })
 
     def test_replays_use_the_live_budget_for_each_kind(self):

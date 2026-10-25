@@ -1,0 +1,2 @@
+cartservice-764588df66-kc8rc: Running, ready 1/1, restarts 0, age 5m, node <node-3>, owner ReplicaSet/cartservice-764588df66
+cartservice-764588df66-kknws: Running, ready 1/1, restarts 0, age 6m, node <node-4>, owner ReplicaSet/cartservice-764588df66

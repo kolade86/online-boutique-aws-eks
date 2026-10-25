@@ -1,0 +1,12 @@
+11 endpointslices in online-boutique-dev:
+adservice-r7kgt: service adservice, 2 endpoints (ready 2, not ready 0) [adservice-6cccc6775-s5r99, adservice-6cccc6775-cg4bh], ports grpc 9555/TCP
+cartservice-sh7v4: service cartservice, 0 endpoints (ready 0, not ready 0), ports none
+checkoutservice-2vzrb: service checkoutservice, 2 endpoints (ready 2, not ready 0) [checkoutservice-84854b4586-8jkjc, checkoutservice-84854b4586-mg59h], ports grpc 5050/TCP
+currencyservice-d6t2c: service currencyservice, 2 endpoints (ready 2, not ready 0) [currencyservice-79d9dc48b5-hjtfb, currencyservice-79d9dc48b5-nfkld], ports grpc 7000/TCP
+emailservice-dgztk: service emailservice, 1 endpoints (ready 1, not ready 0) [emailservice-85bc44bd5-68h52], ports grpc 8080/TCP
+frontend-8pnwk: service frontend, 2 endpoints (ready 2, not ready 0) [frontend-6bfd64d75f-r9dq6, frontend-6bfd64d75f-kfvqc], ports http 8080/TCP
+paymentservice-65h8v: service paymentservice, 2 endpoints (ready 2, not ready 0) [paymentservice-6cc8ccf545-xmvrv, paymentservice-6cc8ccf545-4zrmg], ports grpc 50051/TCP
+productcatalogservice-4n8l4: service productcatalogservice, 2 endpoints (ready 2, not ready 0) [productcatalogservice-7c45fbcc9-f7fzw, productcatalogservice-7c45fbcc9-8tkt8], ports grpc 3550/TCP
+recommendationservice-zw7g7: service recommendationservice, 2 endpoints (ready 2, not ready 0) [recommendationservice-6d89485c59-r7kbn, recommendationservice-6d89485c59-s9vtb], ports grpc 8080/TCP
+shippingservice-sbxch: service shippingservice, 2 endpoints (ready 2, not ready 0) [shippingservice-5c9d45b8f7-vmtds, shippingservice-5c9d45b8f7-xvjxz], ports grpc 50051/TCP
+sreagent-9w7vx: service sreagent, 1 endpoints (ready 1, not ready 0) [sreagent-8dd9b6c89-c5xkf], ports http 8080/TCP

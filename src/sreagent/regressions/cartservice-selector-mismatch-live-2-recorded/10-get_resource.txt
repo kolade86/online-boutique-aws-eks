@@ -1,0 +1,155 @@
+application online-boutique in argocd (trimmed):
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  annotations:
+    argocd.argoproj.io/hydrate: normal
+  creationTimestamp: '2026-10-25T11:18:30Z'
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  generation: 167
+  name: online-boutique
+  namespace: argocd
+spec:
+  destination:
+    namespace: online-boutique-dev
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    helm:
+      parameters:
+      - name: image.registry
+        value: <account-id>.dkr.ecr.us-east-1.amazonaws.com
+      - name: image.prefix
+        value: online-boutique-dev
+      - name: redis.addr
+        value: <redis-1>:6379
+      - name: externalSecrets.secretStore
+        value: online-boutique-dev-secret-store
+      - name: externalSecrets.remoteKeyPrefix
+        value: online-boutique-dev
+      valueFiles:
+      - values-dev.yaml
+    path: helm/online-boutique
+    repoURL: https://github.com/kolade86/online-boutique-aws-eks.git
+    targetRevision: main
+  syncPolicy:
+    retry:
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+      limit: 5
+    syncOptions:
+    - ApplyOutOfSyncOnly=true
+status:
+  controllerNamespace: argocd
+  health:
+    lastTransitionTime: '2026-10-25T12:02:10Z'
+    status: Healthy
+  history:
+  - deployStartedAt: '2026-10-25T11:51:58Z'
+    deployedAt: '2026-10-25T11:51:59Z'
+    id: 4
+    initiatedBy:
+      automated: true
+    revision: a693f3ebe00760226f08500ff2633f641b00b916
+    source:
+      helm:
+        parameters:
+        - name: image.registry
+          value: <account-id>.dkr.ecr.us-east-1.amazonaws.com
+        - name: image.prefix
+          value: online-boutique-dev
+        - name: redis.addr
+          value: <redis-1>:6379
+        - name: externalSecrets.secretStore
+          value: online-boutique-dev-secret-store
+        - name: externalSecrets.remoteKeyPrefix
+          value: online-boutique-dev
+        valueFiles:
+        - values-dev.yaml
+      path: helm/online-boutique
+      repoURL: https://github.com/kolade86/online-boutique-aws-eks.git
+      targetRevision: main
+  - deployStartedAt: '2026-10-25T11:54:07Z'
+    deployedAt: '2026-10-25T11:54:09Z'
+    id: 5
+    initiatedBy:
+      automated: true
+    revision: d93435e7f88e719512614cb1986022e04884f5f6
+    source:
+      helm:
+        parameters:
+        - name: image.registry
+          value: <account-id>.dkr.ecr.us-east-1.amazonaws.com
+        - name: image.prefix
+          value: online-boutique-dev
+        - name: redis.addr
+          value: <redis-1>:6379
+        - name: externalSecrets.secretStore
+          value: online-boutique-dev-secret-store
+        - name: externalSecrets.remoteKeyPrefix
+          value: online-boutique-dev
+        valueFiles:
+        - values-dev.yaml
+      path: helm/online-boutique
+      repoURL: https://github.com/kolade86/online-boutique-aws-eks.git
+      targetRevision: main
+  - deployStartedAt: '2026-10-25T11:58:39Z'
+    deployedAt: '2026-10-25T11:58:41Z'
+    id: 6
+    initiatedBy:
+      automated: true
+    revision: 19bc8f5bba6e2f9a0a62d0ac4d02ed63540288ac
+    source:
+      helm:
+        parameters:
+        - name: image.registry
+          value: <account-id>.dkr.ecr.us-east-1.amazonaws.com
+        - name: image.prefix
+          value: online-boutique-dev
+        - name: redis.addr
+          value: <redis-1>:6379
+        - name: externalSecrets.secretStore
+          value: online-boutique-dev-secret-store
+        - name: externalSecrets.remoteKeyPrefix
+          value: online-boutique-dev
+        valueFiles:
+        - values-dev.yaml
+      path: helm/online-boutique
+      repoURL: https://github.com/kolade86/online-boutique-aws-eks.git
+      targetRevision: main
+  operationState:
+    finishedAt: '2026-10-25T11:58:41Z'
+    message: successfully synced (all tasks run)
+    operation:
+      initiatedBy:
+        automated: true
+      retry:
+        backoff:
+          duration: 10s
+          factor: 2
+          maxDuration: 3m
+        limit: 5
+      sync:
+        prune: true
+        revision: 19bc8f5bba6e2f9a0a62d0ac4d02ed63540288ac
+        source:
+          helm:
+            parameters:
+            - name: image.registry
+              value: <account-id>.dkr.ecr.us-east-1.amazonaws.com
+            - name: image.prefix
+              value: online-boutique-dev
+            - name: redis.addr
+              value: <redis-1>:6379
+            - name: externalSecrets.secretStore
+              value: online-boutique-dev-secret-store
+            - name: externalSecrets.remoteKeyPrefix
+              value: online-boutique-dev
+            valueFiles:
+            - values-dev.yaml
+          path: helm/online-boutique
+          repoURL: https://git
+... [truncated 3508 characters]

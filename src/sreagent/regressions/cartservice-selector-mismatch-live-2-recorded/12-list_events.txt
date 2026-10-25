@@ -1,0 +1,41 @@
+Controller events (HPA, Deployment, ReplicaSet, ...), newest first:
+4m ago Warning FailedGetResourceMetric HorizontalPodAutoscaler/cartservice [horizontal-pod-autoscaler] (x3 since 38m ago): failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
+4m ago Warning FailedComputeMetricsReplicas HorizontalPodAutoscaler/cartservice [horizontal-pod-autoscaler] (x3 since 38m ago): invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
+4m ago Normal SuccessfulDelete ReplicaSet/cartservice-7b6bf7994c [replicaset-controller] (x1): Deleted pod: cartservice-7b6bf7994c-hs24p
+4m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x7 since 10m ago): (combined from similar events): Scaled down replica set cartservice-7b6bf7994c from 1 to 0
+5m ago Normal SuccessfulCreate ReplicaSet/cartservice-764588df66 [replicaset-controller] (x1): Created pod: cartservice-764588df66-kc8rc
+5m ago Normal SuccessfulDelete ReplicaSet/cartservice-7b6bf7994c [replicaset-controller] (x1): Deleted pod: cartservice-7b6bf7994c-b87bw
+6m ago Normal SuccessfulCreate ReplicaSet/cartservice-764588df66 [replicaset-controller] (x1): Created pod: cartservice-764588df66-kknws
+9m ago Normal SuccessfulDelete ReplicaSet/cartservice-7f66b647d5 [replicaset-controller] (x1): Deleted pod: cartservice-7f66b647d5-r6qsl
+10m ago Normal SuccessfulCreate ReplicaSet/cartservice-7b6bf7994c [replicaset-controller] (x1): Created pod: cartservice-7b6bf7994c-hs24p
+10m ago Normal SuccessfulDelete ReplicaSet/cartservice-7f66b647d5 [replicaset-controller] (x1): Deleted pod: cartservice-7f66b647d5-9jpd7
+10m ago Normal SuccessfulCreate ReplicaSet/cartservice-7b6bf7994c [replicaset-controller] (x1): Created pod: cartservice-7b6bf7994c-b87bw
+10m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-7b6bf7994c from 0 to 1
+16m ago Normal SuccessfulDelete ReplicaSet/cartservice-5d5966d47d [replicaset-controller] (x1): Deleted pod: cartservice-5d5966d47d-xplmh
+16m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-5d5966d47d from 1 to 0
+17m ago Normal SuccessfulDelete ReplicaSet/cartservice-5d5966d47d [replicaset-controller] (x1): Deleted pod: cartservice-5d5966d47d-p5fdc
+17m ago Normal SuccessfulCreate ReplicaSet/cartservice-7f66b647d5 [replicaset-controller] (x1): Created pod: cartservice-7f66b647d5-r6qsl
+17m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-5d5966d47d from 2 to 1
+17m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-7f66b647d5 from 1 to 2
+17m ago Normal SuccessfulCreate ReplicaSet/cartservice-7f66b647d5 [replicaset-controller] (x1): Created pod: cartservice-7f66b647d5-9jpd7
+17m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-7f66b647d5 from 0 to 1
+24m ago Normal SuccessfulDelete ReplicaSet/cartservice-5b6dc8f87 [replicaset-controller] (x1): Deleted pod: cartservice-5b6dc8f87-6kvtj
+24m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-5b6dc8f87 from 1 to 0
+25m ago Normal SuccessfulDelete ReplicaSet/cartservice-5b6dc8f87 [replicaset-controller] (x1): Deleted pod: cartservice-5b6dc8f87-fxm6b
+25m ago Normal SuccessfulCreate ReplicaSet/cartservice-5d5966d47d [replicaset-controller] (x1): Created pod: cartservice-5d5966d47d-xplmh
+25m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-5b6dc8f87 from 2 to 1
+25m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-5d5966d47d from 1 to 2
+25m ago Normal SuccessfulCreate ReplicaSet/cartservice-5d5966d47d [replicaset-controller] (x1): Created pod: cartservice-5d5966d47d-p5fdc
+25m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-5d5966d47d from 0 to 1
+37m ago Normal SuccessfulDelete ReplicaSet/cartservice-5bfd79b8c7 [replicaset-controller] (x1): Deleted pod: cartservice-5bfd79b8c7-98xn4
+37m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-5bfd79b8c7 from 1 to 0
+38m ago Normal SuccessfulCreate ReplicaSet/cartservice-5b6dc8f87 [replicaset-controller] (x1): Created pod: cartservice-5b6dc8f87-fxm6b
+38m ago Normal SuccessfulDelete ReplicaSet/cartservice-5bfd79b8c7 [replicaset-controller] (x1): Deleted pod: cartservice-5bfd79b8c7-jjghz
+38m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled down replica set cartservice-5bfd79b8c7 from 2 to 1
+38m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-5b6dc8f87 from 1 to 2
+38m ago Normal SuccessfulCreate ReplicaSet/cartservice-5b6dc8f87 [replicaset-controller] (x1): Created pod: cartservice-5b6dc8f87-6kvtj
+38m ago Normal ScalingReplicaSet Deployment/cartservice [deployment-controller] (x1): Scaled up replica set cartservice-5b6dc8f87 from 0 to 1
+40m ago Warning FailedGetResourceMetric HorizontalPodAutoscaler/cartservice [horizontal-pod-autoscaler] (x21 since 45m ago): failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+43m ago Warning FailedComputeMetricsReplicas HorizontalPodAutoscaler/cartservice [horizontal-pod-autoscaler] (x12 since 45m ago): invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+46m 
+... [truncated 1492 characters]
