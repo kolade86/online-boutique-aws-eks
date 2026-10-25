@@ -499,6 +499,9 @@ def run_case(case_path: str, config, provider, now=None, script_tools=None,
         # fixture, not the agent: compare runs only with the same unavailable set.
         "unavailable": [f"{e.tool} {replay._normalise(e.input)}" for e in result.evidence
                         if e.is_error and e.output.startswith(replay.UNAVAILABLE)],
+        # Calls answered from a recording made with other input: a pod log
+        # recorded with another tail_lines ("served recorded tail 40 for 50")
+        "served_instead": list(getattr(registry, "served", [])),
         "tool_calls": [{"tool": e.tool, "input": e.input, "is_error": e.is_error}
                        for e in result.evidence],
         "answer": redact_public(result.answer)[:6000],

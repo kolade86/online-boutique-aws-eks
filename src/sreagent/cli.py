@@ -310,6 +310,8 @@ def _eval(config, cases: list, models: list, runs: int, record: bool) -> int:
                     print(f"    proposal refused: {refusal[:160]}")
                 if run["unavailable"]:
                     print("    no recording for: " + "; ".join(run["unavailable"]))
+                for served in run.get("served_instead") or []:
+                    print(f"    {served}")
                 if row["outcome"] == evaluation.CRITICAL:
                     worst = 1
                 if record:

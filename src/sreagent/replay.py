@@ -100,13 +100,28 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
         # finds the recording whether or not the model named the namespace
         if name == "get_resource":
             return k8s_tools.canonical_resource_args(args or {}, namespace, argocd_namespace)
+        if name == "get_pod_logs":
+            # The live tool's defaults (100 lines, the current instance) are
+            # the same request whether or not the model spelled them out
+            args = dict(args or {})
+            if _tail_lines(args) == 100:
+                args.pop("tail_lines", None)
+            if not args.get("previous"):
+                args.pop("previous", None)
         return args
 
     recorded = {}
+    log_tails = {}      # (pod, container, previous) -> [(tail_lines, output)], successful calls only
     for item in spec.get("recorded", []):
         with open(os.path.join(case_dir, item["file"]), encoding="utf-8") as f:
-            recorded[(item["tool"], _normalise(canonical(item["tool"], item.get("input"))))] = (
-                f.read(), item.get("is_error", False))
+            output = f.read()
+        recorded[(item["tool"], _normalise(canonical(item["tool"], item.get("input"))))] = (
+            output, item.get("is_error", False))
+        if item["tool"] == "get_pod_logs" and not item.get("is_error"):
+            log_tails.setdefault(_log_key(item.get("input")), []).append(
+                (_tail_lines(item.get("input")), output))
+
+    served = []         # substitutions made, for the run record
 
     def from_recording(name):
         def handler(args):
@@ -115,6 +130,15 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
                 output, is_error = recorded[key]
                 if is_error:      # the call failed when it was recorded: fail the same way
                     raise ToolError(output)
+                return output
+            if name == "get_pod_logs" and log_tails.get(_log_key(args)):
+                # The same pod's log, recorded with another tail_lines: serve that
+                # recording as it is, never cut or padded, and say so in the run
+                wanted = _tail_lines(args)
+                tails = log_tails[_log_key(args)]
+                tail, output = min((t for t in tails if t[0] >= wanted), default=None,
+                                   key=lambda t: t[0]) or max(tails, key=lambda t: t[0])
+                served.append(f"get_pod_logs {key[1]}: served recorded tail {tail} for {wanted}")
                 return output
             raise ToolError(f"{UNAVAILABLE} for {name} {key[1]} in this replay: the call was "
                             "not made when the case was recorded. Treat it as unavailable.")
@@ -129,16 +153,34 @@ def replay_registry(spec: dict, case_dir: str, max_chars: int, extra_tools=(),
                    repo_root)
     recorded_tools = {t.name for t in tools}
     tools += github_tools.make_tools(git)
-    return _ReplayRegistry(tools + list(extra_tools), max_chars, recorded_tools)
+    return _ReplayRegistry(tools + list(extra_tools), max_chars, recorded_tools, served)
+
+
+def _log_key(args) -> tuple:
+    args = args or {}
+    return (args.get("pod"), args.get("container") or None, bool(args.get("previous", False)))
+
+
+def _tail_lines(args) -> int:
+    """tail_lines as the live tool reads it: default 100, kept within 1-500."""
+    value = (args or {}).get("tail_lines", 100)
+    try:
+        return max(1, min(500, int(value)))
+    except (TypeError, ValueError):
+        return 100
 
 
 class _ReplayRegistry(ToolRegistry):
     """Recorded outputs were redacted and cut to length when the agent first saw
-    them; they are returned as recorded, not cut a second time."""
+    them; they are returned as recorded, not cut a second time.
 
-    def __init__(self, tools, max_chars, recorded_tools):
+    `served` lists each call answered from a recording made with other input
+    (a pod log with another tail_lines), e.g. "served recorded tail 40 for 50"."""
+
+    def __init__(self, tools, max_chars, recorded_tools, served=None):
         super().__init__(tools, max_chars)
         self._recorded_tools = recorded_tools
+        self.served = served if served is not None else []
 
     def run(self, name: str, args: dict):
         if name not in self._recorded_tools:
