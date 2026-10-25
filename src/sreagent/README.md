@@ -1042,7 +1042,9 @@ tools as live, so it tests the real agent.
 - **New cases should record the basics.** When an incident happens, record
   the standard pack while the cluster still shows it. The pack is pods,
   events, deployments, `describe_deployment`, HPAs, memory, CPU and
-  restarts, saved redacted and pinned to main's current commit:
+  restarts, plus Argo CD's Applications (the list, and the one that deploys
+  the chart: `online-boutique`, or `--argocd-app NAME`). It is saved
+  redacted and pinned to main's current commit:
 
 ```bash
 python cli.py capture regressions/my-incident.json --service recommendationservice \

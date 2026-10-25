@@ -191,6 +191,36 @@ class CaptureTest(unittest.TestCase):
         self.assertEqual(reg.run("get_pod_logs", {"pod": "paymentservice-5d9f8c7b6d-abcde"}),
                          ("pod not found", True))
 
+    def test_argo_cd_applications_are_recorded_and_replayed(self):
+        # The live selector-mismatch capture had none: a replay could not see
+        # that Argo CD showed the Service OutOfSync
+        investigation = dict(self.INVESTIGATION, evidence=[
+            {"tool": "get_resource", "input": {"kind": "applications", "namespace": "argocd"},
+             "is_error": False}])
+        tmp, live, spec, case = self.capture(investigation)
+        apps = [(r["input"], r["source"]) for r in spec["recorded"] if r["tool"] == "get_resource"]
+        # the agent's call (with the namespace spelled out) counts as the pack's list call
+        self.assertEqual(apps, [({"kind": "applications", "namespace": "argocd"}, "agent call, run again"),
+                                ({"kind": "applications", "name": "online-boutique"}, "standard pack")])
+        reg = replay.replay_registry(spec, tmp, 6000)
+        for args in ({"kind": "applications"}, {"kind": "applications", "namespace": "argocd"},
+                     {"kind": "application", "name": "online-boutique"}):
+            with self.subTest(args=args):
+                out, err = reg.run("get_resource", args)
+                self.assertFalse(err, out)
+                self.assertTrue(out.startswith("get_resource live on"))
+
+    def test_another_application_name(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        live = self.Live()
+        spec = replay.capture(live, os.path.join(tmp, "c.json"), "paymentservice",
+                              "online-boutique-dev", "q", "HEAD", argocd_app="shop-staging")
+        self.assertIn({"kind": "applications", "name": "shop-staging"},
+                      [r["input"] for r in spec["recorded"] if r["tool"] == "get_resource"])
+        self.assertIn(("get_resource", {"kind": "applications", "name": "shop-staging"}),
+                      replay.standard_pack("paymentservice", "online-boutique-dev", "shop-staging"))
+
     def test_a_recording_is_used_as_the_agent_saw_it(self):
         recording = dict(self.INVESTIGATION, started_at="2026-10-12T16:02:40Z",
                          alert={"alerts": self.AM_ALERTS[:1]},
