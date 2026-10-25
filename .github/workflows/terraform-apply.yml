@@ -87,11 +87,12 @@ jobs:
 
       - name: terraform plan
         working-directory: ${{ env.WORKING_DIR }}
-        run: terraform plan -input=false -no-color -out=tfplan
+        # -lock-timeout: wait for a lock a plan run holds rather than failing at once
+        run: terraform plan -input=false -no-color -lock-timeout=5m -out=tfplan
 
       - name: terraform apply
         working-directory: ${{ env.WORKING_DIR }}
-        run: terraform apply -input=false -no-color -auto-approve tfplan
+        run: terraform apply -input=false -no-color -lock-timeout=5m -auto-approve tfplan
 
       - name: Summary
         if: always()

@@ -85,23 +85,39 @@ created by [`bootstrap-backend.sh`](../bootstrap-backend.sh) with versioning,
 encryption and public access blocked. The account ID in the name means each
 AWS account gets its own bucket, so a new sandbox never collides with an old
 sandbox's bucket (S3 bucket names are global). `backend.tf` therefore leaves
-the bucket out (a partial backend configuration) and it is passed to
-`terraform init` with `-backend-config`: the bootstrap script prints the exact
-command, and the Plan and Apply workflows build the name from the
-`AWS_ACCOUNT_ID` repo variable. Terraform Checks runs `init -backend=false`, so
-it needs no bucket. Locking uses S3's native lock file
-(`use_lockfile = true` in `environments/dev/backend.tf`): Terraform writes
-`terraform.tfstate.tflock` next to the state while it holds the lock. There is
-no DynamoDB table.
+the bucket out (a partial backend configuration), and the bucket is passed to
+`terraform init` instead:
+
+- **Locally:** the bootstrap script writes it to
+  `environments/dev/backend.hcl`, which Git ignores, and runs
+  `terraform init -reconfigure -backend-config=backend.hcl` itself.
+- **In CI:** the Plan and Apply workflows build the name from the
+  `AWS_ACCOUNT_ID` repo variable and pass it with `-backend-config`. They set
+  no `TF_CLI_ARGS_*`.
+- **Terraform Checks** runs `init -backend=false`, so it needs no bucket.
+
+Locking uses S3's native lock file (`use_lockfile = true` in
+`environments/dev/backend.tf`): Terraform writes `terraform.tfstate.tflock`
+next to the state while it holds the lock. There is no DynamoDB table. Plan
+and apply wait up to 5 minutes for a lock another run holds
+(`-lock-timeout=5m`), rather than failing at once.
 
 - **A stale lock.** If a run is killed while it holds the lock, the next run
-  fails with "Error acquiring the state lock" and prints the lock ID. Make
-  sure nothing is still running, then clear it from
-  `terraform/environments/dev`:
+  times out with "Error acquiring the state lock". Run the unlock script from
+  anywhere in the repository:
 
   ```bash
-  terraform force-unlock <LOCK_ID>
+  scripts/tf-unlock.sh
   ```
+
+  - It reads the lock file and shows who holds it, the operation, and how
+    long ago it was taken.
+  - It refuses while a `terraform` process runs on your machine;
+    `terraform-ls`, the editor's language server, doesn't count.
+  - Otherwise it asks you to type `unlock`, then runs
+    `terraform force-unlock` with that ID.
+  - A lock held by `runner@...` is a GitHub Actions run: wait for it, or
+    cancel it, rather than unlocking.
 
 - **An interrupted apply.** An apply stopped part-way (a cancelled run, a
   lost connection) can leave resources created in AWS but missing from state.
@@ -119,13 +135,35 @@ fallback — same remote state, same lock file, same provider versions via the
 committed `.terraform.lock.hcl`:
 
 ```bash
+./bootstrap-backend.sh          # once per AWS account: bucket, backend.hcl, init
 cd terraform/environments/dev
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-terraform init -reconfigure \
-  -backend-config="bucket=online-boutique-dev-${ACCOUNT_ID}-terraform-state"
 terraform plan
 terraform apply
 ```
+
+The bootstrap script also prints these lines for `~/.bashrc`. With them, a
+plain `terraform init` finds `backend.hcl`, and plan and apply wait for locks:
+
+```bash
+terraform() {
+  if [ -f backend.hcl ]; then
+    TF_CLI_ARGS_init="-backend-config=backend.hcl" command terraform "$@"
+  else
+    command terraform "$@"
+  fi
+}
+export TF_CLI_ARGS_plan="-lock-timeout=5m"
+export TF_CLI_ARGS_apply="-lock-timeout=5m"
+```
+
+- **Only where there is a `backend.hcl`.** The function adds
+  `-backend-config=backend.hcl` only when the current directory has a
+  `backend.hcl`, so other Terraform projects are unaffected. This works in
+  Git Bash on Windows.
+- **It checks the current directory,** so it doesn't help with `-chdir`. Run
+  init from `terraform/environments/dev`.
+- **Without the lines,** init the long way:
+  `terraform init -reconfigure -backend-config=backend.hcl`.
 
 ## AWS authentication
 
