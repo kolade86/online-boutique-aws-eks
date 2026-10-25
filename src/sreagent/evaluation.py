@@ -458,16 +458,19 @@ def run_case(case_path: str, config, provider, now=None, script_tools=None,
     else:
         registry = replay.replay_registry(spec, os.path.dirname(os.path.abspath(case_path)),
                                           config.tool_output_max_chars, extra, repo_root)
-    agent = Agent(provider, registry, config.max_tool_calls, config.investigation_timeout_seconds)
+    # The live budget for the kind of run: a question gets the /ask budget
+    from config import tool_budget
+    budget = tool_budget(config, "investigate" if as_alert else "ask")
+    agent = Agent(provider, registry, budget, config.investigation_timeout_seconds)
     assessment.attach_to(agent)
 
     namespace = spec.get("namespace", "online-boutique-dev")
     at = datetime.fromisoformat(spec["now"].replace("Z", "+00:00")) if spec.get("now") else None
     if as_alert:
-        system = prompts.system_prompt("investigate", namespace, config.max_tool_calls)
+        system = prompts.system_prompt("investigate", namespace, budget)
         task = prompts.alert_task(alert) if alert else "Investigate the alert."
     else:
-        system = prompts.system_prompt("ask", namespace, config.max_tool_calls)
+        system = prompts.system_prompt("ask", namespace, budget)
         task = spec.get("question") or case.get("question") or ""
     result = agent.run(system, prompts.with_current_time(task, now=at))
 

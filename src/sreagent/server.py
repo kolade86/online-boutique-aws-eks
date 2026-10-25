@@ -33,7 +33,7 @@ import confidence
 import cost
 import prompts
 from agent import Agent, Investigation
-from config import Config
+from config import Config, tool_budget
 from redact import redact_public
 
 log = logging.getLogger("sreagent.server")
@@ -50,11 +50,12 @@ class AskRequest(BaseModel):
 class Runner:
     """Runs one investigation at a time and keeps the most recent results."""
 
-    def __init__(self, agent_factory: Callable[[list], Agent], config: Config,
+    def __init__(self, agent_factory: Callable[[list, int], Agent], config: Config,
                  spawn: Callable[[Callable[[], None]], None], pr_opener=None,
                  collect_state: Callable[[str], list] = None, metrics=None, prices=None):
-        # agent_factory(extra_tools) builds an Agent; alerts get the PR
-        # proposal tool, /ask never does.
+        # agent_factory(extra_tools, max_tool_calls) builds an Agent; alerts
+        # get the PR proposal tool, /ask never does, and each kind has its
+        # own tool-call budget (config.tool_budget).
         self._agent_factory = agent_factory
         self._config = config
         self.metrics = metrics    # metrics.Metrics, or None
@@ -144,11 +145,11 @@ class Runner:
             import pr_tool  # needs ruamel.yaml
             proposal = pr_tool.ProposalTool(self._pr_opener, str(key), assessment,
                                             self._config.recent_merge_minutes)
+        budget = tool_budget(self._config, "investigate")
         agent = self._agent_factory([assessment.tool()]
-                                    + ([proposal.tool()] if proposal else []))
+                                    + ([proposal.tool()] if proposal else []), budget)
         assessment.attach_to(agent)
-        system = prompts.system_prompt("investigate", self._config.app_namespace,
-                                       self._config.max_tool_calls)
+        system = prompts.system_prompt("investigate", self._config.app_namespace, budget)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
         pr = None
         if proposal is not None:
@@ -156,7 +157,7 @@ class Runner:
                                 self._config.open_prs, assessment)
             if pr is not None and self.metrics is not None:
                 self.metrics.pull_request(pr.get("status", "unknown"))
-        self._record("alert", investigation_id, str(key), result, pull_request=pr,
+        self._record("alert", investigation_id, str(key), result, budget, pull_request=pr,
                      assessment=assessment, note=confidence.note_no_change(
                          assessment, pr is not None and pr.get("status") in ("opened", "dry_run")),
                      started_at=started_at, alert=payload)
@@ -169,12 +170,12 @@ class Runner:
             with self._running():
                 started_at = _utc_now()
                 assessment = self._assessment_tool()   # scored, but /ask never proposes a change
-                agent = self._agent_factory([assessment.tool()])
+                budget = tool_budget(self._config, "ask")
+                agent = self._agent_factory([assessment.tool()], budget)
                 assessment.attach_to(agent)
-                system = prompts.system_prompt("ask", self._config.app_namespace,
-                                               self._config.max_tool_calls)
+                system = prompts.system_prompt("ask", self._config.app_namespace, budget)
                 result = agent.run(system, prompts.with_current_time(question))
-                return self._record("ask", uuid.uuid4().hex[:8], question, result,
+                return self._record("ask", uuid.uuid4().hex[:8], question, result, budget,
                                     assessment=assessment, started_at=started_at)
         finally:
             self._busy.release()
@@ -187,7 +188,8 @@ class Runner:
                                          self._config.min_confidence_for_rollback)
 
     def _record(self, kind: str, investigation_id: str, subject: str,
-                result: Investigation, pull_request=None, assessment=None, note="",
+                result: Investigation, max_tool_calls: int, pull_request=None,
+                assessment=None, note="",
                 started_at: str = None, alert: dict = None) -> dict:
         usage = cost.summarize(result.usage, self.prices)
         entry = {
@@ -199,7 +201,7 @@ class Runner:
             "model": self._config.model,
             "outcome": result.outcome,
             "tool_calls": len(result.evidence),
-            "max_tool_calls": self._config.max_tool_calls,
+            "max_tool_calls": max_tool_calls,
             "elapsed_seconds": round(result.elapsed_seconds, 1),
             # Tokens and the estimated cost (prices: model_prices.json, dated)
             "usage": usage,
@@ -266,7 +268,7 @@ def _start_thread(fn: Callable[[], None]) -> None:
     threading.Thread(target=fn, daemon=True, name="investigation").start()
 
 
-def create_app(config: Config, agent_factory: Callable[[list], Agent],
+def create_app(config: Config, agent_factory: Callable[[list, int], Agent],
                spawn=_start_thread, pr_opener=None, collect_state=None,
                chat_page: str = CHAT_PAGE, tool_names=()) -> FastAPI:
     if not config.api_token:
@@ -391,7 +393,8 @@ def main():
             out.append((f"{name} app={service}", output))
         return out
 
-    app = create_app(config, lambda extra_tools: wiring.build_agent(config, extra_tools),
+    app = create_app(config, lambda extra_tools, max_tool_calls: wiring.build_agent(
+                         config, extra_tools, max_tool_calls),
                      tool_names=[spec.name for spec in registry.specs],
                      pr_opener=wiring.build_pr_opener(config), collect_state=collect_state)
     uvicorn.run(app, host="0.0.0.0", port=config.port, access_log=False)

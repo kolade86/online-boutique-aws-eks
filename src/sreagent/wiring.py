@@ -24,11 +24,12 @@ def build_registry(config: Config, extra_tools=()) -> ToolRegistry:
     return ToolRegistry(tools, config.tool_output_max_chars)
 
 
-def build_agent(config: Config, extra_tools=()) -> Agent:
+def build_agent(config: Config, extra_tools=(), max_tool_calls: int = None) -> Agent:
+    """max_tool_calls: the budget for this run (config.tool_budget); alerts' by default."""
     from anthropic_provider import AnthropicProvider  # only needed when calling the model
     provider = AnthropicProvider(config.model, config.max_tokens, config.model_timeout_seconds)
-    return Agent(provider, build_registry(config, extra_tools), config.max_tool_calls,
-                 config.investigation_timeout_seconds)
+    return Agent(provider, build_registry(config, extra_tools),
+                 max_tool_calls or config.max_tool_calls, config.investigation_timeout_seconds)
 
 
 def build_pr_opener(config: Config):

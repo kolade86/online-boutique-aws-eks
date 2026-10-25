@@ -110,7 +110,7 @@ class MetricsTest(unittest.TestCase):
         def __init__(self, result):
             self.result = result
 
-        def __call__(self, extra_tools):
+        def __call__(self, extra_tools, max_tool_calls):
             self.extra = extra_tools
             return self
 

@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import prompts
-from config import Config, ConfigError
+from config import Config, ConfigError, tool_budget
 
 
 def _parse_kv(pairs: list[str]) -> dict:
@@ -444,9 +444,10 @@ def main(argv=None) -> int:
                                            config.min_confidence_for_rollback)
     if opts.command == "ask":
         # scored, but no proposal tool: /ask never opens a PR
-        agent = wiring.build_agent(config, [assessment.tool()])
+        budget = tool_budget(config, "ask")
+        agent = wiring.build_agent(config, [assessment.tool()], budget)
         assessment.attach_to(agent)
-        system = prompts.system_prompt("ask", config.app_namespace, config.max_tool_calls)
+        system = prompts.system_prompt("ask", config.app_namespace, budget)
         result = agent.run(system, prompts.with_current_time(opts.question))
     else:
         import alerts
@@ -459,15 +460,16 @@ def main(argv=None) -> int:
         key = str(alerts.key_of(firing[0])) if firing else "manual/cli/investigate"
         proposal = pr_tool.ProposalTool(wiring.build_pr_opener(config), key, assessment,
                                         config.recent_merge_minutes)
-        agent = wiring.build_agent(config, [assessment.tool(), proposal.tool()])
+        budget = tool_budget(config, "investigate")
+        agent = wiring.build_agent(config, [assessment.tool(), proposal.tool()], budget)
         assessment.attach_to(agent)
-        system = prompts.system_prompt("investigate", config.app_namespace, config.max_tool_calls)
+        system = prompts.system_prompt("investigate", config.app_namespace, budget)
         result = agent.run(system, prompts.with_current_time(prompts.alert_task(payload)))
         pr = pr_tool.finish(proposal, result, key, uuid.uuid4().hex[:8], opts.open_pr, assessment)
         proposed = pr is not None and pr.get("status") in ("opened", "dry_run")
         note = confidence.note_no_change(assessment, proposed)
 
-    print(format_report(result, config.max_tool_calls, assessment=assessment, note=note), end="")
+    print(format_report(result, budget, assessment=assessment, note=note), end="")
     if pr is not None:
         print(format_pull_request(pr), end="")
     if opts.output:
@@ -475,7 +477,7 @@ def main(argv=None) -> int:
         header = (f"{opts.command}: {subject}\nmodel: {config.model}   "
                   f"run at: {datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}")
         with open(opts.output, "w", encoding="utf-8", newline="\n") as f:
-            f.write(format_report(result, config.max_tool_calls, header, assessment, note))
+            f.write(format_report(result, budget, header, assessment, note))
     return 0 if result.outcome == "answered" else 1
 
 
