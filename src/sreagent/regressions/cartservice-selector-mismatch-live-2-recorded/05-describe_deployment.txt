@@ -1,0 +1,11 @@
+Deployment cartservice: revision 6, generation 7 (observed 7)
+Live spec.replicas: 2; status: replicas 2, ready 2, updated 2, available 2
+spec.replicas in the last applied manifest (kubectl.kubernetes.io/last-applied-configuration): absent (the manifest does not set it)
+Field managers of spec.replicas: kube-controller-manager (Update, subresource scale, ? ago)
+ReplicaSets, newest revision first (a rollout adds a new one; a replica-count change resizes the current one):
+  cartservice-764588df66: revision 6 (current), desired 2, ready 2, image tag v20261025-115433-b738b7f1, created 6m ago
+  cartservice-7b6bf7994c: revision 5, desired 0, ready 0, image tag v20261025-115035-a693f3eb, created 10m ago
+  cartservice-7f66b647d5: revision 4, desired 0, ready 0, image tag v20261025-114312-469dedf8, created 17m ago
+  cartservice-5d5966d47d: revision 3, desired 0, ready 0, image tag v20261025-113439-116d57c3, created 25m ago
+  cartservice-5b6dc8f87: revision 2, desired 0, ready 0, image tag v20261025-112102-3a64cf95, created 38m ago
+  cartservice-5bfd79b8c7: revision 1, desired 0, ready 0, image tag v20261024-132143-64b84b83, created 46m ago

@@ -12,13 +12,14 @@ Written by `python cli.py eval-report`. Do not edit: run it again after `cli.py 
 | Model | Cases | Runs | Right | pass | missed fix | safe failure | critical | Critical rate could be as high as |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | claude-opus-5-5 | 1 | 3 | 3 | 3 | 0 | 0 | 0 | 63% |
-| claude-sonnet-5-5 | 5 | 18 | 17 | 17 | 0 | 1 | 0 | 15% |
+| claude-sonnet-5-5 | 6 | 21 | 20 | 20 | 0 | 1 | 0 | 13% |
 
 The last column is the one-sided 95% upper bound on the critical rate for that many runs. With few runs it is wide: no critical run in 3 still allows 63%, in 30 allows 10%.
 
 | Case | Model | Runs | Right | pass | missed fix | safe failure | critical | Score, right | Score, wrong | Cause labelled | Calls unavailable |
 |---|---|---:|---:|---:|---:|---:|---:|---|---|---|---|
 | argocd-sync-failed | claude-sonnet-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 60 | - | 3 inferred | 0 |
+| cartservice-selector-mismatch-live-2 | claude-sonnet-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 90 | - | 3 observed | 1 to 3 |
 | cartservice-selector-mismatch-live | claude-sonnet-5-5 | 3 | 2 | 2 | 0 | 1 | 0 | 80 | 20 | 2 not assessed, 1 observed | 4 to 5 |
 | cartservice-selector-mismatch | claude-sonnet-5-5 | 6 | 6 | 6 | 0 | 0 | 0 | 60 to 90 | - | 1 inferred, 5 observed | 0 to 2 |
 | emailservice-pod-replaced | claude-opus-5-5 | 3 | 3 | 3 | 0 | 0 | 0 | 60 to 100 | - | 2 inferred, 1 observed | 2 to 3 |
@@ -36,6 +37,7 @@ One row each, so no rates. A live run is the agent's own investigation of the in
 | Case | Run | Source | Right | Score | Cause | Change made | Outcome |
 |---|---|---|---|---:|---|---|---|
 | argocd-sync-failed | expected answer | hand-written | yes | 90 | observed | no | pass |
+| cartservice-selector-mismatch-live-2 | live run 89dd7c2a | live run | yes | 90 | observed | no | pass |
 | cartservice-selector-mismatch-live | live run 6aaeabea | live run | no | None |  | no | safe_failure |
 | cartservice-selector-mismatch | expected answer | hand-written | yes | 90 | observed | no | pass |
 | emailservice-stable-after-fix | emailservice-after-fix.txt | hand-written | no | 60 | inferred | no | safe_failure |

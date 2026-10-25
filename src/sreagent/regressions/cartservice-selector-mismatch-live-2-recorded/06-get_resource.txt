@@ -1,0 +1,12 @@
+11 services in online-boutique-dev:
+adservice: ClusterIP, selector app=adservice, ports grpc 9555->9555/TCP
+cartservice: ClusterIP, selector app=cartservice-canary, ports grpc 7070->7070/TCP
+checkoutservice: ClusterIP, selector app=checkoutservice, ports grpc 5050->5050/TCP
+currencyservice: ClusterIP, selector app=currencyservice, ports grpc 7000->7000/TCP
+emailservice: ClusterIP, selector app=emailservice, ports grpc 8080->8080/TCP
+frontend: ClusterIP, selector app=frontend, ports http 80->8080/TCP
+paymentservice: ClusterIP, selector app=paymentservice, ports grpc 50051->50051/TCP
+productcatalogservice: ClusterIP, selector app=productcatalogservice, ports grpc 3550->3550/TCP
+recommendationservice: ClusterIP, selector app=recommendationservice, ports grpc 8080->8080/TCP
+shippingservice: ClusterIP, selector app=shippingservice, ports grpc 50051->50051/TCP
+sreagent: ClusterIP, selector app=sreagent, ports http 8080->8080/TCP

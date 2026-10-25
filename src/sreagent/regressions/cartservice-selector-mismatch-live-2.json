@@ -1,0 +1,527 @@
+{
+  "id": "cartservice-selector-mismatch-live-2",
+  "format": 2,
+  "mode": "ask",
+  "live_capture": true,
+  "after_follow_ups": [
+    "e7ca4da pod logs as UTF-8",
+    "47c1a82 replay log tails",
+    "a5a85b8 /ask budget 20",
+    "b0a318e capture records Argo CD Applications"
+  ],
+  "scenario": "Second live capture on 2026-10-25, in the new sandbox, made after the four follow-ups were deployed (main at 19bc8f5): pod logs as UTF-8 text, replays serving recorded log tails, a 20-call budget for /ask, and capture recording Argo CD Applications. Same fault as cartservice-selector-mismatch-live: automated sync paused, the cartservice Service's selector patched to app=cartservice-canary, the question asked through /ask (investigation 89dd7c2a), then restored. The load generator was at 0, so the frontend's logs show only health checks.",
+  "live_result": "Live run 89dd7c2a (claude-sonnet-5-5): outcome answered, 17 of 20 tool calls, 35 s in the agent loop (the record spans 12:03:14-12:03:53Z), score 90, cause observed, no pull request (/ask never proposes). Correct diagnosis: the Service selects app=cartservice-canary, which no pod has; its EndpointSlice has 0 endpoints; Argo CD shows Service/cartservice as the only OutOfSync resource, and the chart renders app=cartservice, so the selector was changed outside Git. Fix stated: restore the selector by syncing from Git. The first live run (6aaeabea, before the follow-ups) used 15 of 15 calls and ended tool_limit with no answer.",
+  "expected": {
+    "kind": "not_fixable_by_config",
+    "must_mention_any": [
+      [
+        "selector"
+      ],
+      [
+        "cartservice-canary"
+      ],
+      [
+        "endpoint",
+        "no pods",
+        "matches no",
+        "no matching pod",
+        "selects no"
+      ]
+    ],
+    "must_not_contain": [],
+    "change": null
+  },
+  "replay": {
+    "question": "Customers say the cart is broken: adding items and checking out both fail with an error page. What is wrong?",
+    "now": "2026-10-25T12:05:01Z",
+    "namespace": "online-boutique-dev",
+    "repo_ref": "19bc8f5bba6e",
+    "recorded": [
+      {
+        "tool": "list_pods",
+        "input": {},
+        "file": "cartservice-selector-mismatch-live-2-recorded/01-list_pods.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/02-list_events.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-764588df66-kc8rc",
+          "tail_lines": 60
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/03-get_pod_logs.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-6bfd64d75f-kfvqc",
+          "tail_lines": 60
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/04-get_pod_logs.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/05-describe_deployment.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/06-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/07-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/08-list_pods.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/09-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications",
+          "name": "online-boutique"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/10-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services",
+          "name": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/11-get_resource.txt",
+        "source": "agent call, run again"
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "app": "cartservice"
+        },
+        "file": "cartservice-selector-mismatch-live-2-recorded/12-list_events.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_deployments",
+        "input": {},
+        "file": "cartservice-selector-mismatch-live-2-recorded/13-list_deployments.txt",
+        "source": "standard pack"
+      },
+      {
+        "tool": "list_hpas",
+        "input": {},
+        "file": "cartservice-selector-mismatch-live-2-recorded/14-list_hpas.txt",
+        "source": "standard pack"
+      }
+    ],
+    "note": "Captured with `cli.py capture` on 2026-10-25: 11 call(s) the agent made (run again at capture time), 3 from the standard pack. Redacted. The recorded logs are plain text (after e7ca4da). Hand-redacted on 2026-10-25: the ElastiCache endpoint in the Application's Helm parameters (10-get_resource.txt) as <redis-1>; no pattern covers it."
+  },
+  "live_run": {
+    "id": "89dd7c2a",
+    "kind": "ask",
+    "subject": "Customers say the cart is broken: adding items and checking out both fail with an error page. What is wrong?",
+    "started_at": "2026-10-25T12:03:14Z",
+    "finished_at": "2026-10-25T12:03:53Z",
+    "model": "claude-sonnet-5-5",
+    "outcome": "answered",
+    "answer": "**The cart is failing because the `cartservice` Service points at a label that no pod has, so it has no endpoints.**\n\n- **Selector mismatch:** the live `Service/cartservice` has the selector `app=cartservice-canary` (call 16). The two cartservice pods are Running and ready, but they carry `app=cartservice` (calls 1 and 10).\n- **No endpoints:** the `cartservice` EndpointSlice has 0 endpoints (call 8). Every cart call from the frontend and checkout therefore fails. That matches both symptoms: adding items and checking out.\n- **Drift from Git:** the chart template `services.yaml` renders `selector: app: {{ $name }}`, which is `app=cartservice` (call 14). Nothing in the chart or `values.yaml` mentions \"canary\" (call 12). Argo CD shows `Service/cartservice` as the only OutOfSync resource (call 13). The live selector was changed outside Git.\n- **Other causes I ruled out:**\n  - The cartservice pods have 0 restarts, and their logs show only normal startup and health checks (calls 1, 4 and 10).\n  - The recent chart commits only change image tags and a dashboard description (call 3). The cartservice rollout to the newest image completed cleanly (call 6).\n  - The frontend and checkout pods are ready and have endpoints (calls 1 and 8).\n\n**What I could not establish:**\n- **Who changed the selector:** no tool shows who changed it, or when.\n- **Why Argo CD hasn't reverted it:** I can't tell why self-heal hasn't reverted the drift. The trimmed Application spec showed no `automated` sync policy.\n- **Frontend errors:** the frontend log tail was only health-probe lines, so I didn't see the cart errors themselves.\n- **Redis:** I can't see Redis (ElastiCache) health, because it's in CloudWatch. The selector mismatch alone explains the failure.\n\n**Fix:** restore the selector to `app=cartservice`. Syncing the `cartservice` Service from Git, or re-applying the chart-rendered Service, would do it. Once the EndpointSlice shows 2 ready endpoints, cart operations should work again.\n\nThe assessment scored 90/100.",
+    "note": "",
+    "confidence": {
+      "score": 90,
+      "display": "90/100",
+      "observed": true,
+      "min_for_pr": 70,
+      "min_for_rollback": 85,
+      "reasons": [
+        {
+          "points": 50,
+          "text": "Cause directly observed: get_resource (call 7), get_resource (call 8), read_repo_file (call 14), get_resource (call 16), get_resource (call 13)"
+        },
+        {
+          "points": 10,
+          "text": "Corroborated by 2 different tools"
+        },
+        {
+          "points": 10,
+          "text": "Decisive check: The cartservice EndpointSlice has 0 endpoints, while the 2 cartservice pods are Running and ready and carry label app=cartservice. The live Service selector is app=cartservice-canary, but the chart template renders app: {{ $name }}. Argo CD lists only Service/cartservice as OutOfSync. (get_resource (call 8), list_pods (call 10), read_repo_file (call 14), get_resource (call 16), get_resource (call 13))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: cartservice pods crashing or not ready (list_pods (call 1), list_pods (call 10), get_pod_logs (call 4))"
+        },
+        {
+          "points": 10,
+          "text": "Ruled out: Bad image rollout (new tag) (describe_deployment (call 6), recent_chart_commits (call 3))"
+        },
+        {
+          "points": 0,
+          "text": "Ruled out: Frontend or checkout unhealthy (beyond the 2 that count)"
+        },
+        {
+          "points": 0,
+          "text": "Timing not checked"
+        }
+      ],
+      "open_questions": [
+        "Not ruled out: Redis/ElastiCache failure",
+        "Not verified (detail only): Who or what changed the live Service selector, and when. No tool shows the change.",
+        "Not verified (detail only): Frontend error log lines showing cart call failures. The log tail was only health probes.",
+        "Not verified (detail only): Why Argo CD has not reverted the drift. The trimmed Application spec showed no automated syncPolicy, and the last sync was at 11:58.",
+        "Not verified (detail only): Redis health. It is in CloudWatch, which I cannot query."
+      ],
+      "submissions": [
+        {
+          "after_calls": 16,
+          "score": 90,
+          "observed": true,
+          "reasons": [
+            {
+              "points": 50,
+              "text": "Cause directly observed: get_resource (call 7), get_resource (call 8), read_repo_file (call 14), get_resource (call 16), get_resource (call 13)"
+            },
+            {
+              "points": 10,
+              "text": "Corroborated by 2 different tools"
+            },
+            {
+              "points": 10,
+              "text": "Decisive check: The cartservice EndpointSlice has 0 endpoints, while the 2 cartservice pods are Running and ready and carry label app=cartservice. The live Service selector is app=cartservice-canary, but the chart template renders app: {{ $name }}. Argo CD lists only Service/cartservice as OutOfSync. (get_resource (call 8), list_pods (call 10), read_repo_file (call 14), get_resource (call 16), get_resource (call 13))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: cartservice pods crashing or not ready (list_pods (call 1), list_pods (call 10), get_pod_logs (call 4))"
+            },
+            {
+              "points": 10,
+              "text": "Ruled out: Bad image rollout (new tag) (describe_deployment (call 6), recent_chart_commits (call 3))"
+            },
+            {
+              "points": 0,
+              "text": "Ruled out: Frontend or checkout unhealthy (beyond the 2 that count)"
+            },
+            {
+              "points": 0,
+              "text": "Timing not checked"
+            }
+          ],
+          "open_questions": [
+            "Not ruled out: Redis/ElastiCache failure",
+            "Not verified (detail only): Who or what changed the live Service selector, and when. No tool shows the change.",
+            "Not verified (detail only): Frontend error log lines showing cart call failures. The log tail was only health probes.",
+            "Not verified (detail only): Why Argo CD has not reverted the drift. The trimmed Application spec showed no automated syncPolicy, and the last sync was at 11:58.",
+            "Not verified (detail only): Redis health. It is in CloudWatch, which I cannot query."
+          ],
+          "assessment": {
+            "conclusion": "cause_found",
+            "cause": "The live Service/cartservice has selector app=cartservice-canary, which matches no pods, so it has 0 endpoints and every cart call from the frontend and checkout fails. Git renders app=cartservice, so the live object has drifted from Git.",
+            "cause_support": "observed",
+            "cause_evidence": [
+              7,
+              8,
+              14,
+              16,
+              13
+            ],
+            "decisive_check": {
+              "what": "The cartservice EndpointSlice has 0 endpoints, while the 2 cartservice pods are Running and ready and carry label app=cartservice. The live Service selector is app=cartservice-canary, but the chart template renders app: {{ $name }}. Argo CD lists only Service/cartservice as OutOfSync.",
+              "evidence": [
+                8,
+                10,
+                14,
+                16,
+                13
+              ]
+            },
+            "alternatives": [
+              {
+                "cause": "cartservice pods crashing or not ready",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  10,
+                  4
+                ]
+              },
+              {
+                "cause": "Bad image rollout (new tag)",
+                "result": "ruled_out",
+                "evidence": [
+                  6,
+                  3
+                ]
+              },
+              {
+                "cause": "Redis/ElastiCache failure",
+                "result": "not_ruled_out",
+                "evidence": [
+                  4
+                ]
+              },
+              {
+                "cause": "Frontend or checkout unhealthy",
+                "result": "ruled_out",
+                "evidence": [
+                  1,
+                  8
+                ]
+              }
+            ],
+            "timing": "not_checked",
+            "timing_evidence": [],
+            "unverified": [
+              {
+                "what": "Who or what changed the live Service selector, and when. No tool shows the change.",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "Frontend error log lines showing cart call failures. The log tail was only health probes.",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "Why Argo CD has not reverted the drift. The trimmed Application spec showed no automated syncPolicy, and the last sync was at 11:58.",
+                "could_change_diagnosis": false
+              },
+              {
+                "what": "Redis health. It is in CloudWatch, which I cannot query.",
+                "could_change_diagnosis": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "pull_request": null,
+    "tool_calls": [
+      {
+        "tool": "list_pods",
+        "input": {},
+        "is_error": false
+      },
+      {
+        "tool": "list_events",
+        "input": {
+          "warnings_only": true
+        },
+        "is_error": false
+      },
+      {
+        "tool": "recent_chart_commits",
+        "input": {
+          "limit": 5
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "cartservice-764588df66-kc8rc",
+          "tail_lines": 60
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_pod_logs",
+        "input": {
+          "pod": "frontend-6bfd64d75f-kfvqc",
+          "tail_lines": 60
+        },
+        "is_error": false
+      },
+      {
+        "tool": "describe_deployment",
+        "input": {
+          "name": "cartservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "endpointslices"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique",
+          "search": "canary"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "list_pods",
+        "input": {
+          "app": "cartservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/templates"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/values.yaml",
+          "search": "canary"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "read_repo_file",
+        "input": {
+          "path": "helm/online-boutique/templates/services.yaml"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "applications",
+          "name": "online-boutique"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "get_resource",
+        "input": {
+          "kind": "services",
+          "name": "cartservice"
+        },
+        "is_error": false
+      },
+      {
+        "tool": "submit_assessment",
+        "input": {
+          "conclusion": "cause_found",
+          "cause": "The live Service/cartservice has selector app=cartservice-canary, which matches no pods, so it has 0 endpoints and every cart call from the frontend and checkout fails. Git renders app=cartservice, so the live object has drifted from Git.",
+          "cause_support": "observed",
+          "cause_evidence": [
+            7,
+            8,
+            14,
+            16,
+            13
+          ],
+          "decisive_check": {
+            "what": "The cartservice EndpointSlice has 0 endpoints, while the 2 cartservice pods are Running and ready and carry label app=cartservice. The live Service selector is app=cartservice-canary, but the chart template renders app: {{ $name }}. Argo CD lists only Service/cartservice as OutOfSync.",
+            "evidence": [
+              8,
+              10,
+              14,
+              16,
+              13
+            ]
+          },
+          "alternatives": [
+            {
+              "cause": "cartservice pods crashing or not ready",
+              "result": "ruled_out",
+              "evidence": [
+                1,
+                10,
+                4
+              ]
+            },
+            {
+              "cause": "Bad image rollout (new tag)",
+              "result": "ruled_out",
+              "evidence": [
+                6,
+                3
+              ]
+            },
+            {
+              "cause": "Redis/ElastiCache failure",
+              "result": "not_ruled_out",
+              "evidence": [
+                4
+              ]
+            },
+            {
+              "cause": "Frontend or checkout unhealthy",
+              "result": "ruled_out",
+              "evidence": [
+                1,
+                8
+              ]
+            }
+          ],
+          "timing": "not_checked",
+          "timing_evidence": [],
+          "unverified": [
+            {
+              "what": "Who or what changed the live Service selector, and when. No tool shows the change.",
+              "could_change_diagnosis": false
+            },
+            {
+              "what": "Frontend error log lines showing cart call failures. The log tail was only health probes.",
+              "could_change_diagnosis": false
+            },
+            {
+              "what": "Why Argo CD has not reverted the drift. The trimmed Application spec showed no automated syncPolicy, and the last sync was at 11:58.",
+              "could_change_diagnosis": false
+            },
+            {
+              "what": "Redis health. It is in CloudWatch, which I cannot query.",
+              "could_change_diagnosis": false
+            }
+          ]
+        },
+        "is_error": false
+      }
+    ]
+  }
+}
