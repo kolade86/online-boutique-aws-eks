@@ -184,7 +184,8 @@ def _capture(config, wiring, opts) -> int:
         f"/git/ref/heads/{config.github_branch}")["object"]["sha"][:12]
     spec = replay.capture(wiring.build_registry(config), opts.case, opts.service,
                           config.app_namespace, question, ref,
-                          investigation=investigation, alert=alert)
+                          investigation=investigation, alert=alert,
+                          argocd_app=opts.argocd_app or replay.ARGOCD_APP)
     by_source = {}
     for item in spec["recorded"]:
         by_source[item["source"]] = by_source.get(item["source"], 0) + 1
@@ -393,6 +394,9 @@ def main(argv=None) -> int:
     p_cap.add_argument("--alert-file", metavar="FILE",
                        help="The alert: a webhook payload, or saved output of Alertmanager's "
                             "GET /api/v2/alerts. Not needed with a recording, which has it")
+    p_cap.add_argument("--argocd-app", metavar="NAME",
+                       help="The Argo CD Application that deploys the chart, recorded with "
+                            "the list of Applications (default: online-boutique)")
     p_cap.add_argument("--repo-ref", metavar="SHA",
                        help="Commit the cluster was running (default: the head of "
                             "GITHUB_BRANCH now). Capture before merging the fix, or pass the "

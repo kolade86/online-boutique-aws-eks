@@ -207,11 +207,17 @@ def _head() -> str:
     return r.stdout.strip() or "unknown"
 
 
-def standard_pack(service: str, namespace: str) -> list:
+# The Argo CD Application that deploys the chart (Terraform: modules/argocd, app_name)
+ARGOCD_APP = "online-boutique"
+
+
+def standard_pack(service: str, namespace: str, argocd_app: str = ARGOCD_APP) -> list:
     """The checks a case should record, so replays are not short of the basics.
 
     Both models lost points on the emailservice replay because describe_deployment
-    and list_hpas had no recording; every captured case now has them.
+    and list_hpas had no recording; every captured case now has them. Argo CD's
+    Applications too: whether the cluster runs what Git says is a question every
+    investigation can ask, and the live selector-mismatch capture lacked them.
     """
     pod = f'namespace="{namespace}",pod=~"{service}-.*"'
     return [
@@ -227,6 +233,8 @@ def standard_pack(service: str, namespace: str) -> list:
         ("prometheus_query_range", {"query": f'sum by (pod) (rate(container_cpu_usage_seconds_total{{{pod},container!=""}}[5m]))',
                                     "minutes": 60}),
         ("prometheus_query", {"query": f"sum by (pod) (kube_pod_container_status_restarts_total{{{pod}}})"}),
+        ("get_resource", {"kind": "applications"}),
+        ("get_resource", {"kind": "applications", "name": argocd_app}),
     ]
 
 
@@ -290,7 +298,8 @@ def _redact_tree(value, names: dict):
 
 
 def capture(registry, case_path: str, service: str, namespace: str, question: str,
-            repo_ref: str, now=None, investigation: dict = None, alert: dict = None) -> dict:
+            repo_ref: str, now=None, investigation: dict = None, alert: dict = None,
+            argocd_app: str = ARGOCD_APP) -> dict:
     """Record a case from the live system into files beside the case file.
 
     Recorded, in this order:
@@ -300,7 +309,8 @@ def capture(registry, case_path: str, service: str, namespace: str, question: st
       one the agent saw. Without, the same call is run again now, so capture
       while the cluster still shows the problem. A call that fails is recorded
       as a failure, and fails the same way in a replay.
-    - the standard pack, for the calls a later run may make instead.
+    - the standard pack, for the calls a later run may make instead, with
+      Argo CD's Applications (`argocd_app` is the one that deploys the chart).
     `alert` (a webhook payload) is saved with the case so a replay can run it
     as an alert, with the proposal tool. Everything is redacted with one set
     of placeholders, because it goes into Git: <node-1> is the same node in
@@ -315,9 +325,18 @@ def capture(registry, case_path: str, service: str, namespace: str, question: st
     os.makedirs(out_dir, exist_ok=True)
     names: dict = {}
 
+    def same_call(tool, args):
+        # get_resource with or without its namespace is one call: record it once
+        if tool == "get_resource":
+            try:
+                args = k8s_tools.canonical_resource_args(args or {}, namespace, "argocd")
+            except ToolError:
+                pass
+        return (tool, _normalise(args))
+
     calls, seen = [], set()          # (tool, input, output, is_error, source)
     for e in (investigation or {}).get("evidence", []):
-        key = (e["tool"], _normalise(e.get("input")))
+        key = same_call(e["tool"], e.get("input"))
         if e["tool"] in NOT_RECORDED or key in seen:
             continue
         seen.add(key)
@@ -327,8 +346,8 @@ def capture(registry, case_path: str, service: str, namespace: str, question: st
             output, is_error = registry.run(e["tool"], e.get("input") or {})
             calls.append((e["tool"], e.get("input") or {}, output, is_error, "agent call, run again"))
     agent_calls = len(calls)
-    for tool, args in standard_pack(service, namespace):
-        if (tool, _normalise(args)) in seen:
+    for tool, args in standard_pack(service, namespace, argocd_app):
+        if same_call(tool, args) in seen:
             continue
         output, is_error = registry.run(tool, args)
         if not is_error:   # not recorded: a replay will say it is unavailable, which is true
