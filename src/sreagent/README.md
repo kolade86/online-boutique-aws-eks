@@ -1105,18 +1105,29 @@ python cli.py capture regressions/paymentservice-oomkilled.json --service paymen
 - **For a healthy cluster,** ask the agent a question through `/ask`, then
   capture with `--id` and no alert file.
 
-**Redaction.** Everything people read has node names, IP addresses,
-instance IDs, load balancer hostnames and AWS account IDs (including inside
-ECR image URLs) replaced. That covers reports, PR bodies, `/investigations`
-and saved CLI output. The replacements are placeholders numbered
+**Redaction.** Everything people read has these replaced:
+
+- node names, IP addresses and instance IDs;
+- AWS account IDs, including inside ECR image URLs;
+- AWS hostnames: load balancers, ElastiCache, RDS, EFS, and any other
+  `*.amazonaws.com` host, such as an EKS API server, STS or S3.
+
+That covers reports, PR bodies, `/investigations`, saved CLI output and
+captured recordings. The replacements are placeholders numbered
 consistently within a document: `<node-1>`, `<ip-2>`, `<instance-1>`,
-`<lb-1>`, `<account-id>`.
+`<lb-1>`, `<redis-1>`, `<db-1>`, `<efs-1>`, `<aws-host-1>`, `<account-id>`.
+A port after a hostname is kept (`<redis-1>:6379`). The ECR registry stays
+readable as `<account-id>.dkr.ecr.us-east-1.amazonaws.com`. `cli.py lint`
+fails on any of them left in a recording.
 
 The Kubernetes tools' output is redacted the same way before the model sees
 it. One mapping is kept for the process, so `<node-2>` in `list_pods` is
 `<node-2>` in `get_resource kind=nodes`: the model can still tell which pods
 share a node. `get_resource` takes the placeholder as a node's name and
-reads the real one. Prometheus output is not redacted for the model.
+reads the real one. Prometheus output keeps its node and pod IPs for the
+model, because they tell series apart. Its AWS hostnames are replaced with
+the same mapping, so `<redis-1>` is the same database in both. The
+repository tools are not redacted: the repository is public.
 
 ## Model choice
 

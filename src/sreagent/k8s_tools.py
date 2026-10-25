@@ -8,8 +8,9 @@ nodes. Secrets are never on it. In the cluster, RBAC enforces the same limits
 (templates/rbac.yaml); running locally with your own kubeconfig, this code is
 the only limit.
 
-Every output has node names, IPs, instance IDs and load balancer hostnames
-replaced with placeholders before the model sees it (redact.redact_infra).
+Every output has node names, IPs, instance IDs and AWS hostnames (load
+balancers, ElastiCache, RDS, EFS, any other *.amazonaws.com) replaced with
+placeholders before the model sees it (redact.redact_infra).
 """
 
 import json
