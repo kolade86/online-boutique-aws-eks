@@ -61,6 +61,72 @@ class ReplayRegistryTest(unittest.TestCase):
         self.assertFalse(err, out)
 
 
+class LogTailTest(unittest.TestCase):
+    """A pod log recorded with one tail_lines answers a call with another,
+    unchanged and marked; nothing is ever made up."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        recorded = []
+        for name, args, text, is_error in (
+                ("t40", {"pod": "cart-1", "tail_lines": 40}, "forty lines", False),
+                ("t100", {"pod": "cart-1"}, "a hundred lines", False),          # default: 100
+                ("prev", {"pod": "cart-1", "previous": True}, "crashed instance", False),
+                ("t60", {"pod": "front-1", "tail_lines": 60}, "front sixty", False),
+                ("err", {"pod": "gone-1", "tail_lines": 20}, "Cannot read logs (404)", True)):
+            with open(os.path.join(self.dir, name), "w", encoding="utf-8") as f:
+                f.write(text)
+            recorded.append({"tool": "get_pod_logs", "input": args, "file": name, "is_error": is_error})
+        self.reg = replay.replay_registry({"repo_ref": "HEAD", "recorded": recorded}, self.dir, 6000)
+
+    def logs(self, **args):
+        return self.reg.run("get_pod_logs", args)
+
+    def test_an_exact_recording_is_served_unmarked(self):
+        self.assertEqual(self.logs(pod="cart-1", tail_lines=40), ("forty lines", False))
+        self.assertEqual(self.logs(pod="cart-1", tail_lines=100), ("a hundred lines", False))
+        self.assertEqual(self.reg.served, [])
+
+    def test_another_tail_is_served_as_recorded_and_marked(self):
+        # the smallest recording that covers the request; else the largest there is
+        self.assertEqual(self.logs(pod="cart-1", tail_lines=50), ("a hundred lines", False))
+        self.assertEqual(self.logs(pod="cart-1", tail_lines=20), ("forty lines", False))
+        self.assertEqual(self.logs(pod="cart-1", tail_lines=300), ("a hundred lines", False))
+        self.assertEqual(self.logs(pod="front-1"), ("front sixty", False))
+        self.assertEqual(self.reg.served, [
+            'get_pod_logs {"pod": "cart-1", "tail_lines": 50}: served recorded tail 100 for 50',
+            'get_pod_logs {"pod": "cart-1", "tail_lines": 20}: served recorded tail 40 for 20',
+            'get_pod_logs {"pod": "cart-1", "tail_lines": 300}: served recorded tail 100 for 300',
+            'get_pod_logs {"pod": "front-1"}: served recorded tail 60 for 100'])
+
+    def test_nothing_is_served_for_another_pod_container_or_instance(self):
+        for args in ({"pod": "cart-2", "tail_lines": 40},                   # another pod
+                     {"pod": "cart-1", "container": "sidecar", "tail_lines": 40},
+                     {"pod": "front-1", "previous": True},                 # no crashed instance recorded
+                     {"pod": "gone-1", "tail_lines": 50}):                 # only a failed call recorded
+            with self.subTest(args=args):
+                out, err = self.logs(**args)
+                self.assertTrue(err)
+                self.assertIn("No recorded output", out)
+        self.assertEqual(self.logs(pod="cart-1", previous=True, tail_lines=5), ("crashed instance", False))
+        self.assertEqual(len(self.reg.served), 1)
+
+    def test_the_run_record_lists_what_was_served(self):
+        import evaluation
+        path = os.path.join(HERE, "regressions", "cartservice-selector-mismatch-live.json")
+        with open(path, encoding="utf-8") as f:
+            case = json.load(f)
+        pod = "cartservice-5bd9f4d6cf-p5flb"            # recorded with tail_lines 40
+        run = evaluation.run_script(case, path, {"calls": [
+            {"tool": "get_pod_logs", "input": {"pod": pod, "tail_lines": 50}},
+            {"tool": "get_pod_logs", "input": {"pod": pod, "tail_lines": 40}}], "answer": "x"})
+        self.assertEqual(run["served_instead"], [
+            f'get_pod_logs {{"pod": "{pod}", "tail_lines": 50}}: served recorded tail 40 for 50'])
+        self.assertEqual(run["unavailable"], [])
+        self.assertEqual([c["is_error"] for c in run["tool_calls"]], [False, False])
+
+
 class KeywordCheckTest(unittest.TestCase):
     HINTS = {"must_mention_any": [["HPA", "autoscal"], ["Argo CD", "self-heal"]],
              "must_not_contain": ["root cause is readiness"]}

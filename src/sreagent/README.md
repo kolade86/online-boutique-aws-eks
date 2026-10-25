@@ -1034,6 +1034,13 @@ tools as live, so it tests the real agent.
 
 - **Unavailable calls are counted.** Each run records which calls had no
   recording (`unavailable`), and `replay` prints them.
+- **A pod log with another `tail_lines` is served, and marked.** If the same
+  pod's log (same container, same instance) was recorded with another
+  `tail_lines`, the replay serves that recording unchanged. It picks the
+  smallest recorded tail that covers the request, or else the largest. It
+  never cuts, pads or makes up a log. The run lists each one under
+  `served_instead`, e.g. `served recorded tail 40 for 50`, and `eval`
+  prints them. `tail_lines` 100 is the same as leaving it out.
 - **What that means for scores:** a score lost to a missing recording
   reflects the fixture, not the agent. Compare replay scores only between
   runs with the same unavailable set.
