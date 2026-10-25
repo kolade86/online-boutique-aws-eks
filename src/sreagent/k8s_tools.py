@@ -240,6 +240,15 @@ def describe_deployment(d, replica_sets) -> str:
     return "\n".join(lines)
 
 
+def _log_text(raw) -> str:
+    """Pod log bytes (or a raw response holding them) as text. Bytes that are
+    not UTF-8 become U+FFFD rather than failing the call."""
+    data = getattr(raw, "data", raw)
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data).decode("utf-8", errors="replace")
+    return data if isinstance(data, str) else str(data)
+
+
 def _cap(lines: list[str]) -> str:
     if not lines:
         return "None found."
@@ -575,12 +584,15 @@ def make_tools(kube: KubeReader) -> list[Tool]:
         tail = bounded_int(args, "tail_lines", 100, 1, 500)
         previous = bool(args.get("previous", False))
         try:
-            logs = kube.core.read_namespaced_pod_log(
-                pod, ns, container=container, tail_lines=tail, previous=previous)
+            # The raw response: the client's own decoding turns the body into
+            # str(bytes), one line of b'...\n...' with every newline escaped
+            logs = _log_text(kube.core.read_namespaced_pod_log(
+                pod, ns, container=container, tail_lines=tail, previous=previous,
+                _preload_content=False))
         except Exception as e:
             status = getattr(e, "status", None)
             if status in (400, 404):  # no such pod/container, or no previous instance
-                raise ToolError(f"Cannot read logs ({status}): {getattr(e, 'body', e)}") from None
+                raise ToolError(f"Cannot read logs ({status}): {_log_text(getattr(e, 'body', e))}") from None
             raise
         return logs or "(no log output)"
 

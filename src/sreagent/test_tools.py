@@ -272,6 +272,62 @@ class KubeFormatTest(unittest.TestCase):
                 tools["get_pod_logs"].handler({"pod": bad})
 
 
+class PodLogsTest(unittest.TestCase):
+    """get_pod_logs returns the log as text. The pinned kubernetes client
+    decodes a log body into str(bytes): b'...' on one line, every newline and
+    non-ASCII byte escaped. The tool asks for the raw response instead."""
+
+    BODY = ("starting on 10.0.11.231:7070\nline two ünï\n".encode() + b"\xff end\n")
+
+    def real_client_core(self):
+        """The real CoreV1Api, with only the HTTP call faked."""
+        import urllib3
+        from kubernetes import client
+
+        def request(method, url, **kw):
+            self.query = dict(kw.get("fields") or [])
+            return urllib3.HTTPResponse(body=self.BODY, status=200,
+                                        headers={"Content-Type": "text/plain"},
+                                        preload_content=kw.get("preload_content", True))
+
+        api = client.ApiClient(client.Configuration(host="http://k8s.invalid"))
+        api.rest_client.pool_manager.request = request
+        return client.CoreV1Api(api)
+
+    def test_the_client_decodes_a_log_into_a_bytes_repr(self):
+        # Why the tool does not use the client's default: this is what it returns
+        out = self.real_client_core().read_namespaced_pod_log("p", "ns")
+        self.assertTrue(out.startswith("b'starting on"))
+        self.assertIn("\\n", out)
+
+    def test_logs_are_text_with_real_newlines(self):
+        core = self.real_client_core()
+        kube = k8s_tools.KubeReader("ns", core=core, apps=None, autoscaling=None)
+        registry = ToolRegistry(k8s_tools.make_tools(kube), 6000)
+        out, is_error = registry.run("get_pod_logs", {"pod": "cartservice-abc", "tail_lines": 20})
+        self.assertFalse(is_error, out)
+        self.assertEqual(out.splitlines(), ["starting on <ip-1>:7070", "line two ünï", "� end"])
+        self.assertNotIn("b'", out)
+        self.assertEqual(self.query, {"tailLines": 20, "previous": False})
+
+    def test_redaction_and_the_size_cap_still_apply(self):
+        token = "ghp_" + "a" * 36
+        lines = [f"req {i} from 10.0.1.{i % 250} token={token}" for i in range(2000)] + ["the last line"]
+        core = NS(read_namespaced_pod_log=lambda *a, **kw: NS(data="\n".join(lines).encode()))
+        kube = k8s_tools.KubeReader("ns", core=core, apps=None, autoscaling=None)
+        out, _ = ToolRegistry(k8s_tools.make_tools(kube), 3000).run("get_pod_logs", {"pod": "p"})
+        self.assertNotIn(token, out)
+        self.assertNotIn("10.0.1.", out)
+        self.assertLess(len(out), 3200)
+        self.assertTrue(out.endswith("the last line"))      # logs keep their newest end
+
+    def test_an_empty_log(self):
+        core = NS(read_namespaced_pod_log=lambda *a, **kw: NS(data=b""))
+        kube = k8s_tools.KubeReader("ns", core=core, apps=None, autoscaling=None)
+        tool = {t.name: t for t in k8s_tools.make_tools(kube)}["get_pod_logs"]
+        self.assertEqual(tool.handler({"pod": "p"}), "(no log output)")
+
+
 def _raw(obj):
     """What a typed client returns with _preload_content=False."""
     return NS(data=json.dumps(obj).encode())
