@@ -75,6 +75,70 @@ class RedactTest(unittest.TestCase):
         text = "pod cartservice-7f9c8d-x2kq; i-am-fine; hi-0abc12345678"
         self.assertEqual(redact_infra(text), text)
 
+    # Shapes of real AWS hostnames; the ids are made up
+    REDIS = "online-boutique-dev-redis.abc123.ng.0001.use1.cache.amazonaws.com"
+    DB = "online-boutique-dev-postgres.c9xyz1abcd2e.us-east-1.rds.amazonaws.com"
+    EFS = "fs-0123456789abcdef0.efs.us-east-1.amazonaws.com"
+    EKS = "EF4A454DC45744A5FD2C489FDD29EFCC.gr7.us-east-1.eks.amazonaws.com"
+
+    def test_aws_service_hostnames_keep_their_ports(self):
+        from redact import redact_infra
+        cases = {
+            f"redis.addr: {self.REDIS}:6379": "redis.addr: <redis-1>:6379",
+            f"DATABASE_HOST={self.DB}:5432": "DATABASE_HOST=<db-1>:5432",
+            f"mount {self.EFS}:/ and us-east-1a.{self.EFS}:/": "mount <efs-1>:/ and <efs-2>:/",
+            f'dial tcp: lookup {self.EKS}: no such host': "dial tcp: lookup <aws-host-1>: no such host",
+            "sts.us-east-1.amazonaws.com, my-bucket.s3.us-east-1.amazonaws.com":
+                "<aws-host-1>, <aws-host-2>",
+            "postgres.abc.cn-north-1.rds.amazonaws.com.cn": "<db-1>.cn",
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text[:40]):
+                self.assertEqual(redact_infra(text), want)
+
+    def test_one_mapping_numbers_aws_hosts_across_texts(self):
+        from redact import redact_infra
+        names = {}
+        first = redact_infra(f"{self.REDIS}:6379 then {self.DB}", names)
+        second = redact_infra(f"other.def456.ng.0001.use1.cache.amazonaws.com and {self.REDIS}", names)
+        self.assertEqual((first, second), ("<redis-1>:6379 then <db-1>", "<redis-2> and <redis-1>"))
+
+    def test_the_ecr_registry_stays_readable(self):
+        # Its account ID is replaced; the general rule leaves the rest of the host
+        from redact import redact_infra
+        image = "<account-id>.dkr.ecr.us-east-1.amazonaws.com/online-boutique-dev-frontend:v20261025"
+        self.assertEqual(redact_infra(image), image)
+        self.assertEqual(redact_infra(image.replace("<account-id>", "073759315444")), image)
+
+    def test_lint_finds_each_unredacted_aws_host(self):
+        import evaluation
+        for host, kind in ((self.REDIS, "redis"), (self.DB, "db"), (self.EFS, "efs"),
+                           (self.EKS, "aws-host")):
+            with self.subTest(kind=kind):
+                # each pattern is checked on its own, so the general rule may report it too
+                self.assertIn(f"{kind}: {host[:40]}", evaluation._leaks(f"value: {host}:1234"))
+        self.assertEqual(evaluation._leaks(
+            "Pulling <account-id>.dkr.ecr.us-east-1.amazonaws.com/x:v1, value: <redis-1>:6379"), [])
+
+    def test_prometheus_output_shares_the_mapping_and_keeps_ips(self):
+        # The Prometheus tools redact AWS hostnames only, numbered as the Kubernetes tools number them
+        from redact import redact_infra
+        names = {}
+        k8s = redact_infra(f"redis.addr: {self.REDIS}:6379 on 10.0.1.5", names)
+
+        class Prom:
+            def instant(self, query):
+                return {"resultType": "vector", "result": [
+                    {"metric": {"instance": "10.0.11.7:9121", "addr": f"{TestRedis.REDIS}:6379"},
+                     "value": [0, "1"]}]}
+
+        TestRedis = type(self)
+        tool = {t.name: t for t in prometheus_tools.make_tools(Prom(), names=names)}["prometheus_query"]
+        out = tool.handler({"query": "redis_up"})
+        self.assertEqual(k8s, "redis.addr: <redis-1>:6379 on <ip-1>")
+        self.assertIn('addr="<redis-1>:6379"', out)
+        self.assertIn('instance="10.0.11.7:9121"', out)   # series IPs stay
+
     def test_infra_redaction_leaves_ordinary_numbers(self):
         from redact import redact_infra
         text = ("v1.29.3 4.295e7 1.2.3 999.1.1.1 1.2.3.4.5 count 123456789012 "

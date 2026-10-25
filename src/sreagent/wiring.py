@@ -19,7 +19,8 @@ def build_registry(config: Config, extra_tools=()) -> ToolRegistry:
     prom = prometheus_tools.PrometheusClient(config.prometheus_url)
     kube = k8s_tools.KubeReader(config.app_namespace, context=config.kube_context,
                                 argocd_namespace=config.argocd_namespace)
-    tools = (prometheus_tools.make_tools(prom) + k8s_tools.make_tools(kube)
+    # One placeholder mapping for the Kubernetes and Prometheus tools
+    tools = (prometheus_tools.make_tools(prom, names=kube.names) + k8s_tools.make_tools(kube)
              + github_tools.make_tools(_github(config)) + list(extra_tools))
     return ToolRegistry(tools, config.tool_output_max_chars)
 

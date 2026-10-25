@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from redact import AWS_HOST_KINDS, redact_infra
 from tools import Tool, ToolError, bounded_int, require_str
 
 MAX_SERIES = 25
@@ -92,9 +93,18 @@ def format_result(data: dict) -> str:
     return "\n".join(lines)
 
 
-def make_tools(prom: PrometheusClient, clock=time.time) -> list[Tool]:
+def make_tools(prom: PrometheusClient, clock=time.time, names: dict = None) -> list[Tool]:
+    """names: the placeholder mapping to share with the Kubernetes tools
+    (KubeReader.names), so an AWS hostname gets the same placeholder in both."""
+    names = {} if names is None else names
+
+    def aws_hosts_redacted(text: str) -> str:
+        # Series labels keep their IPs (they tell series apart); AWS hostnames
+        # (ElastiCache, RDS, EFS, load balancers, ...) are replaced
+        return redact_infra(text, names, kinds=AWS_HOST_KINDS)
+
     def query(args: dict) -> str:
-        return format_result(prom.instant(require_str(args, "query")))
+        return aws_hosts_redacted(format_result(prom.instant(require_str(args, "query"))))
 
     def query_range(args: dict) -> str:
         expr = require_str(args, "query")
@@ -103,7 +113,7 @@ def make_tools(prom: PrometheusClient, clock=time.time) -> list[Tool]:
         # Widen the step rather than return thousands of points
         step = max(step, (minutes * 60) // MAX_RANGE_POINTS)
         end = clock()
-        return format_result(prom.range(expr, end - minutes * 60, end, step))
+        return aws_hosts_redacted(format_result(prom.range(expr, end - minutes * 60, end, step)))
 
     return [
         Tool(
