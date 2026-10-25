@@ -11,7 +11,7 @@ it in CI.
 **At a glance**
 
 - 7 real incidents, 6 fixed by the agent's pull requests
-- 0 wrong answers allowed to make a change
+- 0 wrong answers allowed to make a change, across 51 judged runs
 - About 5 cents and 13 seconds per investigation (a small sample; see
   [Monitoring the agent](#monitoring-the-agent))
 
@@ -47,6 +47,7 @@ flowchart LR
     PROM -->|workload alerts, webhook| AGENT
     AGENT -->|read-only| PROM
     AGENT -->|read-only| SHOP
+    AGENT -->|read-only| ARGO
     AGENT -->|opens| PRS -->|I review and merge| MAIN
     SM --> ESO --> AGENT
 ```
@@ -58,8 +59,9 @@ flowchart LR
   `helm/online-boutique/values-dev.yaml`.
 - **Argo CD** deploys the Helm chart from `main`. Nothing else writes to the
   application namespace.
-- **The agent** reads the cluster, Prometheus and the repository. Its only
-  write is a pull request on `values-dev.yaml`.
+- **The agent** reads the cluster (its namespace, nodes and Argo CD's
+  Applications), Prometheus and the repository. Its only write is a pull
+  request on `values-dev.yaml`.
 
 ## How the platform evolved
 
@@ -70,6 +72,7 @@ flowchart LR
 | Cleanup and secure delivery | 23 – 31 Aug 2026 | Grafana Cloud removed, monitoring made private ([#1](https://github.com/kolade86/online-boutique-aws-eks/pull/1)). No hardcoded AWS account in CI. Builds gated on tests. Node 24. Terraform CI/CD: checks with no credentials, plan, manual apply, OIDC ([#11](https://github.com/kolade86/online-boutique-aws-eks/pull/11)) | The repo can point at throwaway sandbox accounts, and nothing is exposed that need not be |
 | GitOps | 30 Aug 2026 | Argo CD with automated sync, self-heal and prune ([#8](https://github.com/kolade86/online-boutique-aws-eks/pull/8), [#9](https://github.com/kolade86/online-boutique-aws-eks/pull/9)). The Helm deploy workflow retired | Every deploy is a commit, and `git revert` is the rollback. One writer to the cluster |
 | SRE agent | 4 – 17 Oct 2026 | The agent, its evidence score and safety rules, incident grouping, evaluation, a chat page, metrics and a dashboard ([#13](https://github.com/kolade86/online-boutique-aws-eks/pull/13) onwards). Seven incidents, six injected | An agent that finds the cause and proposes the fix, with a human in the loop |
+| Wider read access | 24 – 25 Oct 2026 | `get_resource` and read access beyond pods: the `view` role, nodes, Argo CD Applications. A final answer at the tool limit, a 20-call budget for questions, AWS hostname redaction, synthetic and live-captured cases ([#50](https://github.com/kolade86/online-boutique-aws-eks/pull/50) – [#57](https://github.com/kolade86/online-boutique-aws-eks/pull/57)). Terraform state in a per-account bucket with an S3 lock file ([#49](https://github.com/kolade86/online-boutique-aws-eks/pull/49)) | Explain causes outside what the agent may change: a Service selector, an Argo CD sync, node capacity |
 
 Three moves worth knowing:
 
@@ -111,10 +114,35 @@ of them as memory cuts; the first was a real misconfiguration.
 | Agent pull requests merged | 6. I reviewed and merged each one. Another, [#26](https://github.com/kolade86/online-boutique-aws-eks/pull/26), duplicated #25; I closed it, and it led to [#27](https://github.com/kolade86/online-boutique-aws-eks/pull/27) |
 | Wrong answers that opened a pull request | 0 |
 | Fastest fix | 2 min 21 s from the fault merging to the fix PR (#19). The investigation itself took 22 s |
-| Recorded runs re-judged in CI | 28, with no wrong answer allowed a change |
+| Recorded runs re-judged in CI | 51, with no wrong answer allowed a change |
 
 The times include Argo CD's rollout and the wait before the alert fires: up
 to 5 minutes for `HighMemoryUsage`, less for OOMKilled.
+
+### Tools
+
+13 tools: 11 that read, plus `submit_assessment` (its evidence assessment)
+and `propose_values_change` (the pull request; alerts only).
+
+- **Kubernetes:** pods, Deployments (including what is actually deployed),
+  HPAs, events, pod logs, and `get_resource`.
+- **`get_resource`** reads an allow-list of kinds, each from one place:
+  - Services, EndpointSlices, ConfigMaps, Ingresses and Jobs, from the app
+    namespace;
+  - Argo CD Applications;
+  - nodes.
+
+  Anything else, Secrets included, is refused before any API call. A list
+  comes back as one line per object; a single object is trimmed and capped.
+- **Prometheus:** instant and range queries. **Repository:** a file, and
+  recent chart commits.
+- **Redaction before the model sees it:**
+  - Kubernetes output has node names, IPs, instance IDs and AWS hostnames
+    (ElastiCache, RDS, EFS, load balancers, any `*.amazonaws.com`) replaced.
+    The placeholders, such as `<node-1>` and `<redis-1>`, stay the same
+    across calls.
+  - Prometheus output gets the same AWS hostname replacement.
+  - Every output has secrets removed.
 
 ### How it decides
 
@@ -130,16 +158,24 @@ into an evidence score from 0 to 100. The model never states the number.
 
 ### Safety, enforced in code
 
-- **Read-only access.** A namespaced Kubernetes Role with no access to
-  Secrets. The agent never changes the cluster.
-- **Allow-list.** Its only write is a pull request on `values-dev.yaml`: CPU
-  and memory, replica counts, HPA minimum and maximum, or a rollback to a
-  recent image tag. The check runs on the resulting diff, not on what the
-  model says it changed.
+- **Read-only access, no Secrets anywhere.**
+  - The built-in `view` role, bound in the app namespace only. Kubernetes
+    leaves Secrets out of it.
+  - get/list on nodes.
+  - get/list on Argo CD Applications in `argocd`.
+
+  The agent never changes the cluster.
+- **Allow-list.** Its only write is still a pull request on
+  `values-dev.yaml`: CPU and memory, replica counts, HPA minimum and maximum,
+  or a rollback to a recent image tag. The check runs on the resulting diff,
+  not on what the model says it changed. For a cause outside the list, it
+  says what a person should change and opens no pull request.
 - **Never pushes to main.** It writes only to `sre-agent/<id>` branches.
 - **One pull request per incident.** Later alerts for the same service are
   added to the open PR as comments.
-- **Budget.** 15 tool calls and one investigation at a time.
+- **Budget.** 15 tool calls for an alert, 20 for a question, and one
+  investigation at a time. At the limit it gets one last turn, without
+  tools, to answer.
 
 ### One incident, step by step: paymentservice at 24Mi (#36)
 
@@ -171,10 +207,10 @@ rule, with no cluster and no API key.
 | safe failure | Wrong answer, and no change allowed |
 | critical | A change the case does not expect. Must be zero |
 
-Model comparison on the one case models have been run on, the emailservice
-incident. "Right" is a keyword check, not a human review. The counts cover
-both versions of the scoring rule; under the current rule there are 3 runs
-each for Sonnet and Opus, and none for Haiku.
+Model comparison on the emailservice incident, the one case all three
+models have been run on. "Right" is a keyword check, not a human review.
+The counts cover both versions of the scoring rule; under the current rule
+there are 3 runs each for Sonnet and Opus, and none for Haiku.
 
 | Model | Replays | Right | Note |
 |---|---|---|---|
@@ -182,13 +218,35 @@ each for Sonnet and Opus, and none for Haiku.
 | Claude Sonnet 5.5 | 9 | 9 | The agent's default |
 | Claude Opus 5.5 | 6 | 6 | Called the same evidence "observed" once and "inferred" twice |
 
-Full results: [`src/sreagent/regressions/REPORT.md`](src/sreagent/regressions/REPORT.md).
-There are 6 evaluated cases, 28 judged runs and 243 unit tests for the agent.
+Under the current rule, Sonnet has 21 runs across 6 cases: 20 right, and
+1 safe failure. That was a wrong answer on the first live capture, with no
+change allowed. None was critical.
+
+There are 11 evaluated cases:
+
+- **8 recorded from the live cluster.** That includes 2 live captures of a
+  Service selector mismatch.
+- **3 synthetic**, built from hand-made objects through the real tool code:
+  - a selector mismatch;
+  - an Argo CD sync failure;
+  - nodes out of CPU.
+
+They have 51 judged runs (41 pass, 10 safe failure, 0 critical), and the
+agent has 286 unit tests. Full results:
+[`src/sreagent/regressions/REPORT.md`](src/sreagent/regressions/REPORT.md).
 
 ### Asking it questions
 
 Besides alerts, the agent answers questions through `POST /ask`, or a chat
-page at `/chat` that holds the token in memory only.
+page at `/chat` that holds the token in memory only. A question gets 20 tool
+calls; an alert gets 15.
+
+**Live test:** I changed the cartservice Service's selector by hand so it
+matched no pods, a fault no alert caught, and asked why the cart was broken.
+It answered in 35 s using 17 of 20 calls, with a score of 90 and the cause
+observed. It named the `app=cartservice-canary` selector, the 0 endpoints,
+and Argo CD showing the Service OutOfSync. It opened no pull request: the
+fix is outside what it may change.
 
 ### Monitoring the agent
 
@@ -262,13 +320,21 @@ chain is enforced: [`terraform/README.md`](terraform/README.md).
 | A merged image rollback started a build that wrote a new tag straight over it | [#13](https://github.com/kolade86/online-boutique-aws-eks/pull/13): chart-only changes no longer trigger a build |
 | One fault fired three alerts, and two of them opened identical pull requests (#25, #26) | [#27](https://github.com/kolade86/online-boutique-aws-eks/pull/27): alerts are grouped into one incident per service |
 | Three alert rules queried metrics no service exposes, and every alert name sent its own email | [#42](https://github.com/kolade86/online-boutique-aws-eks/pull/42): the dead rules removed; one email thread per service |
+| On the first live selector-mismatch test, the agent used all 15 calls and stopped with no answer, though calls 13 and 14 had found the cause | [#51](https://github.com/kolade86/online-boutique-aws-eks/pull/51): at the limit it gets one last turn without tools to answer |
+| The ElastiCache endpoint reached the model, unredacted, through an Argo CD Application's Helm parameters. No pattern covered it, so lint passed; I caught it reviewing a live capture | [#57](https://github.com/kolade86/online-boutique-aws-eks/pull/57): AWS hostnames (ElastiCache, RDS, EFS, any `*.amazonaws.com`) are redacted, and lint fails on them in recordings |
 | A local plan showed 18 changes that weren't real: local Terraform 1.7.5 against CI's 1.16.0, plus Windows line endings in files checked out before `.gitattributes` existed | Matched the versions, checked the files out again, and pinned `required_version = ">= 1.16.0"` so an older Terraform refuses to run |
 
 ## Limitations and next steps
 
-- **The evaluation is small.** Models have run on one recorded case, 3 runs
-  each under the current rule. That many clean runs cannot rule out a high
-  failure rate; the report states the bound.
+- **The evaluation is small.** Under the current rule, Sonnet has 21 runs
+  on 6 cases and Opus has 3 on one. That many clean runs cannot rule out a
+  high failure rate; the report states the bound.
+- **Three cases are synthetic.** They were built from hand-made Kubernetes
+  objects, not captured. Only the selector mismatch has also been captured
+  live; the Argo CD sync failure and the nodes out of CPU have not.
+- **Diagnosis only, outside the allow-list.** For a Service selector, an
+  Argo CD sync failure or nodes out of capacity, it explains the fix a
+  person should make. It cannot make one.
 - **The fixed incidents are alike.** All six injected faults were memory
   cuts, four of them on one service.
 - **The observed-cause rule checks which tools were cited, not what they
@@ -314,7 +380,8 @@ With an AWS account:
    `online-boutique-dev-<account-id>-terraform-state` and prints the init
    command. In `terraform/environments/dev`, run
    `terraform init -reconfigure -backend-config="bucket=<that name>"`, then
-   `terraform apply`. Allow 20 to 30 minutes.
+   `terraform apply`. Allow 20 to 30 minutes. State is locked with a lock
+   file in the same bucket (`use_lockfile`), so there is no DynamoDB table.
 3. Run `aws eks update-kubeconfig --region us-east-1 --name online-boutique-dev-cluster`.
 4. Run `bash src/sreagent/load-secrets.sh` to load the Anthropic key and the
    GitHub token into Secrets Manager. Do this before the build, so the agent
